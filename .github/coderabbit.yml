@@ -1,0 +1,85 @@
+# CodeRabbit Configuration for WAF Payload Arsenal
+# AI-powered PR reviews with security focus
+
+language: en-US
+early_access: false
+enable_free_tier: true
+
+reviews:
+  profile: security
+  request_changes_workflow: true
+  high_level_summary: true
+  high_level_summary_placeholder: "@coderabbitai summary"
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+      - develop
+  
+  # Path-based review settings
+  path_filters:
+    - "!.github/**"
+    - "!*.md"
+  
+  path_instructions:
+    - path: "payloads/**/*.json"
+      instructions: |
+        Focus on:
+        1. JSON syntax validity
+        2. Required fields present (id, category, payload, description)
+        3. CVE format validation (CVE-YYYY-NNNNN)
+        4. CVSS score accuracy (0.0-10.0)
+        5. Payload safety (no destructive commands)
+        6. Proper categorization
+        7. Source attribution
+    
+    - path: "**/*.py"
+      instructions: |
+        Focus on:
+        1. Security vulnerabilities
+        2. Input validation
+        3. Error handling
+        4. Code injection risks
+        5. Path traversal prevention
+        6. Python best practices
+    
+    - path: "**/*.md"
+      instructions: |
+        Focus on:
+        1. Documentation clarity
+        2. Legal disclaimers present
+        3. Ethical use guidelines
+        4. Accurate technical information
+        5. Proper markdown formatting
+
+chat:
+  auto_reply: true
+
+# Custom rules for security payload validation
+tools:
+  shellcheck:
+    enabled: true
+  yamllint:
+    enabled: true
+  markdownlint:
+    enabled: true
+    config:
+      MD013: false  # Line length
+      MD033: false  # Inline HTML
+      MD041: false  # First line heading
+
+# Security-focused review checklist
+checklist:
+  - "JSON payloads are syntactically valid"
+  - "CVE information is accurate and properly formatted"
+  - "Payloads are safe for testing (no destructive actions)"
+  - "Legal disclaimers are present"
+  - "Ethical use guidelines are followed"
+  - "Documentation is clear and accurate"
+  - "No hardcoded credentials or sensitive data"
+  - "Proper attribution for CVEs and sources"

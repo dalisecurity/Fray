@@ -6,6 +6,8 @@
 [![Python](https://img.shields.io/badge/Python-3.7+-blue.svg)](https://www.python.org/downloads/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Maintenance](https://img.shields.io/badge/Maintained-Yes-green.svg)](https://github.com/dalisecurity/waf-payload-arsenal/graphs/commit-activity)
+[![CodeRabbit](https://img.shields.io/badge/AI%20Review-CodeRabbit-blue.svg)](https://coderabbit.ai)
+[![Snyk](https://img.shields.io/badge/Security-Snyk-purple.svg)](https://snyk.io)
 
 > ⚠️ **FOR EDUCATIONAL AND AUTHORIZED SECURITY RESEARCH ONLY**  
 > This tool is designed for security professionals, researchers, and students to learn about WAF bypass techniques and test systems they own or have explicit permission to test. Unauthorized testing is illegal.
