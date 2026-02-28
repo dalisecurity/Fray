@@ -1,0 +1,55 @@
+{
+  "name": "WAF Payload Database",
+  "description": "Comprehensive WAF testing tool with 1,423+ security payloads for automated vulnerability testing. Interactive CLI for easy use with Claude Code, ChatGPT, and security workflows.",
+  "version": "1.0.0",
+  "author": "Security Research Community",
+  "license": "MIT",
+  "repository": "https://github.com/YOUR_USERNAME/waf-payload-database",
+  "homepage": "https://github.com/YOUR_USERNAME/waf-payload-database",
+  "keywords": [
+    "security",
+    "waf",
+    "penetration-testing",
+    "xss",
+    "sqli",
+    "vulnerability-scanner",
+    "ai-skill",
+    "claude-code",
+    "chatgpt",
+    "cli-tool",
+    "cybersecurity",
+    "bug-bounty",
+    "payload-database",
+    "security-testing",
+    "web-security"
+  ],
+  "categories": [
+    "Security",
+    "Testing",
+    "CLI Tools",
+    "AI Skills"
+  ],
+  "features": [
+    "Interactive mode for guided testing",
+    "1,423+ organized security payloads",
+    "XSS, SQLi, SSRF, XXE, SSTI testing",
+    "No external dependencies",
+    "Docker support",
+    "JSON report generation",
+    "Team collaboration ready"
+  ],
+  "requirements": {
+    "python": ">=3.7"
+  },
+  "usage": {
+    "interactive": "python3 waf_tester.py -i",
+    "cli": "python3 waf_tester.py -t https://example.com -p payloads/xss/basic.json",
+    "docker": "docker run -it --rm waf-tester"
+  },
+  "ai_integration": {
+    "claude_code": true,
+    "chatgpt": true,
+    "codex_cli": true,
+    "description": "Can be invoked by AI assistants for automated security testing workflows"
+  }
+}
