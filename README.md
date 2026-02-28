@@ -28,7 +28,34 @@ This database serves multiple purposes:
 4. **Penetration Testing**: Reference for security assessments
 5. **Defense Development**: Help security teams understand attack patterns
 
-## 📁 Repository Structure
+## � Why WAF Payload Arsenal?
+
+### The First Purpose-Built WAF Testing Tool
+
+Unlike general payload collections (SecLists, PayloadsAllTheThings) or complex security frameworks (OWASP ZAP, Metasploit), WAF Payload Arsenal is **100% focused on WAF bypass testing**.
+
+| Feature | WAF Arsenal | SecLists | PayloadsAll | OWASP ZAP | Metasploit |
+|---------|-------------|----------|-------------|-----------|------------|
+| **WAF-Specific** | ✅ 100% | ⚠️ ~10% | ⚠️ ~15% | ⚠️ Partial | ❌ No |
+| **Interactive CLI** | ✅ Yes | ❌ Files only | ❌ Wiki | ⚠️ GUI | ⚠️ Complex |
+| **Setup Time** | ✅ 30 sec | ⚠️ 5 min | ⚠️ Manual | ❌ 10+ min | ❌ 15+ min |
+| **AI Compatible** | ✅ Yes | ❌ No | ❌ No | ❌ No | ❌ No |
+| **Team Ready** | ✅ Docker | ⚠️ Manual | ⚠️ Manual | ❌ Complex | ❌ Complex |
+
+### 🚀 Key Advantages
+
+1. **⚡ Fast**: Start testing in 30 seconds with interactive mode
+2. **🎯 Focused**: 2,155 payloads specifically for WAF testing (not buried in 10,000+ files)
+3. **🤖 AI-Native**: First tool built for Claude Code, ChatGPT, and AI-augmented workflows
+4. **📦 Team-Ready**: Docker support + documentation = easy sharing
+5. **📊 Organized**: 12 clear categories vs scattered files or wiki pages
+6. **🎓 Educational**: Built for learning, not exploitation
+
+**Perfect for:** Bug bounty hunters, penetration testers, security researchers, and teams who need **focused WAF testing** without the complexity of enterprise tools.
+
+See [VALUE_PROPOSITION.md](VALUE_PROPOSITION.md) for detailed comparison.
+
+## �📁 Repository Structure
 
 ```
 waf-payload-database/
