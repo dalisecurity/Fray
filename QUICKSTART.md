@@ -7,7 +7,7 @@ Get started with WAF Tester in 5 minutes!
 ### Option 1: Clone from GitHub (Recommended)
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/waf-payload-arsenal.git
+git clone https://github.com/dalisecurity/waf-payload-arsenal.git
 cd waf-payload-arsenal
 chmod +x waf_tester.py
 ```
@@ -203,8 +203,8 @@ Coming soon! Check the repository for updates.
 
 ## 💬 Getting Help
 
-- **Issues**: [GitHub Issues](https://github.com/YOUR_USERNAME/waf-payload-database/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/YOUR_USERNAME/waf-payload-database/discussions)
+- **Issues**: [GitHub Issues](https://github.com/dalisecurity/waf-payload-database/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/dalisecurity/waf-payload-database/discussions)
 - **Documentation**: See `/docs` folder
 
 ## 🚀 Next Steps

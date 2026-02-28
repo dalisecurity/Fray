@@ -20,7 +20,7 @@ Perfect for use with **Claude Code**, **ChatGPT**, **Codex CLI**, and security a
 
 ```bash
 # Clone and run
-git clone https://github.com/YOUR_USERNAME/waf-payload-arsenal.git
+git clone https://github.com/dalisecurity/waf-payload-arsenal.git
 cd waf-payload-arsenal
 python3 waf_tester.py -i
 ```

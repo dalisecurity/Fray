@@ -209,7 +209,7 @@ WAF Payload Arsenal is designed to be:
 
 **Ready to test your WAF? Get started in 30 seconds:**
 ```bash
-git clone https://github.com/YOUR_USERNAME/waf-payload-arsenal.git
+git clone https://github.com/dalisecurity/waf-payload-arsenal.git
 cd waf-payload-arsenal
 python3 waf_tester.py -i
 ```

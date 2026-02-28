@@ -104,7 +104,7 @@ waf-payload-database/
 ### Installation
 
 ```bash
-git clone https://github.com/yourusername/waf-payload-arsenal.git
+git clone https://github.com/dalisecurity/waf-payload-arsenal.git
 cd waf-payload-arsenal
 pip install -r requirements.txt
 ```
@@ -322,8 +322,8 @@ MIT License - See [LICENSE](LICENSE) file for details.
 
 ## 📞 Contact
 
-- Issues: [GitHub Issues](https://github.com/yourusername/waf-payload-database/issues)
-- Discussions: [GitHub Discussions](https://github.com/yourusername/waf-payload-database/discussions)
+- Issues: [GitHub Issues](https://github.com/dalisecurity/waf-payload-database/issues)
+- Discussions: [GitHub Discussions](https://github.com/dalisecurity/waf-payload-database/discussions)
 
 ## 🔗 Related Projects
 

@@ -32,8 +32,8 @@ Your repository is **100% ready** for GitHub! Here's what's complete:
 ```bash
 cd /Users/mnishihara/CascadeProjects/waf-payload-database
 
-# Add GitHub remote (replace YOUR_USERNAME with your GitHub username)
-git remote add origin https://github.com/YOUR_USERNAME/waf-payload-arsenal.git
+# Add GitHub remote (replace dalisecurity with your GitHub username)
+git remote add origin https://github.com/dalisecurity/waf-payload-arsenal.git
 
 # Rename branch to main (if needed)
 git branch -M main
@@ -103,7 +103,7 @@ Your comprehensive security testing arsenal with **2,155 payloads** across 12 at
 
 ### 🚀 Quick Start
 ```bash
-git clone https://github.com/YOUR_USERNAME/waf-payload-arsenal.git
+git clone https://github.com/dalisecurity/waf-payload-arsenal.git
 cd waf-payload-arsenal
 python3 waf_tester.py -i
 ```
@@ -152,13 +152,13 @@ jobs:
 
 Then add badge to README:
 ```markdown
-[![Validate](https://github.com/YOUR_USERNAME/waf-payload-arsenal/actions/workflows/validate.yml/badge.svg)](https://github.com/YOUR_USERNAME/waf-payload-arsenal/actions)
+[![Validate](https://github.com/dalisecurity/waf-payload-arsenal/actions/workflows/validate.yml/badge.svg)](https://github.com/dalisecurity/waf-payload-arsenal/actions)
 ```
 
 ### Add Star Badge
 
 ```markdown
-[![GitHub stars](https://img.shields.io/github/stars/YOUR_USERNAME/waf-payload-arsenal?style=social)](https://github.com/YOUR_USERNAME/waf-payload-arsenal)
+[![GitHub stars](https://img.shields.io/github/stars/dalisecurity/waf-payload-arsenal?style=social)](https://github.com/dalisecurity/waf-payload-arsenal)
 ```
 
 ### Enable GitHub Discussions
@@ -202,7 +202,7 @@ This repository contains security testing payloads for educational purposes only
 
 Perfect for bug bounty hunters & security researchers!
 
-https://github.com/YOUR_USERNAME/waf-payload-arsenal
+https://github.com/dalisecurity/waf-payload-arsenal
 
 #infosec #bugbounty #cybersecurity
 ```
@@ -223,7 +223,7 @@ Key features:
 
 Perfect for penetration testers, bug bounty hunters, and security researchers.
 
-Check it out: https://github.com/YOUR_USERNAME/waf-payload-arsenal
+Check it out: https://github.com/dalisecurity/waf-payload-arsenal
 
 #CyberSecurity #InfoSec #BugBounty #OpenSource
 ```
@@ -277,10 +277,10 @@ Track your repository's impact:
 # Make sure you're authenticated with GitHub
 
 # Option 1: Use Personal Access Token
-git remote set-url origin https://YOUR_TOKEN@github.com/YOUR_USERNAME/waf-payload-arsenal.git
+git remote set-url origin https://YOUR_TOKEN@github.com/dalisecurity/waf-payload-arsenal.git
 
 # Option 2: Use SSH
-git remote set-url origin git@github.com:YOUR_USERNAME/waf-payload-arsenal.git
+git remote set-url origin git@github.com:dalisecurity/waf-payload-arsenal.git
 ```
 
 ### Large File Warning?
@@ -308,7 +308,7 @@ Your **WAF Payload Arsenal** is production-ready and waiting to help the securit
 **Command to push:**
 ```bash
 cd /Users/mnishihara/CascadeProjects/waf-payload-database
-git remote add origin https://github.com/YOUR_USERNAME/waf-payload-arsenal.git
+git remote add origin https://github.com/dalisecurity/waf-payload-arsenal.git
 git branch -M main
 git push -u origin main
 ```

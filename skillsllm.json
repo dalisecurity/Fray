@@ -4,8 +4,8 @@
   "version": "1.0.0",
   "author": "Security Research Community",
   "license": "MIT",
-  "repository": "https://github.com/YOUR_USERNAME/waf-payload-arsenal",
-  "homepage": "https://github.com/YOUR_USERNAME/waf-payload-arsenal",
+  "repository": "https://github.com/dalisecurity/waf-payload-arsenal",
+  "homepage": "https://github.com/dalisecurity/waf-payload-arsenal",
   "keywords": [
     "security",
     "waf",

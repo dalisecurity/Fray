@@ -113,7 +113,7 @@ First public release of the **WAF Payload Arsenal** - your comprehensive securit
 #### Quick Start
 ```bash
 # Clone repository
-git clone https://github.com/YOUR_USERNAME/waf-payload-arsenal.git
+git clone https://github.com/dalisecurity/waf-payload-arsenal.git
 cd waf-payload-arsenal
 
 # Interactive mode

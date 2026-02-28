@@ -64,7 +64,7 @@ payloads/
 1. **Fork the repository**
 2. **Clone your fork**:
    ```bash
-   git clone https://github.com/yourusername/waf-payload-database.git
+   git clone https://github.com/dalisecurity/waf-payload-database.git
    cd waf-payload-database
    ```
 3. **Create a branch**:

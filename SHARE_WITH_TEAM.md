@@ -21,10 +21,10 @@ Easy ways to share this tool with colleagues for collaborative security testing.
 
 ```bash
 # Share the GitHub URL
-https://github.com/YOUR_USERNAME/waf-payload-database
+https://github.com/dalisecurity/waf-payload-database
 
 # Colleagues clone and use
-git clone https://github.com/YOUR_USERNAME/waf-payload-database.git
+git clone https://github.com/dalisecurity/waf-payload-database.git
 cd waf-payload-database
 python3 waf_tester.py -i
 ```

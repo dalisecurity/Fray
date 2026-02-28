@@ -63,8 +63,8 @@ docker-compose up
 Pull from Docker Hub:
 
 ```bash
-docker pull YOUR_USERNAME/waf-tester:latest
-docker run -it --rm YOUR_USERNAME/waf-tester
+docker pull dalisecurity/waf-tester:latest
+docker run -it --rm dalisecurity/waf-tester
 ```
 
 ## 🔧 Advanced Usage
