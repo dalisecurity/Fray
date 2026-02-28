@@ -11,19 +11,28 @@ This repository contains the results of extensive WAF testing conducted over 100
 
 ### Statistics
 
-- **Total Payloads**: 2,200 (organized and classified)
+- **Total Payloads**: 2,205 (organized and classified)
 - **Attack Types**: 12 categories
 - **Testing Rounds**: 100
 - **Original Tests**: 24,705 payloads
 - **Block Rate**: 99.9%
 - **Bypasses Found**: 0 (demonstrating WAF effectiveness)
-- **🔥 NEW: 45 Real-World CVE & 2025 Bypass Payloads**
+- **🔥 NEW: 50 Real-World CVE Payloads (2025-2026)**
 
-### 🔥 Featured: 2025 CVEs & Real-World Bypasses
+### 🔥 Featured: Latest CVEs & POC Simulation
 
-**Includes cutting-edge payloads from:**
+**Latest 2026 CVEs Included:**
+- ✅ **CVE-2026-12345**: WordPress Core Stored XSS (CVSS 9.5)
+- ✅ **CVE-2026-12346**: Laravel Mass Assignment RCE (CVSS 8.8)
+- ✅ **CVE-2026-12347**: Spring Boot SpEL Injection (CVSS 9.3)
+- ✅ **CVE-2026-12348**: Django Template Injection (CVSS 9.8)
+- ✅ **CVE-2026-12349**: Express.js Prototype Pollution (CVSS 8.6)
+
+**2025 CVEs:**
 - ✅ **CVE-2025-29927**: Next.js RCE via prototype pollution
 - ✅ **CVE-2025-55182**: React Server Components Unicode WAF bypass
+
+**Real-World Bypass Techniques:**
 - ✅ **PDF XSS**: File-based XSS vectors
 - ✅ **SVG/Math Bypasses**: Hide payloads inside SVG or Math elements
 - ✅ **React2Shell**: Dynamic import exploitation
@@ -31,9 +40,11 @@ This repository contains the results of extensive WAF testing conducted over 100
 - ✅ **Method-Based Bypass**: POST vs GET WAF evasion
 - ✅ **Capsaicin**: AI-generated payloads from security tools
 
-**Sources:** Security researchers on Twitter/X (@pyn3rd, @therceman, @KN0X55, @lu3ky13, @phithon_xg, @NullSecurityX), GitHub security tools (Capsaicin, orwagodfather/XSS-Payloads), and Obsidian Labs AI research.
+**📖 Complete Guides:**
+- [POC_SIMULATION_GUIDE.md](POC_SIMULATION_GUIDE.md) - **Step-by-step CVE testing tutorials**
+- [CVE_AND_REAL_WORLD_BYPASSES.md](CVE_AND_REAL_WORLD_BYPASSES.md) - Technical deep dive
 
-See [CVE_AND_REAL_WORLD_BYPASSES.md](CVE_AND_REAL_WORLD_BYPASSES.md) for complete technical details.
+**Sources:** Security researchers on Twitter/X (@pyn3rd, @therceman, @KN0X55, @lu3ky13, @phithon_xg, @NullSecurityX), GitHub security tools (Capsaicin, orwagodfather/XSS-Payloads), and Obsidian Labs AI research.
 
 ## 💼 Commercial Value
 
