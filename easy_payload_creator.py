@@ -201,14 +201,114 @@ def interactive_mode():
         print("\n🔧 Want to encode these? (url/base64/hex/none)")
         encoding = input("Encoding: ").strip().lower()
         
+        encoded_payloads = []
         if encoding in ['url', 'base64', 'hex']:
             print(f"\n🔐 Encoded payloads ({encoding}):\n")
             for i, payload in enumerate(result['payloads'], 1):
                 encoded = creator.encode_payload(payload, encoding)
+                encoded_payloads.append(encoded)
                 print(f"{i}. {encoded}")
         
+        # Show step-by-step testing instructions
         print("\n" + "=" * 70)
-        print("✨ Copy any payload above and use it in your authorized testing!")
+        print("📋 STEP-BY-STEP: How to Test These Payloads")
+        print("=" * 70)
+        
+        # Select first payload for examples
+        test_payload = encoded_payloads[0] if encoded_payloads else result['payloads'][0]
+        
+        # Show different testing methods based on attack type
+        if result['type'] == 'xss':
+            print("\n🌐 Method 1: Test in Browser")
+            print("   1. Open your test website")
+            print("   2. Find a search box or input field")
+            print(f"   3. Paste this payload: {test_payload}")
+            print("   4. Submit the form")
+            print("   5. If XSS works, you'll see an alert popup!\n")
+            
+            print("💻 Method 2: Test with cURL")
+            print(f"   curl 'https://your-test-site.com/search?q={test_payload}'")
+            print("   (Replace 'your-test-site.com' with your actual test site)\n")
+            
+            print("🔧 Method 3: Test with Burp Suite")
+            print("   1. Intercept a request in Burp")
+            print("   2. Find the parameter you want to test")
+            print(f"   3. Replace value with: {test_payload}")
+            print("   4. Forward the request")
+            print("   5. Check the response for alert execution\n")
+        
+        elif result['type'] == 'sqli':
+            print("\n🔐 Method 1: Test Login Form in Browser")
+            print("   1. Go to login page")
+            print(f"   2. Username: {test_payload}")
+            print("   3. Password: anything")
+            print("   4. Click Login")
+            print("   5. If SQLi works, you'll bypass authentication!\n")
+            
+            print("💻 Method 2: Test with cURL")
+            print(f"   curl -X POST https://your-test-site.com/login \\")
+            print(f"        -d 'username={test_payload}&password=test'")
+            print("   (Check response for successful login)\n")
+            
+            print("🔧 Method 3: Test URL Parameter")
+            print(f"   curl 'https://your-test-site.com/user?id={test_payload}'")
+            print("   (Look for SQL errors or unexpected data)\n")
+        
+        elif result['type'] == 'command':
+            print("\n💻 Method 1: Test with cURL")
+            print(f"   curl 'https://your-test-site.com/ping?host=127.0.0.1{test_payload}'")
+            print("   (Check response for command output)\n")
+            
+            print("🌐 Method 2: Test in Browser")
+            print("   1. Find a feature that executes commands (ping, traceroute, etc.)")
+            print(f"   2. Input: 127.0.0.1{test_payload}")
+            print("   3. Submit")
+            print("   4. Check output for command execution\n")
+            
+            print("📝 Method 3: Test with Postman")
+            print("   1. Create POST request to your test endpoint")
+            print(f"   2. Body: {{\"command\": \"ping 127.0.0.1{test_payload}\"}}")
+            print("   3. Send request")
+            print("   4. Check response\n")
+        
+        elif result['type'] == 'path':
+            print("\n💻 Method 1: Test with cURL")
+            print(f"   curl 'https://your-test-site.com/download?file={test_payload}'")
+            print("   (Check if you can read the file)\n")
+            
+            print("🌐 Method 2: Test in Browser")
+            print(f"   1. Go to: https://your-test-site.com/download?file={test_payload}")
+            print("   2. Check if file contents are displayed")
+            print("   3. Look for /etc/passwd content or error messages\n")
+            
+            print("🔧 Method 3: Test File Upload")
+            print("   1. Find file upload feature")
+            print(f"   2. Upload file with name: {test_payload}")
+            print("   3. Try to access the uploaded file\n")
+        
+        elif result['type'] == 'ssrf':
+            print("\n💻 Method 1: Test with cURL")
+            print(f"   curl -X POST https://your-test-site.com/fetch \\")
+            print(f"        -d '{{\"url\": \"{test_payload}\"}}'")
+            print("   (Check if internal resource is accessed)\n")
+            
+            print("🌐 Method 2: Test in Browser")
+            print("   1. Find URL input field (image URL, webhook, etc.)")
+            print(f"   2. Enter: {test_payload}")
+            print("   3. Submit")
+            print("   4. Check if internal resource is fetched\n")
+        
+        # General tips
+        print("=" * 70)
+        print("💡 IMPORTANT TIPS:")
+        print("=" * 70)
+        print("✅ ONLY test on websites you own or have permission to test")
+        print("✅ Start with the first payload, try others if it doesn't work")
+        print("✅ Check browser console (F12) for errors or responses")
+        print("✅ Look for error messages - they give clues!")
+        print("✅ Try different payloads if one doesn't work")
+        print("✅ Use encoding if payloads are being blocked")
+        print("\n⚠️  NEVER test on websites you don't own - it's ILLEGAL!")
         print("=" * 70 + "\n")
 
 def quick_mode():

