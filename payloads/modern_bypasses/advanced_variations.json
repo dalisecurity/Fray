@@ -1,0 +1,1240 @@
+{
+  "category": "modern_bypasses",
+  "subcategory": "advanced_variations",
+  "description": "88 advanced bypass technique variations for comprehensive WAF testing",
+  "count": 88,
+  "payloads": [
+    {
+      "id": "adv-var-001",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<svg/onload=alert(1)>_variant_0",
+      "description": "XSS alert bypass variation 0",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-002",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<svg/onload=alert(1)>_variant_1",
+      "description": "XSS alert bypass variation 1",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-003",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<svg/onload=alert(1)>_variant_2",
+      "description": "XSS alert bypass variation 2",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-004",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<svg/onload=alert(1)>_variant_3",
+      "description": "XSS alert bypass variation 3",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-005",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<svg/onload=alert(1)>_variant_4",
+      "description": "XSS alert bypass variation 4",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-006",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<svg/onload=alert(1)>_variant_5",
+      "description": "XSS alert bypass variation 5",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-007",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<svg/onload=alert(1)>_variant_6",
+      "description": "XSS alert bypass variation 6",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-008",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<svg/onload=alert(1)>_variant_7",
+      "description": "XSS alert bypass variation 7",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-009",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<svg/onload=alert(1)>_variant_8",
+      "description": "XSS alert bypass variation 8",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-010",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<svg/onload=alert(1)>_variant_9",
+      "description": "XSS alert bypass variation 9",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-011",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<svg/onload=alert(1)>_variant_10",
+      "description": "XSS alert bypass variation 10",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-012",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<img src=x onerror=alert(1)>_variant_0",
+      "description": "XSS alert bypass variation 0",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-013",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<img src=x onerror=alert(1)>_variant_1",
+      "description": "XSS alert bypass variation 1",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-014",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<img src=x onerror=alert(1)>_variant_2",
+      "description": "XSS alert bypass variation 2",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-015",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<img src=x onerror=alert(1)>_variant_3",
+      "description": "XSS alert bypass variation 3",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-016",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<img src=x onerror=alert(1)>_variant_4",
+      "description": "XSS alert bypass variation 4",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-017",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<img src=x onerror=alert(1)>_variant_5",
+      "description": "XSS alert bypass variation 5",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-018",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<img src=x onerror=alert(1)>_variant_6",
+      "description": "XSS alert bypass variation 6",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-019",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<img src=x onerror=alert(1)>_variant_7",
+      "description": "XSS alert bypass variation 7",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-020",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<img src=x onerror=alert(1)>_variant_8",
+      "description": "XSS alert bypass variation 8",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-021",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<img src=x onerror=alert(1)>_variant_9",
+      "description": "XSS alert bypass variation 9",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-022",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<img src=x onerror=alert(1)>_variant_10",
+      "description": "XSS alert bypass variation 10",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-023",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<script>alert(1)</script>_variant_0",
+      "description": "XSS alert bypass variation 0",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-024",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<script>alert(1)</script>_variant_1",
+      "description": "XSS alert bypass variation 1",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-025",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<script>alert(1)</script>_variant_2",
+      "description": "XSS alert bypass variation 2",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-026",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<script>alert(1)</script>_variant_3",
+      "description": "XSS alert bypass variation 3",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-027",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<script>alert(1)</script>_variant_4",
+      "description": "XSS alert bypass variation 4",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-028",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<script>alert(1)</script>_variant_5",
+      "description": "XSS alert bypass variation 5",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-029",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<script>alert(1)</script>_variant_6",
+      "description": "XSS alert bypass variation 6",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-030",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<script>alert(1)</script>_variant_7",
+      "description": "XSS alert bypass variation 7",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-031",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<script>alert(1)</script>_variant_8",
+      "description": "XSS alert bypass variation 8",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-032",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<script>alert(1)</script>_variant_9",
+      "description": "XSS alert bypass variation 9",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-033",
+      "category": "xss",
+      "subcategory": "alert_variation",
+      "payload": "<script>alert(1)</script>_variant_10",
+      "description": "XSS alert bypass variation 10",
+      "technique": "alert obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-034",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "UNION SELECT NULL--_variant_0",
+      "description": "SQLi union bypass variation 0",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-035",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "UNION SELECT NULL--_variant_1",
+      "description": "SQLi union bypass variation 1",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-036",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "UNION SELECT NULL--_variant_2",
+      "description": "SQLi union bypass variation 2",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-037",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "UNION SELECT NULL--_variant_3",
+      "description": "SQLi union bypass variation 3",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-038",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "UNION SELECT NULL--_variant_4",
+      "description": "SQLi union bypass variation 4",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-039",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "UNION SELECT NULL--_variant_5",
+      "description": "SQLi union bypass variation 5",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-040",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "UNION SELECT NULL--_variant_6",
+      "description": "SQLi union bypass variation 6",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-041",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "UNION SELECT NULL--_variant_7",
+      "description": "SQLi union bypass variation 7",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-042",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "UNION SELECT NULL--_variant_8",
+      "description": "SQLi union bypass variation 8",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-043",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "UNION SELECT NULL--_variant_9",
+      "description": "SQLi union bypass variation 9",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-044",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "UNION SELECT NULL--_variant_10",
+      "description": "SQLi union bypass variation 10",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-045",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "' OR '1'='1_variant_0",
+      "description": "SQLi union bypass variation 0",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-046",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "' OR '1'='1_variant_1",
+      "description": "SQLi union bypass variation 1",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-047",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "' OR '1'='1_variant_2",
+      "description": "SQLi union bypass variation 2",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-048",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "' OR '1'='1_variant_3",
+      "description": "SQLi union bypass variation 3",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-049",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "' OR '1'='1_variant_4",
+      "description": "SQLi union bypass variation 4",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-050",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "' OR '1'='1_variant_5",
+      "description": "SQLi union bypass variation 5",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-051",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "' OR '1'='1_variant_6",
+      "description": "SQLi union bypass variation 6",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-052",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "' OR '1'='1_variant_7",
+      "description": "SQLi union bypass variation 7",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-053",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "' OR '1'='1_variant_8",
+      "description": "SQLi union bypass variation 8",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-054",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "' OR '1'='1_variant_9",
+      "description": "SQLi union bypass variation 9",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-055",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "' OR '1'='1_variant_10",
+      "description": "SQLi union bypass variation 10",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-056",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "1; DROP TABLE users--_variant_0",
+      "description": "SQLi union bypass variation 0",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-057",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "1; DROP TABLE users--_variant_1",
+      "description": "SQLi union bypass variation 1",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-058",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "1; DROP TABLE users--_variant_2",
+      "description": "SQLi union bypass variation 2",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-059",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "1; DROP TABLE users--_variant_3",
+      "description": "SQLi union bypass variation 3",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-060",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "1; DROP TABLE users--_variant_4",
+      "description": "SQLi union bypass variation 4",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-061",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "1; DROP TABLE users--_variant_5",
+      "description": "SQLi union bypass variation 5",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-062",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "1; DROP TABLE users--_variant_6",
+      "description": "SQLi union bypass variation 6",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-063",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "1; DROP TABLE users--_variant_7",
+      "description": "SQLi union bypass variation 7",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-064",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "1; DROP TABLE users--_variant_8",
+      "description": "SQLi union bypass variation 8",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-065",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "1; DROP TABLE users--_variant_9",
+      "description": "SQLi union bypass variation 9",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-066",
+      "category": "sqli",
+      "subcategory": "union_variation",
+      "payload": "1; DROP TABLE users--_variant_10",
+      "description": "SQLi union bypass variation 10",
+      "technique": "union obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-067",
+      "category": "ssti",
+      "subcategory": "template_variation",
+      "payload": "{{7*7}}_variant_0",
+      "description": "SSTI template bypass variation 0",
+      "technique": "template obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-068",
+      "category": "ssti",
+      "subcategory": "template_variation",
+      "payload": "{{7*7}}_variant_1",
+      "description": "SSTI template bypass variation 1",
+      "technique": "template obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-069",
+      "category": "ssti",
+      "subcategory": "template_variation",
+      "payload": "{{7*7}}_variant_2",
+      "description": "SSTI template bypass variation 2",
+      "technique": "template obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-070",
+      "category": "ssti",
+      "subcategory": "template_variation",
+      "payload": "{{7*7}}_variant_3",
+      "description": "SSTI template bypass variation 3",
+      "technique": "template obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-071",
+      "category": "ssti",
+      "subcategory": "template_variation",
+      "payload": "{{7*7}}_variant_4",
+      "description": "SSTI template bypass variation 4",
+      "technique": "template obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-072",
+      "category": "ssti",
+      "subcategory": "template_variation",
+      "payload": "{{7*7}}_variant_5",
+      "description": "SSTI template bypass variation 5",
+      "technique": "template obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-073",
+      "category": "ssti",
+      "subcategory": "template_variation",
+      "payload": "{{7*7}}_variant_6",
+      "description": "SSTI template bypass variation 6",
+      "technique": "template obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-074",
+      "category": "ssti",
+      "subcategory": "template_variation",
+      "payload": "{{7*7}}_variant_7",
+      "description": "SSTI template bypass variation 7",
+      "technique": "template obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-075",
+      "category": "ssti",
+      "subcategory": "template_variation",
+      "payload": "{{7*7}}_variant_8",
+      "description": "SSTI template bypass variation 8",
+      "technique": "template obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-076",
+      "category": "ssti",
+      "subcategory": "template_variation",
+      "payload": "{{7*7}}_variant_9",
+      "description": "SSTI template bypass variation 9",
+      "technique": "template obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-077",
+      "category": "ssti",
+      "subcategory": "template_variation",
+      "payload": "{{7*7}}_variant_10",
+      "description": "SSTI template bypass variation 10",
+      "technique": "template obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-078",
+      "category": "ssti",
+      "subcategory": "template_variation",
+      "payload": "{%print(7*7)%}_variant_0",
+      "description": "SSTI template bypass variation 0",
+      "technique": "template obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-079",
+      "category": "ssti",
+      "subcategory": "template_variation",
+      "payload": "{%print(7*7)%}_variant_1",
+      "description": "SSTI template bypass variation 1",
+      "technique": "template obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-080",
+      "category": "ssti",
+      "subcategory": "template_variation",
+      "payload": "{%print(7*7)%}_variant_2",
+      "description": "SSTI template bypass variation 2",
+      "technique": "template obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-081",
+      "category": "ssti",
+      "subcategory": "template_variation",
+      "payload": "{%print(7*7)%}_variant_3",
+      "description": "SSTI template bypass variation 3",
+      "technique": "template obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-082",
+      "category": "ssti",
+      "subcategory": "template_variation",
+      "payload": "{%print(7*7)%}_variant_4",
+      "description": "SSTI template bypass variation 4",
+      "technique": "template obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-083",
+      "category": "ssti",
+      "subcategory": "template_variation",
+      "payload": "{%print(7*7)%}_variant_5",
+      "description": "SSTI template bypass variation 5",
+      "technique": "template obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-084",
+      "category": "ssti",
+      "subcategory": "template_variation",
+      "payload": "{%print(7*7)%}_variant_6",
+      "description": "SSTI template bypass variation 6",
+      "technique": "template obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-085",
+      "category": "ssti",
+      "subcategory": "template_variation",
+      "payload": "{%print(7*7)%}_variant_7",
+      "description": "SSTI template bypass variation 7",
+      "technique": "template obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-086",
+      "category": "ssti",
+      "subcategory": "template_variation",
+      "payload": "{%print(7*7)%}_variant_8",
+      "description": "SSTI template bypass variation 8",
+      "technique": "template obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-087",
+      "category": "ssti",
+      "subcategory": "template_variation",
+      "payload": "{%print(7*7)%}_variant_9",
+      "description": "SSTI template bypass variation 9",
+      "technique": "template obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "adv-var-088",
+      "category": "ssti",
+      "subcategory": "template_variation",
+      "payload": "{%print(7*7)%}_variant_10",
+      "description": "SSTI template bypass variation 10",
+      "technique": "template obfuscation",
+      "source": "Advanced bypass research 2025-2026",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    }
+  ]
+}

