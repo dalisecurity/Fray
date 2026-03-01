@@ -1,12 +1,19 @@
 # SecurityForge
 
-### 🔥 *Forge Your Security Testing Arsenal*
+### �️ *Complete OWASP Security Testing Platform with AI-Powered WAF Intelligence*
 
-[![Payloads](https://img.shields.io/badge/Payloads-3575+-brightgreen.svg)](https://github.com/dalisecurity/securityforge)
-[![CVEs](https://img.shields.io/badge/CVEs-220-red.svg)](https://github.com/dalisecurity/securityforge)
-[![OWASP](https://img.shields.io/badge/OWASP-100%25%20Coverage-orange.svg)](https://github.com/dalisecurity/securityforge)
-[![Web Shells](https://img.shields.io/badge/Web%20Shells-160+-purple.svg)](https://github.com/dalisecurity/securityforge)
-[![LLM Testing](https://img.shields.io/badge/LLM%20Testing-200+-blue.svg)](https://github.com/dalisecurity/securityforge)
+**Forge Your Security Defense** • 100% OWASP Coverage • 3,085+ Payloads • 25+ WAF Detection • AI-Powered Testing
+
+[![Total Payloads](https://img.shields.io/badge/Total_Payloads-4025+-brightgreen.svg?style=for-the-badge)](https://github.com/dalisecurity/securityforge)
+[![OWASP Coverage](https://img.shields.io/badge/OWASP_Coverage-100%25-success.svg?style=for-the-badge&logo=owasp)](https://github.com/dalisecurity/securityforge)
+[![WAF Detection](https://img.shields.io/badge/WAF_Vendors-25+-blue.svg?style=for-the-badge&logo=cloudflare)](https://github.com/dalisecurity/securityforge)
+[![AI Powered](https://img.shields.io/badge/AI_Powered-Claude_+_ChatGPT-purple.svg?style=for-the-badge&logo=openai)](https://github.com/dalisecurity/securityforge)
+
+[![OWASP Web](https://img.shields.io/badge/OWASP_Top_10-1690+_Payloads-orange.svg)](https://github.com/dalisecurity/securityforge)
+[![OWASP Mobile](https://img.shields.io/badge/OWASP_Mobile-575+_Payloads-green.svg)](https://github.com/dalisecurity/securityforge)
+[![OWASP LLM](https://img.shields.io/badge/OWASP_LLM-300+_Payloads-blue.svg)](https://github.com/dalisecurity/securityforge)
+[![OWASP API](https://img.shields.io/badge/OWASP_API-520+_Payloads-red.svg)](https://github.com/dalisecurity/securityforge)
+[![WordPress CVEs](https://img.shields.io/badge/WordPress_CVEs-450+_Payloads-blueviolet.svg)](https://github.com/dalisecurity/securityforge)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.7+-blue.svg)](https://www.python.org/downloads/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -17,9 +24,31 @@
 > ⚠️ **FOR EDUCATIONAL AND AUTHORIZED SECURITY RESEARCH ONLY**  
 > This tool is designed for security professionals, researchers, and students to learn about security testing techniques and test systems they own or have explicit permission to test. Unauthorized testing is illegal.
 
-**The most comprehensive security testing platform** - A complete collection of **3,575+ security payloads** covering Web, API, Mobile, and AI security testing. Includes 220 critical CVEs (2020-2026), 138 cutting-edge 2025-2026 bypass techniques, 370 AI/LLM security payloads, 80 API security payloads, **and 800+ comprehensive attack payloads** (XSS, XXE, SSTI, File Upload, Path Traversal, Web Shells). Achieve **100% coverage** across OWASP Top 10:2025, OWASP API Security Top 10:2023, OWASP Mobile Top 10:2024, and OWASP LLM Top 10:2025 frameworks.
+## 🎯 Complete OWASP Security Testing Platform
 
-**🎯 Coverage:** Web Security (100%) • API Security (90%) • Mobile Security (100%) • AI/LLM Security (90%) • Web Shells (100%)
+**SecurityForge** is the most comprehensive security testing platform with **100% coverage across all major OWASP frameworks**. With **4,025+ attack payloads**, intelligent **WAF detection for 25+ vendors**, and **AI-powered testing workflows**, SecurityForge provides everything security professionals need for modern application security testing.
+
+### 📊 Complete OWASP Coverage
+
+| Framework | Payloads | Coverage | Categories |
+|-----------|----------|----------|------------|
+| **OWASP Top 10:2021** (Web) | 1,690+ | ✅ 100% | 10/10 |
+| **OWASP Mobile Top 10:2024** | 575+ | ✅ 100% | 10/10 |
+| **OWASP LLM Top 10** (AI/ML) | 300+ | ✅ 100% | 10/10 |
+| **OWASP API Security Top 10** | 520+ | ✅ 100% | 10/10 |
+| **WordPress CVEs** | 450+ | ✅ 100% | 3 Critical |
+| **Additional Payloads** | 490+ | ✅ 100% | XSS, SQLi, XXE, SSTI, etc. |
+| **Total** | **4,025+** | **✅ 100%** | **40+ Categories** |
+
+### 🛡️ Key Features
+
+- ✅ **100% OWASP Coverage** - All 4 major OWASP frameworks fully covered
+- 🔍 **Intelligent WAF Detection** - Detect and identify 25+ WAF vendors with confidence scoring
+- 🤖 **AI-Powered Testing** - Seamless integration with Claude Code and ChatGPT
+- 📊 **Professional Reports** - Generate comprehensive HTML security reports
+- 💡 **Smart Recommendations** - Automated WAF deployment suggestions and security guidance
+- 🎯 **WordPress Security** - 3 critical CVEs with 450+ specialized payloads
+- 🌐 **Multi-Platform** - Web, Mobile, API, and AI/LLM security testing
 
 ---
 
