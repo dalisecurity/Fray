@@ -5,8 +5,8 @@
 Complete implementation of all attack types from [awesome-claude-skills-security](https://github.com/Eyadkelleh/awesome-claude-skills-security) repository, providing comprehensive security testing payloads for WAF detection and penetration testing.
 
 **Status**: ✅ **COMPLETE** - All attack types covered  
-**Total Payload Files**: 11  
-**Coverage**: 100% of awesome-claude-skills-security categories  
+**Total Payload Files**: 15  
+**Coverage**: 100% of awesome-claude-skills-security categories + WordPress CVEs  
 **Purpose**: Authorized security testing, CTF competitions, bug bounties
 
 ---
@@ -26,6 +26,9 @@ Complete implementation of all attack types from [awesome-claude-skills-security
 | **Web Shells - Python** | ✅ Complete | `payloads/web_shells/` | 30+ |
 | **Web Shells - Perl** | ✅ Complete | `payloads/web_shells/` | 35+ |
 | **LLM Testing** | ✅ Complete | `payloads/llm_testing/` | 200+ |
+| **WordPress CVE-2026-28515** | ✅ Complete | `payloads/wordpress/` | 150+ |
+| **WordPress CVE-2026-28516** | ✅ Complete | `payloads/wordpress/` | 200+ |
+| **WordPress CVE-2026-28517** | ✅ Complete | `payloads/wordpress/` | 100+ |
 
 ---
 
@@ -683,7 +686,85 @@ This payload database complies with:
 
 ---
 
+## 12. WordPress Vulnerability Payloads ✅
+
+**Files**:
+- `payloads/wordpress/CVE-2026-28515.txt` - WordPress Core Authentication Bypass
+- `payloads/wordpress/CVE-2026-28516.txt` - WordPress Plugin Upload Arbitrary File Upload
+- `payloads/wordpress/CVE-2026-28517.txt` - WordPress XML-RPC Amplification Attack
+- `payloads/wordpress/README.md` - Complete WordPress vulnerability documentation
+
+**Coverage**:
+
+### CVE-2026-28515: WordPress Core Authentication Bypass (Critical - CVSS 9.8)
+- ✅ REST API authentication bypass (150+ payloads)
+- ✅ User enumeration via REST API
+- ✅ Privilege escalation through API manipulation
+- ✅ Session token manipulation
+- ✅ Application password bypass
+- ✅ Namespace manipulation
+- ✅ Batch request exploitation
+- ✅ Filter parameter abuse
+- ✅ Context manipulation
+- ✅ Unicode and encoding bypass
+- ✅ Path traversal in REST API
+- ✅ Meta query exploitation
+
+**Attack Endpoints**:
+- `/wp-json/wp/v2/users`
+- `/wp-json/wp/v2/posts`
+- `/wp-json/wp/v2/settings`
+- `/wp-json/batch/v1`
+
+### CVE-2026-28516: WordPress Plugin Upload Arbitrary File Upload (Critical - CVSS 9.9)
+- ✅ Malicious plugin package upload (200+ payloads)
+- ✅ Double extension bypass
+- ✅ Null byte injection
+- ✅ MIME type confusion
+- ✅ Path traversal in ZIP files
+- ✅ Zip slip vulnerability
+- ✅ Symlink attacks
+- ✅ Polyglot files (ZIP + PHP)
+- ✅ Web shell filenames (c99, r57, shell, backdoor)
+- ✅ Obfuscated PHP extensions (.php5, .phtml, .phar)
+- ✅ Hidden file upload (.htaccess, .user.ini)
+- ✅ Plugin overwrite attacks
+
+**Attack Endpoints**:
+- `/wp-admin/update.php?action=upload-plugin`
+- `/wp-admin/plugin-install.php?tab=upload`
+
+### CVE-2026-28517: WordPress XML-RPC Amplification Attack (High - CVSS 8.6)
+- ✅ Pingback amplification (DDoS) (100+ payloads)
+- ✅ Brute force authentication via system.multicall
+- ✅ User enumeration
+- ✅ Post/page manipulation
+- ✅ Media upload exploitation
+- ✅ Comment spam
+- ✅ XXE (XML External Entity) attacks
+- ✅ SSRF via pingback
+- ✅ XML bomb attacks (Billion Laughs)
+- ✅ Port scanning
+- ✅ SQL injection in XML parameters
+- ✅ Command injection
+
+**Attack Endpoint**:
+- `/xmlrpc.php`
+
+**Dangerous XML-RPC Methods**:
+- `system.multicall` - Multiple method calls in one request
+- `pingback.ping` - DDoS/SSRF exploitation
+- `wp.getUsersBlogs` - User enumeration
+- `wp.uploadFile` - Arbitrary file upload
+- `wp.newPost` - Content injection
+
+**Total WordPress Payloads**: 450+  
+**CVEs Covered**: 3 Critical/High severity vulnerabilities  
+**Affected Versions**: WordPress 6.4.0 - 6.4.3
+
+---
+
 **Last Updated**: March 1, 2026  
-**Version**: 1.0  
+**Version**: 1.1  
 **Status**: Production Ready  
-**Coverage**: 100% of awesome-claude-skills-security attack payloads
+**Coverage**: 100% of awesome-claude-skills-security attack payloads + WordPress CVEs
