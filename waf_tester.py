@@ -16,6 +16,13 @@ from typing import List, Dict, Optional
 from datetime import datetime
 import sys
 
+# Import WAF detector if available
+try:
+    from waf_detector import WAFDetector
+    WAF_DETECTOR_AVAILABLE = True
+except ImportError:
+    WAF_DETECTOR_AVAILABLE = False
+
 class Colors:
     """Terminal colors for better output"""
     HEADER = '\033[95m'
@@ -313,6 +320,7 @@ Examples:
     parser.add_argument('--timeout', type=int, default=8, help='Request timeout (seconds)')
     parser.add_argument('-o', '--output', default='report.json', help='Output report file')
     parser.add_argument('--html-report', action='store_true', help='Generate HTML report with Dali Security branding')
+    parser.add_argument('--detect-waf', action='store_true', help='Detect WAF vendor before testing')
     
     args = parser.parse_args()
     
@@ -349,6 +357,20 @@ Examples:
         print(f"\n{Colors.HEADER}{'='*60}{Colors.END}")
         print(f"{Colors.BOLD}Testing Target {idx}/{len(targets)}: {target}{Colors.END}")
         print(f"{Colors.HEADER}{'='*60}{Colors.END}")
+        
+        # Detect WAF if requested
+        waf_info = None
+        if args.detect_waf and WAF_DETECTOR_AVAILABLE:
+            print(f"\n{Colors.BLUE}🔍 Detecting WAF...{Colors.END}")
+            detector = WAFDetector()
+            waf_info = detector.detect_waf(target, timeout=args.timeout)
+            
+            if waf_info['waf_detected']:
+                print(f"{Colors.GREEN}✓ WAF Detected: {waf_info['waf_vendor']} ({waf_info['confidence']}% confidence){Colors.END}")
+            else:
+                print(f"{Colors.YELLOW}✗ No WAF detected or unknown WAF{Colors.END}")
+        elif args.detect_waf and not WAF_DETECTOR_AVAILABLE:
+            print(f"{Colors.YELLOW}⚠️  WAF detection not available (waf_detector.py not found){Colors.END}")
         
         # Run test
         tester = WAFTester(target, timeout=args.timeout, delay=args.delay)
