@@ -62,11 +62,11 @@ class WAFDetector:
                 'server': ['big-ip', 'bigip']
             },
             'Fastly': {
-                'headers': ['fastly-io-info', 'x-fastly-request-id', 'fastly-restarts'],
-                'cookies': [],
+                'headers': ['fastly-io-info', 'x-fastly-request-id', 'fastly-restarts', 'x-served-by', 'x-cache', 'x-timer'],
+                'cookies': ['fastly_'],
                 'response_codes': [403],
-                'response_text': ['fastly'],
-                'server': ['fastly']
+                'response_text': ['fastly', 'varnish'],
+                'server': ['fastly', 'varnish']
             },
             'Barracuda': {
                 'headers': ['x-barracuda-url', 'x-barracuda-virus'],
@@ -118,10 +118,10 @@ class WAFDetector:
                 'server': []
             },
             'Signal Sciences (Fastly)': {
-                'headers': ['x-sigsci-requestid', 'x-sigsci-tags'],
+                'headers': ['x-sigsci-requestid', 'x-sigsci-tags', 'x-sigsci-agentresponse'],
                 'cookies': [],
-                'response_codes': [406],
-                'response_text': ['signal sciences', 'sigsci'],
+                'response_codes': [406, 403],
+                'response_text': ['signal sciences', 'sigsci', 'request blocked'],
                 'server': []
             },
             'StackPath': {

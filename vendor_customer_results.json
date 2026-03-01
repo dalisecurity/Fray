@@ -1,0 +1,2210 @@
+[
+  {
+    "target": "https://www.imperva.com",
+    "timestamp": "2026-03-01T14:32:04.538776",
+    "waf_detected": true,
+    "waf_vendor": "Imperva (Incapsula)",
+    "confidence": 100,
+    "signatures_found": [
+      "Header: x-iinfo",
+      "Cookie: incap_ses_967_2439",
+      "Cookie: incap_ses_967_2439",
+      "Response text: incapsula",
+      "Response text: incap"
+    ],
+    "headers": {
+      "content-type": "text/html",
+      "cache-control": "no-cache, no-store",
+      "connection": "close",
+      "content-length": "961",
+      "x-iinfo": "13-47613028-0 2NNN RT(1772346724865 23) q(0 -1 -1 1) r(0 -1) B15(0,50232,1) U18",
+      "strict-transport-security": "max-age=31536000",
+      "set-cookie": "incap_ses_967_2439=wXg6dR16Shsc8g6WtnlrDWTdo2kAAAAA0YVcgDTl4Jb+Y0J0X4TRiA==; path=/; Domain=.imperva.com; Secure; SameSite=None",
+      "x-content-type-options": "nosniff",
+      "content-security-policy": "default-src 'self' 'unsafe-eval' 'unsafe-hashes' 'unsafe-inline' data: blob: www.google.de cdn.cookielaw.org www.google.it adservice.google.com *.onetrust.com *.imperva.com www.google.com.et www.google.co.il www.google.com.sa munchkin.marketo.net cdn.bizible.com www.google.pl *.doubleclick.net www.google.com.co www.google.com.np edge.fullstory.com www.google.com.ph www.google.fr www.google-analytics.com www.google.co.th www.google.com.br www.google.es *.mktoresp.com www.brighttalk.com region1.analytics.google.com translate.google.com www.google.com.ua www.google.nl www.google.com.eg *.optimizely.com www.google.com.hk www.youtube.com jscloud.net *.adroll.com www.google.com.pk *.googleapis.com www.google.com.ng rs.fullstory.com *.vimeo.com www.google.com.au www.google.ie www.google.com.gh www.google.co.kr www.google.com.vn www.google.com www.google.se www.google.com.my *.mktoutil.com imperva.piwik.pro www.google.co.in www.googletagmanager.com *.gstatic.com www.google.com.tw imperva.containers.piwik.pro js.driftt.com bam.nr-data.net privacy-policy.truste.com www.google.co.uk www.google.co.il analytics.google.com gc.kis.v2.scr.kaspersky-labs.com www.google.ca cdn.bizibly.com js-agent.newrelic.com *.gravatar.com code.highcharts.com go.imperva.com imperva.substack.com *.vimeocdn.com *.demandbase.com *.company-target.com id.rlcdn.com yoast.com *.hcaptcha.com demostack.app snap.licdn.com *.linkedin.com *.6sense.com *.navattic.com netdna.bootstrapcdn.com *.6sc.co static.oktopost.com *.soundcloud.com *.thalesgroup.com *.bttrack.com bttrack.com ; form-action 'self' *.salesforce.com ; frame-ancestors 'self' http://thalesgroup.lookbookhq.com https://thalesgroup.lookbookhq.com http://thalesgroup.pathfactory.com https://thalesgroup.pathfactory.com http://hub-cpl.thalesgroup.com https://hub-cpl.thalesgroup.com demostack.app ;"
+    },
+    "cookies": [
+      "incap_ses_967_2439"
+    ],
+    "server": null,
+    "status_code": 403,
+    "response_snippet": "<html style=\"height:100%\"><head><META NAME=\"ROBOTS\" CONTENT=\"NOINDEX, NOFOLLOW\"><meta name=\"format-detection\" content=\"telephone=no\"><meta name=\"viewport\" content=\"initial-scale=1.0\"><meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge,chrome=1\"><script type=\"text/javascript\" src=\"/_Incapsula_Resource?SWJIYLWA=719d34d31c8e3a6e6fffd425f7e032f3\"></script><script src=\"/strants-not-worstling-We-what-her-Lords-Thunderd\" async></script></head><body style=\"margin:0px;height:100%\"><iframe id=\"main-iframe",
+    "all_detections": [
+      {
+        "vendor": "Imperva (Incapsula)",
+        "confidence": 100,
+        "signatures": [
+          "Header: x-iinfo",
+          "Cookie: incap_ses_967_2439",
+          "Cookie: incap_ses_967_2439",
+          "Response text: incapsula",
+          "Response text: incap"
+        ],
+        "signature_count": 5
+      },
+      {
+        "vendor": "Cloudflare",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Akamai",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "AWS WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "F5 BIG-IP",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Fastly",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Barracuda",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Citrix NetScaler",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Radware",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Microsoft Azure WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Google Cloud Armor",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Qualys WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Penta Security (WAPPLES)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "StackPath",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Sophos",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Palo Alto (Prisma Cloud)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Check Point",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Trustwave (ModSecurity)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Scutum",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Rohde & Schwarz",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      }
+    ]
+  },
+  {
+    "target": "https://www.incapsula.com",
+    "timestamp": "2026-03-01T14:32:04.878777",
+    "waf_detected": true,
+    "waf_vendor": "Imperva (Incapsula)",
+    "confidence": 100,
+    "signatures_found": [
+      "Header: x-iinfo",
+      "Cookie: incap_ses_218_7",
+      "Cookie: incap_ses_218_7",
+      "Response text: incapsula",
+      "Response text: incap"
+    ],
+    "headers": {
+      "content-type": "text/html",
+      "cache-control": "no-cache, no-store",
+      "connection": "close",
+      "content-length": "882",
+      "x-iinfo": "14-63108226-0 0NNN RT(1772346725100 14) q(0 -1 -1 0) r(0 -1) B15(0,50232,1) U18",
+      "strict-transport-security": "max-age=31536000",
+      "set-cookie": "incap_ses_218_7=uiQxY0RQGXcR++7u+H0GA2Tdo2kAAAAAqa8URPuZa1qFrtqHEddBtw==; path=/; Domain=.incapsula.com; Secure; SameSite=None"
+    },
+    "cookies": [
+      "incap_ses_218_7"
+    ],
+    "server": null,
+    "status_code": 403,
+    "response_snippet": "<html style=\"height:100%\"><head><META NAME=\"ROBOTS\" CONTENT=\"NOINDEX, NOFOLLOW\"><meta name=\"format-detection\" content=\"telephone=no\"><meta name=\"viewport\" content=\"initial-scale=1.0\"><meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge,chrome=1\"><script type=\"text/javascript\" src=\"/_Incapsula_Resource?SWJIYLWA=719d34d31c8e3a6e6fffd425f7e032f3\"></script></head><body style=\"margin:0px;height:100%\"><iframe id=\"main-iframe\" src=\"/_Incapsula_Resource?CWUDNSAI=23&xinfo=14-63108226-0%200NNN%20RT%2817723",
+    "all_detections": [
+      {
+        "vendor": "Imperva (Incapsula)",
+        "confidence": 100,
+        "signatures": [
+          "Header: x-iinfo",
+          "Cookie: incap_ses_218_7",
+          "Cookie: incap_ses_218_7",
+          "Response text: incapsula",
+          "Response text: incap"
+        ],
+        "signature_count": 5
+      },
+      {
+        "vendor": "Cloudflare",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Akamai",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "AWS WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "F5 BIG-IP",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Fastly",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Barracuda",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Citrix NetScaler",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Radware",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Microsoft Azure WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Google Cloud Armor",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Qualys WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Penta Security (WAPPLES)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "StackPath",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Sophos",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Palo Alto (Prisma Cloud)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Check Point",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Trustwave (ModSecurity)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Scutum",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Rohde & Schwarz",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      }
+    ]
+  },
+  {
+    "target": "https://www.zendesk.com",
+    "timestamp": "2026-03-01T14:32:05.103770",
+    "waf_detected": true,
+    "waf_vendor": "Cloudflare",
+    "confidence": 100,
+    "signatures_found": [
+      "Header: cf-ray",
+      "Server: cloudflare",
+      "Response text: cloudflare",
+      "Response text: attention required"
+    ],
+    "headers": {
+      "date": "Sun, 01 Mar 2026 06:32:05 GMT",
+      "content-type": "text/html; charset=UTF-8",
+      "transfer-encoding": "chunked",
+      "connection": "close",
+      "x-frame-options": "SAMEORIGIN",
+      "referrer-policy": "same-origin",
+      "cache-control": "private, max-age=0, no-store, no-cache, must-revalidate, post-check=0, pre-check=0",
+      "expires": "Thu, 01 Jan 1970 00:00:01 GMT",
+      "strict-transport-security": "max-age=0; preload",
+      "set-cookie": "georedirect=false; Domain=www.zendesk.com; Path=/;",
+      "server": "cloudflare",
+      "cf-ray": "9d561f58884162f7-SIN"
+    },
+    "cookies": [
+      "georedirect"
+    ],
+    "server": "cloudflare",
+    "status_code": 403,
+    "response_snippet": "11a7\r\n<!DOCTYPE html>\n<!--[if lt IE 7]> <html class=\"no-js ie6 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 7]>    <html class=\"no-js ie7 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 8]>    <html class=\"no-js ie8 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if gt IE 8]><!--> <html class=\"no-js\" lang=\"en-US\"> <!--<![endif]-->\n<head>\n<title>Attention Required! | Cloudflare</title>\n<meta charset=\"UTF-8\" />\n<meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\" />\n<meta http-equiv=\"X-UA-Compat",
+    "all_detections": [
+      {
+        "vendor": "Cloudflare",
+        "confidence": 100,
+        "signatures": [
+          "Header: cf-ray",
+          "Server: cloudflare",
+          "Response text: cloudflare",
+          "Response text: attention required"
+        ],
+        "signature_count": 4
+      },
+      {
+        "vendor": "Akamai",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "AWS WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Imperva (Incapsula)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "F5 BIG-IP",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Fastly",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Barracuda",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Citrix NetScaler",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Radware",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Microsoft Azure WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Google Cloud Armor",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Qualys WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Penta Security (WAPPLES)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "StackPath",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Sophos",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Palo Alto (Prisma Cloud)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Check Point",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Trustwave (ModSecurity)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Scutum",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Rohde & Schwarz",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      }
+    ]
+  },
+  {
+    "target": "https://www.glassdoor.com",
+    "timestamp": "2026-03-01T14:32:05.204497",
+    "waf_detected": true,
+    "waf_vendor": "Cloudflare",
+    "confidence": 85,
+    "signatures_found": [
+      "Header: cf-ray",
+      "Server: cloudflare"
+    ],
+    "headers": {
+      "date": "Sun, 01 Mar 2026 06:32:05 GMT",
+      "content-type": "text/html; charset=UTF-8",
+      "content-length": "8869",
+      "connection": "close",
+      "accept-ch": "Sec-CH-UA-Bitness, Sec-CH-UA-Arch, Sec-CH-UA-Full-Version, Sec-CH-UA-Mobile, Sec-CH-UA-Model, Sec-CH-UA-Platform-Version, Sec-CH-UA-Full-Version-List, Sec-CH-UA-Platform, Sec-CH-UA, UA-Bitness, UA-Arch, UA-Full-Version, UA-Mobile, UA-Model, UA-Platform-Version, UA-Platform, UA",
+      "cf-mitigated": "challenge",
+      "critical-ch": "Sec-CH-UA-Bitness, Sec-CH-UA-Arch, Sec-CH-UA-Full-Version, Sec-CH-UA-Mobile, Sec-CH-UA-Model, Sec-CH-UA-Platform-Version, Sec-CH-UA-Full-Version-List, Sec-CH-UA-Platform, Sec-CH-UA, UA-Bitness, UA-Arch, UA-Full-Version, UA-Mobile, UA-Model, UA-Platform-Version, UA-Platform, UA",
+      "cross-origin-embedder-policy": "require-corp",
+      "cross-origin-opener-policy": "same-origin",
+      "cross-origin-resource-policy": "same-origin",
+      "origin-agent-cluster": "?1",
+      "permissions-policy": "accelerometer=(),browsing-topics=(),camera=(),clipboard-read=(),clipboard-write=(),geolocation=(),gyroscope=(),hid=(),interest-cohort=(),magnetometer=(),microphone=(),payment=(),publickey-credentials-get=(),screen-wake-lock=(),serial=(),sync-xhr=(),usb=()",
+      "referrer-policy": "same-origin",
+      "server-timing": "chlray;desc=\"9d561f596ff646a3\"",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "SAMEORIGIN",
+      "cache-control": "private, max-age=0, no-store, no-cache, must-revalidate, post-check=0, pre-check=0",
+      "expires": "Thu, 01 Jan 1970 00:00:01 GMT",
+      "set-cookie": "__cf_bm=ZhV1dCPwcXUiSEoujLhi9K2enYZjYhKGrtJ446FCX80-1772346725-1.0.1.1-x4NLYEpn0VzGmhoIX4UaRL5Dcsh8GOip0g2knybPJYqDe5j1_j.NF16hRgQXV01lmw2oaVQOuG0TipC5dFA72uz.5pijijjpBQPz72vY4rafoH_BHYJDDbDJAHUo9WjP; path=/; expires=Sun, 01-Mar-26 07:02:05 GMT; domain=.glassdoor.com; HttpOnly; Secure; SameSite=None",
+      "server": "cloudflare",
+      "cf-ray": "9d561f596ff646a3-SIN",
+      "alt-svc": "h3=\":443\"; ma=86400"
+    },
+    "cookies": [
+      "__cf_bm"
+    ],
+    "server": "cloudflare",
+    "status_code": 403,
+    "response_snippet": "<!DOCTYPE html><html lang=\"en-US\"><head><title>Just a moment...</title><meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\"><meta http-equiv=\"X-UA-Compatible\" content=\"IE=Edge\"><meta name=\"robots\" content=\"noindex,nofollow\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><style>*{box-sizing:border-box;margin:0;padding:0}html{line-height:1.15;-webkit-text-size-adjust:100%;color:#313131;font-family:system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,\"Helve",
+    "all_detections": [
+      {
+        "vendor": "Cloudflare",
+        "confidence": 85,
+        "signatures": [
+          "Header: cf-ray",
+          "Server: cloudflare"
+        ],
+        "signature_count": 2
+      },
+      {
+        "vendor": "Akamai",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "AWS WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Imperva (Incapsula)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "F5 BIG-IP",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Fastly",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Barracuda",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Citrix NetScaler",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Radware",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Microsoft Azure WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Google Cloud Armor",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Qualys WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Penta Security (WAPPLES)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "StackPath",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Sophos",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Palo Alto (Prisma Cloud)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Check Point",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Trustwave (ModSecurity)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Scutum",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Rohde & Schwarz",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      }
+    ]
+  },
+  {
+    "target": "https://www.yelp.com",
+    "timestamp": "2026-03-01T14:32:05.352425",
+    "waf_detected": true,
+    "waf_vendor": "Fastly",
+    "confidence": 25,
+    "signatures_found": [
+      "Header: fastly-restarts"
+    ],
+    "headers": {
+      "connection": "close",
+      "content-length": "454781",
+      "content-type": "text/html; charset=UTF-8",
+      "x-tracing-auth": "N1zM7eCw40b8VlNrJMxMWgSnNFxY5F0irB9HSCZ6DiPZbf74hlaA7x8RvVPGp-GH",
+      "content-security-policy-report-only": "report-uri https://www.yelp.com/csp_report_only?id=38fdbefec9d0f6cc&page=csp_report_frame_directives%2Cfull_site_ssl_csp_report_directives&policy_hash=41d0c45536d2a082f11d1cd0e00fde7f&site=www&timestamp=1772346725; frame-ancestors 'self' https://*.yelp.com; default-src https:; img-src https: data: blob:; script-src https: data: 'unsafe-inline' 'unsafe-eval' blob:; style-src https: 'unsafe-inline' data:; font-src data: https:; child-src https: yelp-webview://* yelp://* data:; object-src 'none'; worker-src blob: https:; base-uri 'self'; form-action https:",
+      "x-node": "yelp-main-main--uswest2-6b5f6596b9-crbvs",
+      "content-security-policy": "report-uri https://www.yelp.com/csp_block?id=38fdbefec9d0f6cc&page=enforced_by_default_directives&policy_hash=4a31667603ab2e38c60aeeb09daa5097&site=www&timestamp=1772346725; object-src 'self'; base-uri 'self' https://*.yelpcdn.com https://*.adsrvr.org https://6372968.fls.doubleclick.net; font-src 'self' data: https:",
+      "x-content-type-options": "nosniff",
+      "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+      "x-zipkin-id": "30c40bfe2413bb3bd3e83eb0cb58c8db",
+      "x-routing-service": "routing-main--uswest2-84959cf697-pbhnb; site=www",
+      "x-b3-sampled": "0",
+      "server": "envoy",
+      "set-cookie": "datadome=hpH40_RqWrc1v79_LQK3U5rDXq96uYxl_0~eB0Q9cuOp~1IwX9c~a~wTkkHYARFjtX0e_mc6swQZ~Li4BwkFT41ivhchRU1eSpqwmXYW_Cb4NcJRBzyBJDqxUFetMzI4; Max-Age=31536000; Domain=.yelp.com; Path=/; Secure; SameSite=Lax",
+      "link": "https://www.google-analytics.com; rel=preconnect",
+      "pragma": "no-cache",
+      "x-mode": "ro",
+      "x-proxied": "10-69-165-199-uswest2bprod",
+      "x-extlb": "10-69-165-199-uswest2bprod",
+      "cache-control": "max-age=0, no-store, private, no-transform",
+      "fastly-restarts": "1",
+      "accept-ranges": "bytes",
+      "date": "Sun, 01 Mar 2026 06:32:06 GMT",
+      "via": "1.1 varnish",
+      "x-served-by": "cache-sin-wsss1830083-SIN",
+      "x-cache": "MISS",
+      "x-cache-hits": "0",
+      "x-timer": "S1772346726.540094,VS0,VS0,VE852",
+      "x-datadome": "protected",
+      "alt-svc": "h3=\":443\";ma=86400,h3-29=\":443\";ma=86400,h3-27=\":443\";ma=86400"
+    },
+    "cookies": [
+      "datadome"
+    ],
+    "server": "envoy",
+    "status_code": 200,
+    "response_snippet": "<!DOCTYPE html>\n<html lang=\"en-US\" prefix=\"og: http://ogp.me/ns#\" style=\"margin: 0;padding: 0; border: 0; font-size: 100%; font: inherit; vertical-align: baseline;\"><head><script>document.documentElement.className=document.documentElement.className.replace(/\ufffdno-js\ufffd/,\"js\");</script><meta http-equiv=\"Content-Language\" content=\"en-US\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1, shrink-to-fit=no\"><link rel=\"mask-icon\" sizes=\"any\" href=\"https://s3-media0.fl.yelpcdn.com/assets/",
+    "all_detections": [
+      {
+        "vendor": "Fastly",
+        "confidence": 25,
+        "signatures": [
+          "Header: fastly-restarts"
+        ],
+        "signature_count": 1
+      }
+    ]
+  },
+  {
+    "target": "https://www.careerbuilder.com",
+    "timestamp": "2026-03-01T14:32:06.763082",
+    "waf_detected": true,
+    "waf_vendor": "AWS WAF",
+    "confidence": 35,
+    "signatures_found": [
+      "Header: x-amz-cf-id"
+    ],
+    "headers": {
+      "content-type": "text/html",
+      "transfer-encoding": "chunked",
+      "connection": "close",
+      "server": "istio-envoy",
+      "date": "Sun, 01 Mar 2026 06:32:07 GMT",
+      "cache-control": "public, max-age=180",
+      "accept-ranges": "bytes",
+      "x-envoy-upstream-service-time": "4",
+      "x-frame-options": "SAMEORIGIN",
+      "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+      "x-content-type-options": "nosniff",
+      "referrer-policy": "strict-origin",
+      "set-cookie": "mn_ja3=f21f8e6cf70d5980ecfe9fa2e0ef401c;Path=/;Max-Age=31536000",
+      "x-ja3-fingerprint": "f21f8e6cf70d5980ecfe9fa2e0ef401c",
+      "x-cache": "Miss from cloudfront",
+      "via": "1.1 f4ae9514ee22a559d4357d54b21d865e.cloudfront.net (CloudFront)",
+      "x-amz-cf-pop": "SIN2-P5",
+      "x-amz-cf-id": "H_QW8p9aEmrKInfFK54qXzp0ULgMw10S20f36KmDkIGfyU5h1peFvA=="
+    },
+    "cookies": [
+      "mn_ja3"
+    ],
+    "server": "istio-envoy",
+    "status_code": 200,
+    "response_snippet": "7deb\r\n<!DOCTYPE html><html lang=\"en-us\"><head><meta charSet=\"utf-8\"/><meta http-equiv=\"x-ua-compatible\" content=\"ie=edge\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1, shrink-to-fit=no\"/><meta name=\"generator\" content=\"Gatsby 3.15.0\"/><title data-react-helmet=\"true\">CareerBuilder Jobs - Job Search, Career Advice &amp; Hiring Resources | CareerBuilder.com</title><link data-react-helmet=\"true\" rel=\"preload\" href=\"/static/Proxima-Nova-Regular-27c23e1d88c0366170a5bb22bf0cd6b3.",
+    "all_detections": [
+      {
+        "vendor": "AWS WAF",
+        "confidence": 35,
+        "signatures": [
+          "Header: x-amz-cf-id"
+        ],
+        "signature_count": 1
+      }
+    ]
+  },
+  {
+    "target": "https://www.monster.com",
+    "timestamp": "2026-03-01T14:32:08.040920",
+    "waf_detected": false,
+    "waf_vendor": null,
+    "confidence": 0,
+    "signatures_found": [],
+    "headers": {},
+    "cookies": [],
+    "server": null,
+    "status_code": null,
+    "response_snippet": null,
+    "error": "[Errno 8] nodename nor servname provided, or not known"
+  },
+  {
+    "target": "https://www.fastly.com",
+    "timestamp": "2026-03-01T14:32:25.622197",
+    "waf_detected": true,
+    "waf_vendor": "Fastly",
+    "confidence": 10,
+    "signatures_found": [
+      "Response text: fastly"
+    ],
+    "headers": {
+      "connection": "close",
+      "content-length": "680307",
+      "content-type": "text/html",
+      "etag": "\"91c691e1c55ad6e2adf4d52f9bbc28f5\"",
+      "accept-ranges": "bytes",
+      "date": "Sun, 01 Mar 2026 06:32:25 GMT",
+      "x-served-by": "cache-sjc10030-SJC, cache-sjc10030-SJC, cache-sin-wsss1830051-SIN",
+      "x-cache": "MISS, HIT, HIT",
+      "x-cache-hits": "0, 18, 5",
+      "x-timer": "S1772346746.888530,VS0,VE1",
+      "vary": "Accept-Encoding",
+      "x-xss-protection": "1; mode=block",
+      "x-frame-options": "DENY",
+      "x-content-type-options": "nosniff",
+      "cache-control": "max-age=0, must-revalidate",
+      "server": "Artisanal bits",
+      "strict-transport-security": "max-age=31536000",
+      "alt-svc": "h3=\":443\";ma=86400,h3-29=\":443\";ma=86400,h3-27=\":443\";ma=86400"
+    },
+    "cookies": [],
+    "server": "Artisanal bits",
+    "status_code": 200,
+    "response_snippet": "<!DOCTYPE html><html lang=\"en-US\"><head><meta charSet=\"utf-8\"/><meta http-equiv=\"x-ua-compatible\" content=\"ie=edge\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1, shrink-to-fit=no\"/><meta name=\"generator\" content=\"Gatsby 5.14.0\"/><meta content=\"Fastly&#x27;s edge cloud platform delivers faster, safer, and more scalable sites and apps to customers. Elevate your edge CDN, video delivery, security, and more.\" name=\"description\" data-gatsby-head=\"true\"/><meta content=\"Powering ",
+    "all_detections": [
+      {
+        "vendor": "Fastly",
+        "confidence": 10,
+        "signatures": [
+          "Response text: fastly"
+        ],
+        "signature_count": 1
+      }
+    ]
+  },
+  {
+    "target": "https://www.nytimes.com",
+    "timestamp": "2026-03-01T14:32:25.894670",
+    "waf_detected": true,
+    "waf_vendor": "Fastly",
+    "confidence": 25,
+    "signatures_found": [
+      "Header: fastly-restarts"
+    ],
+    "headers": {
+      "connection": "close",
+      "content-length": "1170935",
+      "x-b3-traceid": "6bdf4f1b8248f49c",
+      "x-nyt-data-last-modified": "Sun, 01 Mar 2026 06:25:52 GMT",
+      "last-modified": "Sun, 01 Mar 2026 06:25:52 GMT",
+      "build-timestamp": "1772139970000",
+      "x-pagetype": "vi-homepage",
+      "x-xss-protection": "1; mode=block",
+      "x-content-type-options": "nosniff",
+      "content-type": "text/html; charset=utf-8",
+      "x-envoy-upstream-service-time": "427",
+      "server": "envoy",
+      "x-envoy-decorator-operation": "vi.nyt.net:443/*",
+      "cache-control": "s-maxage=30,no-cache",
+      "x-nyt-route": "homepage",
+      "x-origin-time": "2026-03-01 06:32:26 UTC",
+      "fastly-restarts": "1",
+      "accept-ranges": "bytes",
+      "age": "12",
+      "date": "Sun, 01 Mar 2026 06:32:26 GMT",
+      "x-served-by": "cache-lga21955-LGA, cache-sin-wsss1830070-SIN",
+      "x-cache": "HIT, MISS",
+      "x-cache-hits": "2, 0",
+      "x-timer": "S1772346746.067591,VS0,VE456",
+      "vary": "x-statsig-assignments, Accept-Encoding, Fastly-SSL",
+      "set-cookie": "nyt-traceid=000000000000000078e20e5566dfb498; Path=/; Domain=.nytimes.com; SameSite=none; Secure",
+      "x-gdpr": "0",
+      "permissions-policy": "browsing-topics=()",
+      "x-frame-options": "DENY",
+      "x-api-version": "F-F-VI",
+      "content-security-policy": "upgrade-insecure-requests; default-src data: 'unsafe-inline' 'unsafe-eval' https: nytresource:; script-src data: 'unsafe-inline' 'unsafe-eval' https: blob: nytresource:; style-src data: 'unsafe-inline' https: nytresource:; img-src data: https: blob: android-webview-video-poster: nytresource:; font-src data: https: nytresource:; connect-src data: https: wss: blob: nytresource:; media-src data: https: blob: nytresource:; object-src https:; child-src https: data: blob: nytresource:; form-action https: nytimes: nytcooking: nytxwd:; report-uri https://csp.nytimes.com/report;",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "access-control-expose-headers": "X-Nyt-Mktg-Group, X-Nyt-Mktg-Group",
+      "x-nyt-mktg-group": "group6",
+      "x-nyt-edge-cache": "HIT-MISS",
+      "x-nyt-app-webview": "0",
+      "x-nyt-app-map": "webview=false,preloaded=false,service-worker-enabled=false",
+      "access-control-allow-headers": "traceparent, tracestate, X-B3-Sampled, X-B3-SpanId, X-B3-TraceId, x-datadog-origin, x-datadog-parent-id, x-datadog-sampling-priority, x-datadog-trace-id, x-nyt-entitlements, x-nyt-internal-meter-override, traceparent, tracestate, X-B3-Sampled, X-B3-SpanId, X-B3-TraceId, x-datadog-origin, x-datadog-parent-id, x-datadog-sampling-priority, x-datadog-trace-id, x-nyt-entitlements, x-nyt-internal-meter-override"
+    },
+    "cookies": [
+      "nyt-traceid"
+    ],
+    "server": "envoy",
+    "status_code": 200,
+    "response_snippet": "<!DOCTYPE html>\n<html lang=\"en\" class=\" nytapp-vi-homepage \"  data-nyt-compute-assignment=\"fallback\" xmlns:og=\"http://opengraphprotocol.org/schema/\">\n  <head>\n    \n    \n    <meta charset=\"utf-8\" />\n    <title data-rh=\"true\">The New York Times - Breaking News, US News, World News and Videos</title>\n    <meta data-rh=\"true\" name=\"description\" content=\"Live news, investigations, opinion, photos and video by the journalists of The New York Times from more than 150 countries around the world. Subscri",
+    "all_detections": [
+      {
+        "vendor": "Fastly",
+        "confidence": 25,
+        "signatures": [
+          "Header: fastly-restarts"
+        ],
+        "signature_count": 1
+      }
+    ]
+  },
+  {
+    "target": "https://www.theguardian.com",
+    "timestamp": "2026-03-01T14:32:26.522535",
+    "waf_detected": false,
+    "waf_vendor": "Unknown or No WAF",
+    "confidence": 0,
+    "signatures_found": [],
+    "headers": {
+      "connection": "close",
+      "content-length": "0",
+      "retry-after": "0",
+      "location": "/international",
+      "accept-ranges": "bytes",
+      "date": "Sun, 01 Mar 2026 06:32:26 GMT",
+      "x-robots-tag": "bingbot: noarchive",
+      "set-cookie": "GU_geo_country=SG; path=/; Secure",
+      "x-timer": "S1772346747.670519,VS0,VE1",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-frame-options": "SAMEORIGIN",
+      "x-xss-protection": "1; mode=block",
+      "x-content-type-options": "nosniff",
+      "content-security-policy": "upgrade-insecure-requests; default-src https:; script-src https: 'unsafe-inline' 'unsafe-eval' blob: 'unsafe-inline'; frame-src https: data:; style-src https: 'unsafe-inline'; img-src https: data: blob:; media-src https: data: blob:; font-src 'self' https://assets.guim.co.uk https://pasteup.guim.co.uk https://interactive.guim.co.uk https://dashboard.ophan.co.uk https://cdn.braze.eu data:; connect-src https: wss: blob:; child-src https: blob:; object-src 'none'; base-uri 'none'",
+      "referrer-policy": "no-referrer-when-downgrade",
+      "feature-policy": "camera 'none'; microphone 'none'; midi 'none'; geolocation 'none'",
+      "permissions-policy": "camera=(), microphone=(), midi=(), geolocation=(), interest-cohort=(), clipboard-read=(), unload=()",
+      "x-gu-edition": "int",
+      "age": "0",
+      "x-request-id": "111d1343-8a4a-41c2-b972-8f1d03899a0e",
+      "cache-control": "max-age=0",
+      "alt-svc": "h3=\":443\";ma=86400,h3-29=\":443\";ma=86400,h3-27=\":443\";ma=86400"
+    },
+    "cookies": [
+      "GU_geo_country"
+    ],
+    "server": null,
+    "status_code": 302,
+    "response_snippet": "",
+    "all_detections": []
+  },
+  {
+    "target": "https://www.buzzfeed.com",
+    "timestamp": "2026-03-01T14:32:26.660752",
+    "waf_detected": true,
+    "waf_vendor": "Signal Sciences (Fastly)",
+    "confidence": 5,
+    "signatures_found": [],
+    "headers": {
+      "connection": "close",
+      "cache-control": "private, no-store",
+      "accept-ranges": "bytes",
+      "via": "1.1 varnish, 1.1 varnish",
+      "x-bf-nostaleprovidedbyupstream": "true",
+      "fastly-cachetype": "PRIVATE",
+      "date": "Sun, 01 Mar 2026 06:32:27 GMT",
+      "x-frame-options": "SAMEORIGIN",
+      "set-cookie": "bf-geo-country=SG; expires=Mon, 02 Mar 2026 06:32:27 GMT; path=/; domain=.buzzfeed.com;",
+      "content-security-policy": "upgrade-insecure-requests",
+      "strict-transport-security": "max-age=31536000; preload",
+      "timing-allow-origin": "*",
+      "x-served-by": "cache-iad-kcgs7200023-IAD, cache-iad-kcgs7200167-IAD, cache-sin-wsss1830025-SIN",
+      "x-cache": "MISS, MISS",
+      "x-cache-hits": "0, 0",
+      "transfer-encoding": "chunked"
+    },
+    "cookies": [
+      "bf-geo-country"
+    ],
+    "server": null,
+    "status_code": 406,
+    "response_snippet": "0\r\n\r\n",
+    "all_detections": [
+      {
+        "vendor": "Signal Sciences (Fastly)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Trustwave (ModSecurity)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      }
+    ]
+  },
+  {
+    "target": "https://www.vox.com",
+    "timestamp": "2026-03-01T14:32:27.116491",
+    "waf_detected": false,
+    "waf_vendor": "Unknown or No WAF",
+    "confidence": 0,
+    "signatures_found": [],
+    "headers": {
+      "connection": "close",
+      "content-length": "916014",
+      "content-type": "text/html; charset=utf-8",
+      "content-security-policy": "frame-ancestors https://platform.vox.com https://*.vox.com https://platform.vox.com https://*.vox.com 'self'",
+      "vm-cyclone-community-id": "1cc08290-4858-4562-8f55-7f474d32bee8",
+      "x-middleware-rewrite": "/resource/homepage",
+      "x-powered-by": "Next.js",
+      "etag": "\"17iy8uen9p8jm7l\"",
+      "via": "1.1 varnish, 1.1 varnish",
+      "referrer-policy": "no-referrer-when-downgrade",
+      "accept-ranges": "bytes",
+      "age": "0",
+      "date": "Sun, 01 Mar 2026 06:32:28 GMT",
+      "x-served-by": "cache-iad-kcgs7200078-IAD, cache-sin-wsss1830078-SIN",
+      "x-cache": "MISS, MISS",
+      "x-cache-hits": "0, 0",
+      "x-timer": "S1772346747.375354,VS0,VE640",
+      "vary": "Accept-Encoding, x-user-state, x-user-state",
+      "set-cookie": "_vm_consent_type=opt-out; expires=Mon, 02 Mar 2026 06:32:28 GMT; path=/;",
+      "cache-control": "no-store,private",
+      "strict-transport-security": "max-age=31556952; preload",
+      "alt-svc": "h3=\":443\";ma=86400,h3-29=\":443\";ma=86400,h3-27=\":443\";ma=86400"
+    },
+    "cookies": [
+      "_vm_consent_type"
+    ],
+    "server": null,
+    "status_code": 200,
+    "response_snippet": "<!DOCTYPE html><html lang=\"en-US\"><meta name=\"bingbot\" content=\"nocache\"/><head><meta charSet=\"utf-8\"/><meta name=\"description\" content=\"Vox is a general interest news site for the 21st century. Its mission: to help everyone understand our complicated world, so that we can all help shape it. In text, video and audio, our reporters explain politics, policy, world affairs, technology, culture, science, the climate crisis, money, health and everything else that matters. Our goal is to ensure that e",
+    "all_detections": []
+  },
+  {
+    "target": "https://www.ticketmaster.com",
+    "timestamp": "2026-03-01T14:32:28.093530",
+    "waf_detected": true,
+    "waf_vendor": "Cloudflare",
+    "confidence": 5,
+    "signatures_found": [],
+    "headers": {
+      "connection": "close",
+      "content-length": "3066",
+      "server": "Varnish",
+      "retry-after": "0",
+      "content-type": "text/html; charset=UTF-8",
+      "accept-ranges": "bytes",
+      "date": "Sun, 01 Mar 2026 06:32:28 GMT",
+      "via": "1.1 varnish",
+      "x-served-by": "cache-sin-wsat1880073-SIN",
+      "x-cache": "MISS",
+      "x-cache-hits": "0",
+      "set-cookie": "BID=2ooWOWonWkI67ClD90Ky3Lt0znY_kpy5L7co5vaES9sxNbmUF36MP5BuBdJSRcWuhWBPZwhsGmS6Geu4; Domain=.ticketmaster.com; Max-Age=31536000; Expires=Mon, 01 Mar 2027 06:32:28 GMT; Path=/; Secure; HttpOnly; SameSite=None;"
+    },
+    "cookies": [
+      "BID"
+    ],
+    "server": "Varnish",
+    "status_code": 403,
+    "response_snippet": "<!DOCTYPE html><html><head>    <noscript>        <link rel='stylesheet' type='text/css' charset='utf-8' href='https://www.ticketmaster.com/epsf/asset/tm.css'>        <title>Let&#39;s Get Your Identity Verified</title>        <div class='container'>            <div id='boxes_container'>                <div class='box'>                    <div class='c1'>Let&#39;s Get Your Identity Verified</div>                    <div class='c2'>Your browser hit a snag and we need to make sure you&#39;re not a b",
+    "all_detections": [
+      {
+        "vendor": "Cloudflare",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Akamai",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "AWS WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Imperva (Incapsula)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "F5 BIG-IP",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Fastly",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Barracuda",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Citrix NetScaler",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Radware",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Microsoft Azure WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Google Cloud Armor",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Qualys WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Penta Security (WAPPLES)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "StackPath",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Sophos",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Palo Alto (Prisma Cloud)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Check Point",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Trustwave (ModSecurity)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Scutum",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Rohde & Schwarz",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      }
+    ]
+  },
+  {
+    "target": "https://www.gov.uk",
+    "timestamp": "2026-03-01T14:32:28.770101",
+    "waf_detected": false,
+    "waf_vendor": "Unknown or No WAF",
+    "confidence": 0,
+    "signatures_found": [],
+    "headers": {
+      "connection": "close",
+      "content-length": "85153",
+      "content-type": "text/html; charset=utf-8",
+      "server": "nginx",
+      "cache-control": "max-age=300, public",
+      "content-security-policy": "default-src 'self'; base-uri 'none'; img-src 'self' *.publishing.service.gov.uk www.gov.uk *.dev.gov.uk www.google-analytics.com ssl.google-analytics.com stats.g.doubleclick.net www.googletagmanager.com www.region1.google-analytics.com region1.google-analytics.com region1.analytics.google.com www.google.co.uk lux.speedcurve.com assets.digital.cabinet-office.gov.uk https://img.youtube.com https://i.ytimg.com; script-src 'self' www.google-analytics.com ssl.google-analytics.com stats.g.doubleclick.net www.googletagmanager.com www.region1.google-analytics.com region1.google-analytics.com region1.analytics.google.com www.google.co.uk www.gstatic.com *.ytimg.com www.youtube.com www.youtube-nocookie.com 'nonce-4Z9zJpJWmKFaOLOG1j3afQ=='; style-src 'self' www.gstatic.com; font-src 'self'; connect-src 'self' *.publishing.service.gov.uk www.gov.uk *.dev.gov.uk www.google-analytics.com ssl.google-analytics.com stats.g.doubleclick.net www.googletagmanager.com www.region1.google-analytics.com region1.google-analytics.com region1.analytics.google.com www.google.co.uk lux.speedcurve.com gds-single-consent-staging.app gds-single-consent.app; object-src 'none'; frame-src 'self' *.publishing.service.gov.uk www.gov.uk *.dev.gov.uk www.youtube.com www.youtube-nocookie.com; frame-ancestors 'self' *.publishing.service.gov.uk www.gov.uk *.dev.gov.uk; report-uri https://csp-reporter.publishing.service.gov.uk/report",
+      "etag": "W/\"0bee0d36f0f6538d37cdcfb1db373a7d\"",
+      "link": "</assets/frontend/views/_homepage-069e210c542070b2f68c1230b0a4aba68e23c4d6abebb0fef0c6b36de17fcdbd.css>; rel=preload; as=style; nopush,</assets/frontend/govuk_publishing_components/vendor/lux/lux-measurer-d66192b1b665d415e1874e49a48138b7ae339548aa6cdb8687c7f9933e72b969.js>; rel=preload; as=script; nopush,</assets/frontend/govuk_publishing_components/rum-custom-data-b9e1806d1da2fa8ef1855d01aa71ba5eb0afc010dd2c4de3672cc7c7a39b0c8c.js>; rel=modulepreload; as=script; nopush,</assets/frontend/govuk_publishing_components/rum-loader-a65b10e18ceeba3bd8a2eac507c7f2c513cdc82f35097df903fdea87f1dc2e33.js>; rel=preload; as=script; nopush,</assets/frontend/govuk_publishing_components/load-analytics-c0b21edf0d79bd3dd6172b0c5be4dfd3c073a8aab9275e31253be3a26762c9a9.js>; rel=modulepreload; as=script; nopush,</assets/frontend/application-df39e8b09f64b5b31e54a78858a7dae41f5fb3ebf7fd4a0f58f1716bdc4db141.css>; rel=preload; as=style; nopush",
+      "permissions-policy": "interest-cohort=()",
+      "referrer-policy": "strict-origin-when-cross-origin",
+      "via": "1.1 router, 1.1 varnish",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "SAMEORIGIN",
+      "x-permitted-cross-domain-policies": "none",
+      "x-request-id": "225b0f4b-bfb0-4d14-a61d-5241a795a31f",
+      "x-runtime": "0.026013",
+      "x-xss-protection": "0",
+      "fastly-backend-name": "origin",
+      "accept-ranges": "bytes",
+      "age": "70",
+      "date": "Sun, 01 Mar 2026 06:32:28 GMT",
+      "strict-transport-security": "max-age=31536000; preload",
+      "server-timing": "cacheHit",
+      "x-served-by": "cache-sin-wsat1880066-SIN",
+      "x-cache": "HIT",
+      "x-cache-hits": "0",
+      "x-timer": "S1772346749.973047,VS0,VE1",
+      "vary": "Accept-Encoding",
+      "alt-svc": "h3=\":443\";ma=86400,h3-29=\":443\";ma=86400,h3-27=\":443\";ma=86400"
+    },
+    "cookies": [],
+    "server": "nginx",
+    "status_code": 200,
+    "response_snippet": "\n\n<!DOCTYPE html>\n<html class=\"govuk-template govuk-template--rebranded\" lang=\"en\">\n  <head>\n    <meta charset=\"utf-8\">\n    <title lang=\"en\">Welcome to GOV.UK</title>\n\n    <script src=\"/assets/frontend/govuk_publishing_components/vendor/lux/lux-measurer-d66192b1b665d415e1874e49a48138b7ae339548aa6cdb8687c7f9933e72b969.js\" async=\"async\"></script>\n    <script src=\"/assets/frontend/govuk_publishing_components/rum-custom-data-b9e1806d1da2fa8ef1855d01aa71ba5eb0afc010dd2c4de3672cc7c7a39b0c8c.js\" type=\"",
+    "all_detections": []
+  },
+  {
+    "target": "https://www.adobe.com",
+    "timestamp": "2026-03-01T14:32:28.993869",
+    "waf_detected": false,
+    "waf_vendor": "Unknown or No WAF",
+    "confidence": 0,
+    "signatures_found": [],
+    "headers": {},
+    "cookies": [],
+    "server": null,
+    "status_code": null,
+    "response_snippet": null,
+    "all_detections": []
+  },
+  {
+    "target": "https://www.hp.com",
+    "timestamp": "2026-03-01T14:32:41.124369",
+    "waf_detected": true,
+    "waf_vendor": "Akamai",
+    "confidence": 95,
+    "signatures_found": [
+      "Header: akamai-grn",
+      "Header: x-akamai-transformed",
+      "Cookie: bm_sz"
+    ],
+    "headers": {
+      "server": "Apache",
+      "cache-control": "max-age=7200",
+      "location": "https://www-redirect.ext.hp.com?test=%2527%2520OR%2520%25271%2527%253D%25271%2527%2520--",
+      "expires": "Sun, 01 Mar 2026 08:32:46 GMT",
+      "content-type": "text/html; charset=iso-8859-1",
+      "x-akamai-transformed": "0 - 0 -",
+      "date": "Sun, 01 Mar 2026 06:32:46 GMT",
+      "connection": "close",
+      "set-cookie": "bm_sz=D66917FFC7AEB2E615A9022D42BDD3A0~YAAQdhdLFyL/9ZecAQAA4XUZqB7Fen75AEu21JZPg1xALbAz25/KDOv4ejhvLW4vD8Wsx8RrXAvtmztkgvbmjh0f9EIlHANf2P2/qn7kE8MNXJ6rMffGrgBGIsEzOQjqV3i8p+MhnWTkCueneN0gOWvjevxQeG1ewTLPKXVxU2kF5axZ91Er6eibeWCjhuIunx4H0ZdkSzkJFpe6+u6SfbGB12r8oRGbqQ2oYr0rLnzOJpVF/NKrYFoFhniiVLbJcsTHSeJ1xFoc2arc+X951DFXbS5WQ5deLXLHjQygBm9MP5F1L3t52ePujsq1MIto5FZyvDvnaG2+VFegPiX95So2+KbFZNEQWuDo~3223620~4404528; Domain=.hp.com; Path=/; Expires=Sun, 01 Mar 2026 10:32:45 GMT; Max-Age=14399",
+      "strict-transport-security": "max-age=600",
+      "akamai-grn": "0.76174b17.1772346765.3efb84b",
+      "server-timing": "ak_p; desc=\"1772346764969_390797174_66041931_82419_17182_4_1001_-\";dur=1"
+    },
+    "cookies": [
+      "bm_sz"
+    ],
+    "server": "Apache",
+    "status_code": 301,
+    "response_snippet": "<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\">\n<html><head>\n<title>301 Moved Permanently</title>\n</head><body>\n<h1>Moved Permanently</h1>\n<p>The document has moved <a href=\"https://www-redirect.ext.hp.com?test=%2527%2520OR%2520%25271%2527%253D%25271%2527%2520--\">here</a>.</p>\n<script type=\"text/javascript\"  src=\"/YdFdnDnAM8D7g/N/i-NVuQ3h5gnE8/b5uLkfNkbVSpwk/UnYtbhQD/V1QTc34/ka0oB\"></script></body></html>\n",
+    "all_detections": [
+      {
+        "vendor": "Akamai",
+        "confidence": 95,
+        "signatures": [
+          "Header: akamai-grn",
+          "Header: x-akamai-transformed",
+          "Cookie: bm_sz"
+        ],
+        "signature_count": 3
+      }
+    ]
+  },
+  {
+    "target": "https://www.ge.com",
+    "timestamp": "2026-03-01T14:32:47.254382",
+    "waf_detected": true,
+    "waf_vendor": "Cloudflare",
+    "confidence": 85,
+    "signatures_found": [
+      "Header: cf-ray",
+      "Server: cloudflare"
+    ],
+    "headers": {
+      "date": "Sun, 01 Mar 2026 06:32:48 GMT",
+      "content-type": "text/html",
+      "content-length": "451205",
+      "connection": "close",
+      "cf-ray": "9d562066fd3bcdee-SIN",
+      "cache-control": "private, max-age=0, no-store, no-cache, must-revalidate, post-check=0, pre-check=0",
+      "expires": "Thu, 01 Jan 1970 00:00:01 GMT",
+      "referrer-policy": "same-origin",
+      "server-timing": "cfEdge;dur=4,cfOrigin;dur=0",
+      "x-frame-options": "SAMEORIGIN",
+      "server": "cloudflare"
+    },
+    "cookies": [],
+    "server": "cloudflare",
+    "status_code": 403,
+    "response_snippet": "\ufeff<!DOCTYPE html>\r\n<html>\r\n\r\n<head>\r\n    <title>GE</title>\r\n    <meta charset=\"utf-8\">\r\n    <meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\">\r\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\r\n\r\n\r\n\r\n    <style>\r\n    @media only screen and (min-width: 992px) {\r\n    body {\r\n    position:relative;\r\n    top:0;\r\n    }\r\n    }\r\n\r\n    body {\r\n    position:relative;\r\n    top:81px;\r\n    padding:0;\r\n    margin:0;\r\n    font-size:16px;\r\n    line-height:24px;\r\n    background-color",
+    "all_detections": [
+      {
+        "vendor": "Cloudflare",
+        "confidence": 85,
+        "signatures": [
+          "Header: cf-ray",
+          "Server: cloudflare"
+        ],
+        "signature_count": 2
+      },
+      {
+        "vendor": "Akamai",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "AWS WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Imperva (Incapsula)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "F5 BIG-IP",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Fastly",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Barracuda",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Citrix NetScaler",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Radware",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Microsoft Azure WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Google Cloud Armor",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Qualys WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Penta Security (WAPPLES)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "StackPath",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Sophos",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Palo Alto (Prisma Cloud)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Check Point",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Trustwave (ModSecurity)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Scutum",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Rohde & Schwarz",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      }
+    ]
+  },
+  {
+    "target": "https://www.3m.com",
+    "timestamp": "2026-03-01T14:32:48.674513",
+    "waf_detected": true,
+    "waf_vendor": "Akamai",
+    "confidence": 100,
+    "signatures_found": [
+      "Server: AkamaiGHost",
+      "Server: AkamaiGHost",
+      "Server: AkamaiGHost"
+    ],
+    "headers": {
+      "server": "AkamaiGHost",
+      "mime-version": "1.0",
+      "content-type": "text/html",
+      "content-length": "369",
+      "cache-control": "max-age=14400",
+      "expires": "Sun, 01 Mar 2026 10:32:49 GMT",
+      "date": "Sun, 01 Mar 2026 06:32:49 GMT",
+      "connection": "close",
+      "a_status": ""
+    },
+    "cookies": [],
+    "server": "AkamaiGHost",
+    "status_code": 403,
+    "response_snippet": "<HTML><HEAD>\n<TITLE>Access Denied</TITLE>\n</HEAD><BODY>\n<H1>Access Denied</H1>\n \nYou don't have permission to access \"http&#58;&#47;&#47;www&#46;3m&#46;com&#47;&#63;\" on this server.<P>\nReference&#32;&#35;18&#46;d4753617&#46;1772346768&#46;9aa3c4c8\n<P>https&#58;&#47;&#47;errors&#46;edgesuite&#46;net&#47;18&#46;d4753617&#46;1772346768&#46;9aa3c4c8</P>\n</BODY>\n</HTML>\n",
+    "all_detections": [
+      {
+        "vendor": "Akamai",
+        "confidence": 100,
+        "signatures": [
+          "Server: AkamaiGHost",
+          "Server: AkamaiGHost",
+          "Server: AkamaiGHost"
+        ],
+        "signature_count": 3
+      },
+      {
+        "vendor": "AWS WAF",
+        "confidence": 15,
+        "signatures": [
+          "Response text: access denied"
+        ],
+        "signature_count": 1
+      },
+      {
+        "vendor": "Microsoft Azure WAF",
+        "confidence": 15,
+        "signatures": [
+          "Response text: access denied"
+        ],
+        "signature_count": 1
+      },
+      {
+        "vendor": "Cloudflare",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Imperva (Incapsula)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "F5 BIG-IP",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Fastly",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Barracuda",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Citrix NetScaler",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Radware",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Google Cloud Armor",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Qualys WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Penta Security (WAPPLES)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "StackPath",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Sophos",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Palo Alto (Prisma Cloud)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Check Point",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Trustwave (ModSecurity)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Scutum",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Rohde & Schwarz",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      }
+    ]
+  },
+  {
+    "target": "https://www.bmw.com",
+    "timestamp": "2026-03-01T14:32:49.001629",
+    "waf_detected": true,
+    "waf_vendor": "Akamai",
+    "confidence": 100,
+    "signatures_found": [
+      "Server: AkamaiGHost",
+      "Server: AkamaiGHost",
+      "Server: AkamaiGHost"
+    ],
+    "headers": {
+      "server": "AkamaiGHost",
+      "mime-version": "1.0",
+      "content-length": "530",
+      "cache-control": "no-cache, no-store, must-revalidate",
+      "pragma": "no-cache",
+      "expires": "0",
+      "content-type": "text/html",
+      "date": "Sun, 01 Mar 2026 06:32:50 GMT",
+      "connection": "close",
+      "vary": "Accept-Language",
+      "strict-transport-security": "max-age=15768000"
+    },
+    "cookies": [],
+    "server": "AkamaiGHost",
+    "status_code": 403,
+    "response_snippet": "<!doctype html>\n<html>\n<head>\n    <title>403 Forbidden</title>\n    <style type=\"text/css\">body { text-align: center; padding: 150px; }h1 { font-size: 40px; }body { font: 16px Helvetica, sans-serif; color: #333; }#error { display: block; text-align: left; width: 650px; margin: 0 auto; }</style>\n</head>\n<body>\n    <div id=\"error\">\n    <h1>Oops! Something went wrong</h1>\n    <div>\n        <hr>\n        <p>Please contact your BMW Contact with the error code: 0.e6174b17.1772346769.51a26484</p>\n    </d",
+    "all_detections": [
+      {
+        "vendor": "Akamai",
+        "confidence": 100,
+        "signatures": [
+          "Server: AkamaiGHost",
+          "Server: AkamaiGHost",
+          "Server: AkamaiGHost"
+        ],
+        "signature_count": 3
+      },
+      {
+        "vendor": "AWS WAF",
+        "confidence": 15,
+        "signatures": [
+          "Response text: forbidden"
+        ],
+        "signature_count": 1
+      },
+      {
+        "vendor": "Cloudflare",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Imperva (Incapsula)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "F5 BIG-IP",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Fastly",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Barracuda",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Citrix NetScaler",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Radware",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Microsoft Azure WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Google Cloud Armor",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Qualys WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Penta Security (WAPPLES)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "StackPath",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Sophos",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Palo Alto (Prisma Cloud)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Check Point",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Trustwave (ModSecurity)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Scutum",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Rohde & Schwarz",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      }
+    ]
+  },
+  {
+    "target": "https://www.netflix.com",
+    "timestamp": "2026-03-01T14:32:50.246164",
+    "waf_detected": false,
+    "waf_vendor": "Unknown or No WAF",
+    "confidence": 0,
+    "signatures_found": [],
+    "headers": {
+      "server": "envoy",
+      "x-frame-options": "DENY",
+      "content-security-policy-report-only": "default-src https: wss: 'unsafe-inline' 'unsafe-eval'; font-src https: data: ; img-src  https: data: blob: ; media-src https: blob: ; worker-src https: blob: ; report-uri https://www.netflix.com/log/www/csp/1;",
+      "accept-ch": "Sec-CH-UA-Platform-Version,Sec-CH-UA-Model",
+      "cache-control": "no-cache, no-store",
+      "pragma": "no-cache",
+      "expires": "0",
+      "x-robots-tag": "index",
+      "location": "https://www.netflix.com/sg/?test=%27+OR+%271%27%3D%271%27+--",
+      "date": "Sun, 01 Mar 2026 06:32:52 GMT",
+      "x-envoy-upstream-service-time": "81",
+      "x-b3-traceid": "69a3dd9473efa4d22438af8ab845f9e3",
+      "x-request-id": "cefa5f5a-e008-4733-8096-a209c1e3a08b",
+      "x-envoy-decorator-operation": "lo_svc",
+      "transfer-encoding": "chunked",
+      "via": "1.1 i-0cee0e5b9c8e4ed98 (us-west-2)",
+      "x-xss-protection": "1; mode=block; report=https://www.netflix.com/ichnaea/log/freeform/xssreport",
+      "x-content-type-options": "nosniff",
+      "strict-transport-security": "max-age=31536000; includeSubDomains",
+      "x-originating-url": "http://www.netflix.com/?test=%27+OR+%271%27%3D%271%27+--",
+      "edge-control": "no-cache, no-store",
+      "set-cookie": "NetflixId=v%3D3%26ct%3DBgjHlOvcAxLBAV_5Cs_-9XEfXOKEy1KivHur8z2OrEpYA2FwG-0JPg3RENqEmtmxlf82yflTEBcAfpA2EZpe39iLF1HvberCXWooYXmCjh7a_oe9yUrRCjOETUCYhK9S0fYDmtXgi--XqUK1wd20wCjwG3vE3uC86b9fbHfAISONdmkPRqImxTkzl4CAY746F4WqXeidr73kimhwdE9y2i_i7TBsE2Id_uG5FrIX-w3X1xQwYNC7Gtjs1MgKcUka0QmXYixDypQzecIYBiIOCgxUCEKnrxCGUiH3--Y.; Domain=.netflix.com; Expires=Mon, 1 Mar 2027 06:32:53 GMT; Path=/; HttpOnly; Secure; SameSite=Lax",
+      "x-netflix-cookieandmsl.profileguid.match": "NA",
+      "x-netflix-headerandcookie.profileguid.match": "NA",
+      "x-netflix-headerandmsl.profileguid.match": "NA",
+      "x-netflix.nfstatus": "1_1",
+      "x-netflix.proxy.execution-time": "584",
+      "connection": "close"
+    },
+    "cookies": [
+      "NetflixId"
+    ],
+    "server": "envoy",
+    "status_code": 302,
+    "response_snippet": "0\r\n\r\n",
+    "all_detections": []
+  },
+  {
+    "target": "https://www.airbnb.com",
+    "timestamp": "2026-03-01T14:32:53.095838",
+    "waf_detected": false,
+    "waf_vendor": "Unknown or No WAF",
+    "confidence": 0,
+    "signatures_found": [],
+    "headers": {
+      "server": "nginx",
+      "content-type": "text/plain;charset=utf-8",
+      "x-instrumentation": "airbnb",
+      "x-server-lifecycle-phase": "running",
+      "status": "307 Temporary Redirect",
+      "expires": "Thu, 01 Jan 1970 00:00:00 GMT",
+      "x-kraken-loop-name": "core-guest-loop",
+      "accept-ch": "Sec-CH-Device-Memory, Sec-CH-DPR, ECT, Sec-CH-UA-Platform-Version, Sec-CH-Viewport-Width, Sec-CH-Device-Memory, Sec-CH-DPR, ECT, Sec-CH-UA-Platform-Version, Sec-CH-Viewport-Width",
+      "accept-ch-lifetime": "31536000",
+      "cache-control": "no-store, max-age=0, private, must-revalidate",
+      "location": "https://www.airbnb.com.sg/?test=%27%20OR%20%271%27%3D%271%27%20--&_set_bev_on_new_domain=1772346775_EANjEwMGJhNDFlOD&set_everest_cookie_on_new_domain=1772346775.EANTM2OTliMTY4Yjc1Mj.KMEn8IFvuK5bYpQoF0pIcH2XhOn1NAejFLJymUovBK8",
+      "x-content-type-options": "nosniff",
+      "x-envoy-upstream-service-time": "51",
+      "x-frame-options": "SAMEORIGIN",
+      "x-xss-protection": "1; mode=block",
+      "x-airbnb-internal-trace-id": "chHaeemAwmG3_A0YtoNWPA==",
+      "strict-transport-security": "max-age=10886400; includeSubdomains",
+      "x-server-name": "www.airbnb.com",
+      "content-length": "260",
+      "date": "Sun, 01 Mar 2026 06:32:56 GMT",
+      "connection": "close",
+      "set-cookie": "cdn_exp_abd8871b54fcbadab=control; expires=Thu, 30-Apr-2026 06:32:56 GMT; path=/; domain=.airbnb.com",
+      "alt-svc": "h3=\":443\"; ma=93600",
+      "akamai-request-bc": "[a=23.75.23.79,b=89749080,c=g,n=SG__BEDOK,o=20940],[c=c,n=US_VA_STERLING,o=20940],[a=247,c=o]",
+      "x-airbnb-sureride": "c1a1o.0.4f174b17.1772346775.5597658%%i1c1o%%t1d1o.chHaeemAwmG3_A0YtoNWPA==%%h1",
+      "cachestatus": "on",
+      "server-timing": "cdn-cache; desc=MISS, edge; dur=232, origin; dur=57",
+      "origin-trial": "AkOekvxwprBLSP7I2nhyRn5yZGt9lTJN6UIYziFKVYg5OhlzmlNDciWbBWkEQ5TYPz+aqsuIUT2pPEjPUD5dFAsAAABneyJvcmlnaW4iOiJodHRwczovL2FpcmJuYi5jb206NDQzIiwiZmVhdHVyZSI6IlByaW9yaXR5SGludHNBUEkiLCJleHBpcnkiOjE2NDc5OTM1OTksImlzU3ViZG9tYWluIjp0cnVlfQ==",
+      "x-browser-type": "unknown",
+      "x-erf-bev-bev-is-generated": "1",
+      "x-erf-bev-bev": "1772346775_EANjEwMGJhNDFlOD",
+      "x-airbnb-everest-device-id": "1772346775.EANTM2OTliMTY4Yjc1Mj.KMEn8IFvuK5bYpQoF0pIcH2XhOn1NAejFLJymUovBK8"
+    },
+    "cookies": [
+      "cdn_exp_abd8871b54fcbadab"
+    ],
+    "server": "nginx",
+    "status_code": 307,
+    "response_snippet": "Temporary Redirect. Redirecting to https://www.airbnb.com.sg/?test=%27%20OR%20%271%27%3D%271%27%20--&_set_bev_on_new_domain=1772346775_EANjEwMGJhNDFlOD&set_everest_cookie_on_new_domain=1772346775.EANTM2OTliMTY4Yjc1Mj.KMEn8IFvuK5bYpQoF0pIcH2XhOn1NAejFLJymUovBK8",
+    "all_detections": []
+  },
+  {
+    "target": "https://www.slack.com",
+    "timestamp": "2026-03-01T14:32:57.090702",
+    "waf_detected": false,
+    "waf_vendor": "Unknown or No WAF",
+    "confidence": 0,
+    "signatures_found": [],
+    "headers": {
+      "date": "Sun, 01 Mar 2026 06:33:03 GMT",
+      "server": "Apache",
+      "vary": "Accept-Encoding",
+      "location": "https://slack.com/?test=%27%20OR%20%271%27%3D%271%27%20--",
+      "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+      "referrer-policy": "no-referrer",
+      "x-slack-unique-id": "aaPdnzgjlfbefBD5K50jvAAAADg",
+      "x-slack-backend": "r",
+      "x-frame-options": "SAMEORIGIN",
+      "content-type": "text/html",
+      "content-length": "0",
+      "via": "1.1 slack-prod.tinyspeck.com, envoy-www-iad-aaiygvub,envoy-edge-sin-ttarozkj",
+      "x-envoy-attempt-count": "1",
+      "x-envoy-upstream-service-time": "229",
+      "x-backend": "main_normal",
+      "x-server": "slack-www-hhvm-main-iad-jppeyvcio8y4",
+      "x-slack-shared-secret-outcome": "no-match",
+      "x-edge-backend": "envoy-www",
+      "timing-allow-origin": "*",
+      "alt-svc": "h3=\":443\"; ma=2592000, h3-29=\":443\"; ma=2592000, quic=\":443\"; ma=2592000",
+      "x-slack-edge-shared-secret-outcome": "no-match",
+      "connection": "close"
+    },
+    "cookies": [],
+    "server": "Apache",
+    "status_code": 302,
+    "response_snippet": "",
+    "all_detections": []
+  },
+  {
+    "target": "https://www.lyft.com",
+    "timestamp": "2026-03-01T14:33:03.342348",
+    "waf_detected": true,
+    "waf_vendor": "AWS WAF",
+    "confidence": 40,
+    "signatures_found": [
+      "Header: x-amz-cf-id"
+    ],
+    "headers": {
+      "server": "CloudFront",
+      "date": "Sun, 01 Mar 2026 06:33:04 GMT",
+      "content-type": "text/html",
+      "content-length": "919",
+      "connection": "close",
+      "x-cache": "Error from cloudfront",
+      "via": "1.1 f9390503c7a4b12a3096ea9cb549012e.cloudfront.net (CloudFront)",
+      "x-amz-cf-pop": "SIN2-P11",
+      "x-amz-cf-id": "MAEvAtxgXsQ-5s1JwmhKPqJlBtQRJxaNzhOvOJZiNsc3uvMplbScBQ=="
+    },
+    "cookies": [],
+    "server": "CloudFront",
+    "status_code": 403,
+    "response_snippet": "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01 Transitional//EN\" \"http://www.w3.org/TR/html4/loose.dtd\">\n<HTML><HEAD><META HTTP-EQUIV=\"Content-Type\" CONTENT=\"text/html; charset=iso-8859-1\">\n<TITLE>ERROR: The request could not be satisfied</TITLE>\n</HEAD><BODY>\n<H1>403 ERROR</H1>\n<H2>The request could not be satisfied.</H2>\n<HR noshade size=\"1px\">\nRequest blocked.\nWe can't connect to the server for this app or website at this time. There might be too much traffic or a configuration error. Try again",
+    "all_detections": [
+      {
+        "vendor": "AWS WAF",
+        "confidence": 40,
+        "signatures": [
+          "Header: x-amz-cf-id"
+        ],
+        "signature_count": 1
+      },
+      {
+        "vendor": "Cloudflare",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Akamai",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Imperva (Incapsula)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "F5 BIG-IP",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Fastly",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Barracuda",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Citrix NetScaler",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Radware",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Microsoft Azure WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Google Cloud Armor",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Qualys WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Penta Security (WAPPLES)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "StackPath",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Sophos",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Palo Alto (Prisma Cloud)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Check Point",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Trustwave (ModSecurity)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Scutum",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Rohde & Schwarz",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      }
+    ]
+  },
+  {
+    "target": "https://www.pinterest.com",
+    "timestamp": "2026-03-01T14:33:04.807659",
+    "waf_detected": true,
+    "waf_vendor": "Akamai",
+    "confidence": 35,
+    "signatures_found": [
+      "Header: akamai-grn"
+    ],
+    "headers": {
+      "x-xss-protection": "1; mode=block",
+      "x-content-type-options": "nosniff",
+      "x-ua-compatible": "IE=edge",
+      "reporting-endpoints": "coop-endpoint=\"https://www.pinterest.com/_/_/coop_report/\", coep-endpoint=\"https://www.pinterest.com/_/_/coep_report/\"",
+      "cross-origin-opener-policy-report-only": "same-origin; report-to=\"coop-endpoint\"",
+      "p3p": "CP=\"This is not a P3P policy. See https://www.pinterest.com/_/_/help/articles/pinterest-and-p3p for more info.\"",
+      "content-security-policy": "default-src 'self' blob: s.pinimg.com s1.pinimg.com s2.pinimg.com; font-src 'self' m.media-amazon.com *.amazon-adsystem.com s.pinimg.com s1.pinimg.com s2.pinimg.com data: fonts.googleapis.com fonts.gstatic.com use.typekit.net; style-src 'self' blob: 'unsafe-inline' data: *.pinimg.com *.pinterest.com accounts.google.com fonts.googleapis.com *.adyen.com *.adyenpayments.com; img-src blob: data: *; base-uri 'none'; connect-src 'self' blob: m.media-amazon.com *.amazon-adsystem.com htlb.casalemedia.com *.2mdn.net *.ada.support *.pinimg.com *.pinterest.com accounts.google.com *.adyen.com pinterest-salvador.s3.amazonaws.com *.adyenpayments.com *.facebook.com *.doubleclick.net *.adtrafficquality.google www.recaptcha.net https://pinterest-api.arkoselabs.com/ www.googleapis.com *.dropboxapi.com pinterest-aberdeen.s3.amazonaws.com pinterest-aberdeen.s3.us-east-1.amazonaws.com pinterest-anaheim.s3.amazonaws.com pinterest-anaheim.s3.us-east-1.amazonaws.com pinterest-hilo.s3.amazonaws.com pinterest-hilo.s3.us-east-1.amazonaws.com pinterest-sim-toontown.s3.amazonaws.com pinterest-sim-toontown.s3.us-east-1.amazonaws.com pinterest-media-upload.s3.amazonaws.com pinterest-media-upload.s3.us-east-1.amazonaws.com pinterest-media-upload.s3-accelerate.amazonaws.com pinterest-media-upload.s3-accelerate.us-east-1.amazonaws.com pinterest-milwaukee.s3.amazonaws.com pinterest-milwaukee.s3.us-east-1.amazonaws.com pinterest-poughkeepsie.s3.amazonaws.com pinterest-poughkeepsie.s3.us-east-1.amazonaws.com pinterest-waterloo.s3.amazonaws.com pinterest-waterloo.s3.us-east-1.amazonaws.com pinterest-plymouth.s3.amazonaws.com pinterest-plymouth.s3.us-east-1.amazonaws.com pinterest-salvador.s3.us-east-1.amazonaws.com pinterest-yamagata.s3.amazonaws.com pinterest-yamagata.s3.us-east-1.amazonaws.com *.cedexis.com *.cedexis-radar.net *.tvpixel.com api.pinadmin.com *.live-video.net https://*.daily.co https://*.pluot.blue wss://*.wss.daily.co api.basistheory.com; form-action 'self' *.adyen.com *.klarna.com *.tink.com *.adyenpayments.com; frame-src 'self' *.ada.support *.pinimg.com *.pinterest.com *.adyen.com static-sandbox.dlocal.com static.dlocal.com *.google.com *.facebook.com *.doubleclick.net *.adtrafficquality.google *.safeframe.googlesyndication.com www.recaptcha.net https://iframe.arkoselabs.com/ https://pinterest-api.arkoselabs.com/ api.sardine.ai api.sandbox.sardine.ai pinterest-hilo.s3.amazonaws.com pinterest-hilo.s3.us-east-1.amazonaws.com pinterest-sim-toontown.s3.amazonaws.com pinterest-sim-toontown.s3.us-east-1.amazonaws.com pinterest-milwaukee.s3.amazonaws.com pinterest-milwaukee.s3.us-east-1.amazonaws.com pinterest-waterloo.s3.amazonaws.com pinterest-waterloo.s3.us-east-1.amazonaws.com pinterest-tolu.s3.amazonaws.com *.pinterdev.com content.googleapis.com *.youtube.com *.youtube-nocookie.com *.ytimg.com player.vimeo.com calendly.com vine.co bid.g.doubleclick.net *.fls.doubleclick.net pinlogs.s3.amazonaws.com pinlogs.s3.us-east-1.amazonaws.com advertising-delivery-metric-reports.s3.amazonaws.com advertising-delivery-metric-reports.s3.us-east-1.amazonaws.com servedby.flashtalking.com pinterest-uk.admo.tv pinterest-uk-web.admo.tv fbrpc://call *.linkedin.com px.ads.linkedin.com api.basistheory.com js.basistheory.com 3ds.basistheory.com; media-src 'self' blob: m.media-amazon.com *.2mdn.net data: *.pinimg.com *.live-video.net; object-src 'self'; script-src 'nonce-fb0990e5d6c998ee90b754aee6244717' 'strict-dynamic' 'self' blob: 'unsafe-inline' *.pinimg.com *.pinterest.com *.adyen.com js.dlocal.com js-sandbox.dlocal.com static-sandbox.dlocal.com static.dlocal.com *.adyenpayments.com 'report-sample' *.google.com connect.facebook.net *.google-analytics.com *.facebook.com *.googleadservices.com *.doubleclick.net *.adtrafficquality.google *.googletagmanager.com radar.cedexis.com *.cedexis-test.com www.gstatic.com/recaptcha/ www.gstatic.cn/recaptcha/ www.recaptcha.net https://pinterest-api.arkoselabs.com/ api.sardine.ai api.sandbox.sardine.ai 'wasm-unsafe-eval' js.basistheory.com 3ds.basistheory.com; worker-src 'self' blob: 'unsafe-inline'; report-uri /_/_/csp_report/?rid=1490998447100555; frame-ancestors 'self' , script-src 'self' blob: 'unsafe-inline' *.pinimg.com *.pinterest.com *.adyen.com js.dlocal.com js-sandbox.dlocal.com static-sandbox.dlocal.com static.dlocal.com *.adyenpayments.com 'report-sample' *.google.com connect.facebook.net *.google-analytics.com *.facebook.com *.googleadservices.com *.doubleclick.net *.adtrafficquality.google *.googletagmanager.com radar.cedexis.com *.cedexis-test.com www.gstatic.com/recaptcha/ www.gstatic.cn/recaptcha/ www.recaptcha.net https://pinterest-api.arkoselabs.com/ api.sardine.ai api.sandbox.sardine.ai 'wasm-unsafe-eval' js.basistheory.com 3ds.basistheory.com; report-uri /_/_/csp_report/?rid=1490998447100555",
+      "x-frame-options": "SAMEORIGIN",
+      "origin-trial": "AvlUIFJouPpJAKljRGh7EnYm2Brnx/eu51h39Z7p11vbzNlw2YhkUhxvxZdkS709VlGGNw4Gcg/a9mAzHDrEcQ0AAAB5eyJvcmlnaW4iOiJodHRwczovL3BpbnRlcmVzdC5jb206NDQzIiwiZmVhdHVyZSI6IlNlbmRGdWxsVXNlckFnZW50QWZ0ZXJSZWR1Y3Rpb24iLCJleHBpcnkiOjE2ODQ4ODYzOTksImlzU3ViZG9tYWluIjp0cnVlfQ==",
+      "accept-ch": "Sec-CH-UA-Full,Sec-CH-UA-Full-Version-List,Sec-CH-UA-Model,Sec-CH-UA-Platform-Version",
+      "content-type": "text/html; charset=utf-8",
+      "link": "<https://i.pinimg.com>; rel=preconnect; crossorigin=anonymous, <https://s.pinimg.com>; rel=preconnect; crossorigin=anonymous, <https://v1.pinimg.com>; rel=preconnect; crossorigin=anonymous",
+      "trailer": "x-pinterest-sli-streamed-response-type",
+      "x-envoy-upstream-service-time": "110",
+      "pinterest-generated-by": "coreapp-webapp-prod-0a039d24",
+      "pinterest-version": "466b2af",
+      "referrer-policy": "origin",
+      "x-pinterest-rid": "1490998447100555",
+      "x-pinterest-rid-128bit": "559c6d5cdeba45caceeae7e140e05e25",
+      "vary": "user-agent",
+      "date": "Sun, 01 Mar 2026 06:33:07 GMT",
+      "alt-svc": "h3=\":443\"; ma=604800",
+      "transfer-encoding": "chunked",
+      "connection": "Transfer-Encoding",
+      "set-cookie": "_routing_id=\"0418ad5c-7b5d-40df-a127-9ea940c35093\"; Max-Age=86400; Path=/; HttpOnly",
+      "akamai-grn": "0.b4a4c117.1772346786.5cd56045",
+      "x-cdn": "akamai",
+      "strict-transport-security": "max-age=31536000 ; includeSubDomains ; preload"
+    },
+    "cookies": [
+      "_routing_id"
+    ],
+    "server": null,
+    "status_code": 200,
+    "response_snippet": "000082BE\r\n<!DOCTYPE html><html class=\"en\" lang=\"en\"><head><meta charSet=\"utf-8\"/><meta content=\"width=device-width, initial-scale=1\" id=\"viewport\" name=\"viewport\"/><script async=\"\" crossorigin=\"anonymous\" fetchPriority=\"high\" nonce=\"fb0990e5d6c998ee90b754aee6244717\" src=\"https://s.pinimg.com/webapp/runtime-4a3d89e9b895b757.js\"></script><script async=\"\" crossorigin=\"anonymous\" fetchPriority=\"high\" nonce=\"fb0990e5d6c998ee90b754aee6244717\" src=\"https://s.pinimg.com/webapp/polyfills-ecab820c88229221",
+    "all_detections": [
+      {
+        "vendor": "Akamai",
+        "confidence": 35,
+        "signatures": [
+          "Header: akamai-grn"
+        ],
+        "signature_count": 1
+      },
+      {
+        "vendor": "Imperva (Incapsula)",
+        "confidence": 25,
+        "signatures": [
+          "Header: x-cdn"
+        ],
+        "signature_count": 1
+      }
+    ]
+  },
+  {
+    "target": "https://www.reddit.com",
+    "timestamp": "2026-03-01T14:33:07.134123",
+    "waf_detected": true,
+    "waf_vendor": "Cloudflare",
+    "confidence": 5,
+    "signatures_found": [],
+    "headers": {
+      "connection": "close",
+      "content-length": "1522",
+      "retry-after": "0",
+      "content-type": "text/html",
+      "cache-control": "private, no-store",
+      "accept-ranges": "bytes",
+      "date": "Sun, 01 Mar 2026 06:33:07 GMT",
+      "via": "1.1 varnish",
+      "strict-transport-security": "max-age=31536000; includeSubdomains",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "SAMEORIGIN",
+      "x-xss-protection": "1; mode=block",
+      "server": "snooserv",
+      "report-to": "{\"group\": \"w3-reporting-nel\", \"max_age\": 14400, \"include_subdomains\": true,  \"endpoints\": [{ \"url\": \"https://w3-reporting-nel.reddit.com/reports\" }]}, {\"group\": \"w3-reporting\", \"max_age\": 14400, \"include_subdomains\": true, \"endpoints\": [{ \"url\": \"https://w3-reporting.reddit.com/reports\" }]}, {\"group\": \"w3-reporting-csp\", \"max_age\": 14400, \"include_subdomains\": true, \"endpoints\": [{ \"url\": \"https://w3-reporting-csp.reddit.com/reports\" }]}",
+      "nel": "{\"report_to\": \"w3-reporting-nel\", \"max_age\": 14400, \"include_subdomains\": false, \"success_fraction\": 1.0, \"failure_fraction\": 1.0}"
+    },
+    "cookies": [],
+    "server": "snooserv",
+    "status_code": 403,
+    "response_snippet": "<!doctype html>\n     <html>\n  <head>\n    <title>Blocked</title>\n    <style>\n      body {\n          font: small verdana, arial, helvetica, sans-serif;\n          width: 600px;\n          margin: 0 auto;\n      }\n\n      h1 {\n          height: 40px;\n          background: transparent url(//www.redditstatic.com/reddit.com.header.png) no-repeat scroll top right;\n      }\n    </style>\n  </head>\n  <body>\n    <h1>whoa there, pardner!</h1>\n\n<p>Your request has been blocked due to a network policy.</p>\n\n<p>Try",
+    "all_detections": [
+      {
+        "vendor": "Cloudflare",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Akamai",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "AWS WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Imperva (Incapsula)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "F5 BIG-IP",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Fastly",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Barracuda",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Citrix NetScaler",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Radware",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Microsoft Azure WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Google Cloud Armor",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Qualys WAF",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Penta Security (WAPPLES)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "StackPath",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Sophos",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Palo Alto (Prisma Cloud)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Check Point",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Trustwave (ModSecurity)",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Scutum",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      },
+      {
+        "vendor": "Rohde & Schwarz",
+        "confidence": 5,
+        "signatures": [],
+        "signature_count": 0
+      }
+    ]
+  }
+]

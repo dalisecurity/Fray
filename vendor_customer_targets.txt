@@ -1,0 +1,39 @@
+# WAF Vendor Sites and Known Customers
+# Testing vendors' own sites and their publicly disclosed customers
+
+# Imperva (Incapsula)
+https://www.imperva.com
+https://www.incapsula.com
+
+# Imperva Known Customers (from case studies)
+https://www.zendesk.com
+https://www.glassdoor.com
+https://www.yelp.com
+https://www.careerbuilder.com
+https://www.monster.com
+
+# Fastly
+https://www.fastly.com
+
+# Fastly Known Customers (from case studies)
+https://www.nytimes.com
+https://www.theguardian.com
+https://www.buzzfeed.com
+https://www.vox.com
+https://www.ticketmaster.com
+https://www.gov.uk
+
+# Azure WAF / Azure Front Door Customers
+https://www.adobe.com
+https://www.hp.com
+https://www.ge.com
+https://www.3m.com
+https://www.bmw.com
+
+# AWS WAF / CloudFront Customers
+https://www.netflix.com
+https://www.airbnb.com
+https://www.slack.com
+https://www.lyft.com
+https://www.pinterest.com
+https://www.reddit.com
