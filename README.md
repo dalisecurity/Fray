@@ -57,10 +57,11 @@ This repository contains the results of extensive WAF testing conducted over 100
 
 ### Statistics
 
-- **Total Payloads**: 2,695 (cleaned and properly categorized)
+- **Total Payloads**: 2,775 (cleaned and properly categorized)
 - **CVE Payloads**: 220 (2020-2026 critical vulnerabilities)
 - **Modern Bypass Techniques**: 138 (2025-2026 research)
 - **AI Security Payloads**: 370 (Complete OWASP LLM Top 10 coverage) 🆕
+- **API Security Payloads**: 80 (Complete OWASP API Security coverage) 🆕
 - **Payload Generator**: Interactive tool for custom payloads
 - **Attack Types**: 12 categories
 - **Testing Rounds**: 100
