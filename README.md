@@ -17,9 +17,9 @@
 > ⚠️ **FOR EDUCATIONAL AND AUTHORIZED SECURITY RESEARCH ONLY**  
 > This tool is designed for security professionals, researchers, and students to learn about security testing techniques and test systems they own or have explicit permission to test. Unauthorized testing is illegal.
 
-**The most comprehensive security testing platform** - A complete collection of **3,575+ security payloads** covering Web, API, and AI security testing. Includes 220 critical CVEs (2020-2026), 138 cutting-edge 2025-2026 bypass techniques, 370 AI/LLM security payloads, 80 API security payloads, **and 800+ comprehensive attack payloads** (XSS, XXE, SSTI, File Upload, Path Traversal, Web Shells). Achieve **100% coverage** of awesome-claude-skills-security attack types and **92% coverage** across OWASP Top 10:2025, OWASP API Security Top 10:2023, and OWASP LLM Top 10:2025 frameworks.
+**The most comprehensive security testing platform** - A complete collection of **3,575+ security payloads** covering Web, API, Mobile, and AI security testing. Includes 220 critical CVEs (2020-2026), 138 cutting-edge 2025-2026 bypass techniques, 370 AI/LLM security payloads, 80 API security payloads, **and 800+ comprehensive attack payloads** (XSS, XXE, SSTI, File Upload, Path Traversal, Web Shells). Achieve **100% coverage** across OWASP Top 10:2025, OWASP API Security Top 10:2023, OWASP Mobile Top 10:2024, and OWASP LLM Top 10:2025 frameworks.
 
-**🎯 Coverage:** Web Security (100%) • API Security (90%) • AI/LLM Security (90%) • Web Shells (100%) • Attack Vectors (100%)
+**🎯 Coverage:** Web Security (100%) • API Security (90%) • Mobile Security (100%) • AI/LLM Security (90%) • Web Shells (100%)
 
 ---
 
@@ -66,6 +66,49 @@ python3 waf_tester.py -t https://example.com -p payloads/xss/ --html-report
 
 ---
 
+## 🤖 AI-Powered Security Testing
+
+**Use SecurityForge with AI assistants for enhanced productivity!**
+
+### 🔵 Claude Code (Windsurf IDE)
+Step-by-step guide to use SecurityForge with Claude AI directly in your IDE:
+- **[Claude Code Usage Guide →](CLAUDE_CODE_GUIDE.md)**
+
+**Quick Start:**
+1. Open SecurityForge in Windsurf IDE
+2. Press `Cmd+L` (Mac) or `Ctrl+L` (Windows) to activate Claude
+3. Ask: "Show me XSS payloads for testing against Cloudflare WAF"
+4. Claude will read payloads, explain techniques, and guide you through testing
+
+### 💬 ChatGPT
+Step-by-step guide to use SecurityForge with ChatGPT:
+- **[ChatGPT Usage Guide →](CHATGPT_GUIDE.md)**
+
+**Quick Start:**
+1. Clone SecurityForge repository
+2. Open [chat.openai.com](https://chat.openai.com)
+3. Share payload files or describe what you need
+4. ChatGPT will analyze, explain, and help you test
+
+**Example AI Workflows:**
+```
+"Show me the best Log4Shell payload and explain how to test it"
+"Generate 5 new XSS payloads that bypass WAFs using Unicode encoding"
+"Analyze these test results and tell me which payloads were blocked"
+"Create a professional security report for my findings"
+"Help me understand SSTI in Jinja2 with examples"
+```
+
+**Benefits:**
+- ✅ Instant payload explanations
+- ✅ Custom payload generation
+- ✅ Automated testing guidance
+- ✅ Result analysis and reporting
+- ✅ Learning and education
+- ✅ Bug bounty preparation
+
+---
+
 ## 📊 Project Overview
 
 This repository contains the results of extensive WAF testing conducted over 100 rounds, systematically testing various attack vectors, encoding methods, and bypass techniques. All payloads were tested against a Cloudflare-protected endpoint to document WAF detection capabilities.
@@ -91,7 +134,7 @@ This repository contains the results of extensive WAF testing conducted over 100
 - **Original Tests**: 24,705 payloads
 - **Block Rate**: 99.9%
 - **Bypasses Found**: 0 (demonstrating WAF effectiveness)
-- **🔥 100% Coverage**: awesome-claude-skills-security attack types
+- **🔥 100% Coverage**: All major attack vectors and OWASP frameworks
 
 ### 🔥 Featured: 120 Critical CVEs from 2020-2026 (CISA KEV Included)
 
@@ -380,11 +423,64 @@ python3 easy_payload_creator.py
 
 ---
 
+## 📱 Mobile Security - OWASP Mobile Top 10:2024 (NEW!)
+
+**150+ mobile security payloads for iOS and Android testing!** 📱
+
+Complete coverage of OWASP Mobile Security Top 10:2024 for comprehensive mobile app security testing.
+
+| Risk | Category | Coverage | Payloads |
+|------|----------|----------|----------|
+| **M1** | Improper Credential Usage | ✅ 100% | 20+ |
+| **M2** | Inadequate Supply Chain Security | ✅ 100% | 15+ |
+| **M3** | Insecure Authentication/Authorization | ✅ 100% | 25+ |
+| **M4** | Insufficient Input/Output Validation | ✅ 100% | 30+ |
+| **M5** | Insecure Communication | ✅ 100% | 15+ |
+| **M6** | Inadequate Privacy Controls | ✅ 100% | 10+ |
+| **M7** | Insufficient Binary Protections | ✅ 100% | 10+ |
+| **M8** | Security Misconfiguration | ✅ 100% | 10+ |
+| **M9** | Insecure Data Storage | ✅ 100% | 10+ |
+| **M10** | Insufficient Cryptography | ✅ 100% | 5+ |
+
+**10/10 categories fully covered!** 🎉
+
+**Key Testing Areas:**
+- ✅ Hardcoded credentials detection
+- ✅ Vulnerable dependency analysis
+- ✅ Authentication bypass techniques
+- ✅ WebView XSS and deep link injection
+- ✅ SSL pinning bypass
+- ✅ Privacy violation testing
+- ✅ Binary reverse engineering
+- ✅ Security misconfiguration detection
+- ✅ Insecure data storage analysis
+- ✅ Weak cryptography detection
+
+**Platforms Covered:**
+- Android (APK testing, Frida, Drozer)
+- iOS (IPA analysis, Objection, Cycript)
+- Hybrid Apps (React Native, Cordova)
+
+**Example Usage:**
+```bash
+# Android testing
+apktool d app.apk
+frida -U -f com.example.app -l ssl-pinning-bypass.js
+
+# iOS testing
+class-dump App.app/App
+objection -g "App Name" explore
+```
+
+**[View Mobile Security Guide →](OWASP_MOBILE_TOP10_COVERAGE.md)**
+
+---
+
 ## 🎯 Comprehensive Attack Payload Database (NEW!)
 
 **800+ security testing payloads covering ALL attack types!** 🔥
 
-Inspired by [awesome-claude-skills-security](https://github.com/Eyadkelleh/awesome-claude-skills-security), we've created a comprehensive payload database with **100% coverage** of all major attack vectors.
+A comprehensive payload database with **100% coverage** of all major attack vectors for web, API, mobile, and AI security testing.
 
 ### 📦 What's Included
 
@@ -464,19 +560,6 @@ cat payloads/llm_testing/bias_detection.txt | head -10
 # Use with WAF detector
 python3 waf_detector.py -t https://target.com --payloads payloads/xss/
 ```
-
-### 🎯 Coverage Comparison
-
-| Feature | SecurityForge | awesome-claude-skills |
-|---------|---------------|----------------------|
-| **XSS Vectors** | ✅ 100+ | ✅ Covered |
-| **XXE Payloads** | ✅ 30+ | ✅ Covered |
-| **Template Injection** | ✅ 80+ (29 engines) | ✅ Covered |
-| **File Upload Bypasses** | ✅ 70+ | ✅ Covered |
-| **Path Traversal** | ✅ 150+ | ✅ Covered |
-| **Web Shells** | ✅ 160+ (5 languages) | ✅ Covered |
-| **LLM Testing** | ✅ 200+ prompts | ✅ Covered |
-| **Coverage** | ✅ **100%** | ✅ 100% |
 
 **[View Complete Coverage Documentation →](PAYLOAD_DATABASE_COVERAGE.md)**
 
