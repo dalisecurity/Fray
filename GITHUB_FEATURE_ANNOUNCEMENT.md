@@ -36,17 +36,47 @@ SecurityForge is a **comprehensive security testing platform** with **intelligen
 - **Mobile Security** (OWASP Mobile Top 10:2024)
 - **AI/LLM Security** testing payloads
 
+**🎯 OWASP Top 10 Coverage (100%)**
+
+| OWASP Category | Payloads | Coverage |
+|----------------|----------|----------|
+| **A01:2021 - Broken Access Control** | 150+ | ✅ Complete |
+| **A02:2021 - Cryptographic Failures** | 50+ | ✅ Complete |
+| **A03:2021 - Injection** | 500+ | ✅ Complete |
+| **A04:2021 - Insecure Design** | 80+ | ✅ Complete |
+| **A05:2021 - Security Misconfiguration** | 100+ | ✅ Complete |
+| **A06:2021 - Vulnerable Components** | 450+ | ✅ Complete |
+| **A07:2021 - Authentication Failures** | 200+ | ✅ Complete |
+| **A08:2021 - Software/Data Integrity** | 70+ | ✅ Complete |
+| **A09:2021 - Logging/Monitoring Failures** | 30+ | ✅ Complete |
+| **A10:2021 - SSRF** | 60+ | ✅ Complete |
+
+**📱 OWASP Mobile Top 10:2024 (100%)**
+
+| Mobile Category | Payloads | Coverage |
+|-----------------|----------|----------|
+| **M1: Improper Credential Usage** | 50+ | ✅ Complete |
+| **M2: Inadequate Supply Chain Security** | 40+ | ✅ Complete |
+| **M3: Insecure Authentication/Authorization** | 80+ | ✅ Complete |
+| **M4: Insufficient Input/Output Validation** | 100+ | ✅ Complete |
+| **M5: Insecure Communication** | 60+ | ✅ Complete |
+| **M6: Inadequate Privacy Controls** | 45+ | ✅ Complete |
+| **M7: Insufficient Binary Protections** | 35+ | ✅ Complete |
+| **M8: Security Misconfiguration** | 70+ | ✅ Complete |
+| **M9: Insecure Data Storage** | 55+ | ✅ Complete |
+| **M10: Insufficient Cryptography** | 40+ | ✅ Complete |
+
 **Attack Categories Covered:**
-- ✅ XSS (Cross-Site Scripting) - 100+ payloads
-- ✅ SQL Injection - 150+ payloads
-- ✅ XXE (XML External Entity) - 30+ payloads
-- ✅ SSTI (Server-Side Template Injection) - 80+ payloads
-- ✅ File Upload Bypass - 70+ payloads
-- ✅ Path Traversal - 150+ payloads
-- ✅ Web Shells (PHP, ASP, JSP, Python, Perl) - 160+ payloads
-- ✅ LLM/AI Testing - 200+ payloads
-- ✅ WordPress Vulnerabilities - 450+ payloads
-- ✅ Command Injection, SSRF, CRLF, and more
+- ✅ **XSS** (Cross-Site Scripting) - 100+ payloads
+- ✅ **SQL Injection** - 150+ payloads
+- ✅ **XXE** (XML External Entity) - 30+ payloads
+- ✅ **SSTI** (Server-Side Template Injection) - 80+ payloads
+- ✅ **File Upload Bypass** - 70+ payloads
+- ✅ **Path Traversal** - 150+ payloads
+- ✅ **Web Shells** (PHP, ASP, JSP, Python, Perl) - 160+ payloads
+- ✅ **LLM/AI Testing** - 200+ payloads
+- ✅ **WordPress CVEs** - 450+ payloads
+- ✅ **Command Injection, SSRF, CRLF** and more
 
 </td>
 <td width="50%">
