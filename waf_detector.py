@@ -27,39 +27,48 @@ class WAFDetector:
     def __init__(self):
         self.waf_signatures = {
             'Cloudflare': {
-                'headers': ['cf-ray', 'cf-cache-status', '__cfduid', 'cf-request-id'],
-                'cookies': ['__cfduid', '__cflb'],
-                'response_codes': [403, 503],
-                'response_text': ['cloudflare', 'attention required', 'ray id'],
-                'server': ['cloudflare']
+                'headers': ['cf-ray', 'cf-cache-status', '__cfduid', 'cf-request-id', 'cf-cache-status', 'cf-request-id'],
+                'cookies': ['__cfduid', '__cflb', 'cf_clearance'],
+                'response_codes': [403, 503, 520, 521, 522, 523, 524, 525, 526, 527],
+                'response_text': ['cloudflare', 'attention required', 'ray id', 'checking your browser', 'just a moment', 'cf-error-details', 'cf-wrapper'],
+                'server': ['cloudflare'],
+                'error_patterns': [r'Ray ID: [a-f0-9]+', r'Cloudflare Ray ID'],
+                'challenge_patterns': ['cf-challenge', 'cf-captcha-container']
             },
             'Akamai': {
                 'headers': ['akamai-origin-hop', 'akamai-grn', 'x-akamai-session-id', 'akamai-x-cache', 'x-akamai-transformed', 'akamai-cache-status'],
-                'cookies': ['ak_bmsc', 'bm_sv', 'bm_sz', 'akacd_'],
-                'response_codes': [403],
+                'cookies': ['ak_bmsc', 'bm_sv', 'bm_sz', 'akacd_', 'bm_mi'],
+                'response_codes': [403, 503],
                 'response_text': ['akamai', 'reference #', 'akamai technologies'],
-                'server': ['akamaighost', 'akamaighost', 'akamai']
+                'server': ['akamaighost', 'akamai'],
+                'error_patterns': [r'Reference #[\d\.]+', r'Akamai Error'],
+                'bot_manager': True
             },
             'AWS WAF': {
-                'headers': ['x-amzn-requestid', 'x-amz-cf-id', 'x-amzn-trace-id', 'x-amz-apigw-id', 'x-amz-id', 'x-amz-request-id'],
+                'headers': ['x-amzn-requestid', 'x-amz-cf-id', 'x-amzn-trace-id', 'x-amz-apigw-id', 'x-amz-id', 'x-amz-request-id', 'x-amzn-waf-action'],
                 'cookies': ['awsalb', 'awsalbcors', 'awsalbapp', 'awsalbtg'],
                 'response_codes': [403],
-                'response_text': ['aws', 'forbidden', 'access denied'],
-                'server': ['awselb', 'awselb/2.0', 'amazon']
+                'response_text': ['aws', 'forbidden', 'access denied', 'aws waf', 'request blocked'],
+                'server': ['awselb', 'awselb/2.0', 'amazon', 'cloudfront'],
+                'error_patterns': [r'Request ID: [a-zA-Z0-9\-]+'],
+                'waf_specific_headers': ['x-amzn-waf-action']
             },
             'Imperva (Incapsula)': {
                 'headers': ['x-cdn', 'x-iinfo', 'x-true-client-ip'],
                 'cookies': ['incap_ses', 'visid_incap', 'nlbi', 'incap'],
                 'response_codes': [403],
-                'response_text': ['incapsula', 'imperva', 'incident id', 'incap'],
-                'server': ['imperva', 'incapsula']
+                'response_text': ['incapsula', 'imperva', 'incident id', 'incap', 'support id'],
+                'server': ['imperva', 'incapsula'],
+                'error_patterns': [r'Incident ID: [a-zA-Z0-9]+', r'Support ID: [0-9]+'],
+                'challenge_patterns': ['Verifying you are human']
             },
             'F5 BIG-IP': {
                 'headers': ['x-wa-info', 'x-cnection'],
                 'cookies': ['bigipserver', 'f5_cspm', 'ts', 'bigip'],
                 'response_codes': [403],
-                'response_text': ['the requested url was rejected', 'f5'],
-                'server': ['big-ip', 'bigip']
+                'response_text': ['the requested url was rejected', 'f5', 'please consult with your administrator'],
+                'server': ['big-ip', 'bigip'],
+                'error_patterns': [r'Support ID: [0-9]+', r'The requested URL was rejected']
             },
             'Fastly (Signal Sciences WAF)': {
                 'headers': ['fastly-io-info', 'x-fastly-request-id', 'fastly-restarts', 'x-served-by', 'x-cache', 'x-timer', 'x-sigsci-requestid', 'x-sigsci-tags'],
@@ -321,9 +330,39 @@ class WAFDetector:
                         found_signatures.append(f"Response text: {text_sig}")
                         signature_count += 1
             
+            # Check error patterns (regex-based, high confidence)
+            if results['response_snippet'] and 'error_patterns' in signatures:
+                for pattern in signatures['error_patterns']:
+                    if re.search(pattern, results['response_snippet'], re.IGNORECASE):
+                        confidence += 25  # Error pattern match is strong indicator
+                        found_signatures.append(f"Error pattern: {pattern}")
+                        signature_count += 1
+            
+            # Check challenge patterns (CAPTCHA/challenge pages)
+            if results['response_snippet'] and 'challenge_patterns' in signatures:
+                for pattern in signatures['challenge_patterns']:
+                    if pattern.lower() in results['response_snippet'].lower():
+                        confidence += 20  # Challenge page is good indicator
+                        found_signatures.append(f"Challenge: {pattern}")
+                        signature_count += 1
+            
+            # Check WAF-specific headers (very high confidence)
+            if 'waf_specific_headers' in signatures:
+                for waf_header in signatures['waf_specific_headers']:
+                    if waf_header.lower() in [h.lower() for h in results['headers'].keys()]:
+                        confidence += 40  # WAF-specific header is very strong
+                        found_signatures.append(f"WAF-specific header: {waf_header}")
+                        signature_count += 1
+            
             # Check status code (low weight, many WAFs use same codes)
             if results['status_code'] in signatures['response_codes']:
-                confidence += 5  # Reduced from 10
+                # Give more weight to unique status codes
+                if results['status_code'] in [520, 521, 522, 523, 524, 525, 526, 527]:
+                    confidence += 15  # Cloudflare-specific codes
+                elif results['status_code'] == 406:
+                    confidence += 10  # Signal Sciences specific
+                else:
+                    confidence += 5  # Common codes
             
             # Bonus for multiple signature types (indicates stronger match)
             if signature_count >= 3:
