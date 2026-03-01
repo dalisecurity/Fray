@@ -14,6 +14,11 @@
 [![OWASP LLM](https://img.shields.io/badge/OWASP_LLM-300+_Payloads-blue.svg)](https://github.com/dalisecurity/securityforge)
 [![OWASP API](https://img.shields.io/badge/OWASP_API-520+_Payloads-red.svg)](https://github.com/dalisecurity/securityforge)
 [![WordPress CVEs](https://img.shields.io/badge/WordPress_CVEs-450+_Payloads-blueviolet.svg)](https://github.com/dalisecurity/securityforge)
+
+[![GitHub stars](https://img.shields.io/github/stars/dalisecurity/securityforge?style=social)](https://github.com/dalisecurity/securityforge/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/dalisecurity/securityforge?style=social)](https://github.com/dalisecurity/securityforge/network/members)
+[![GitHub watchers](https://img.shields.io/github/watchers/dalisecurity/securityforge?style=social)](https://github.com/dalisecurity/securityforge/watchers)
+[![Topics](https://img.shields.io/badge/Topics-10-blue.svg)](https://github.com/dalisecurity/securityforge)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.7+-blue.svg)](https://www.python.org/downloads/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
