@@ -1,13 +1,13 @@
 # SecurityForge
 
-### ⚔️ *Open-source WAF security testing — 4,000+ payloads, 25 WAF detections, structured for AI workflows*
+### ⚔️ *Open-source WAF security testing toolkit — 5,500+ payloads, 25 WAF detections, MCP server for AI workflows*
 
-**The open-source offensive security toolkit** • 4,025+ Payloads • 25 WAF Fingerprints • Zero-Config • AI-Compatible
+**The open-source offensive security toolkit** • 5,500+ Payloads • 25 WAF Fingerprints • Zero Dependencies • 61 Tests
 
-[![Total Payloads](https://img.shields.io/badge/Total_Payloads-4025+-brightgreen.svg?style=for-the-badge)](https://github.com/dalisecurity/securityforge)
+[![Total Payloads](https://img.shields.io/badge/Total_Payloads-5500+-brightgreen.svg?style=for-the-badge)](https://github.com/dalisecurity/securityforge)
 [![OWASP Coverage](https://img.shields.io/badge/OWASP_Coverage-100%25-success.svg?style=for-the-badge&logo=owasp)](https://github.com/dalisecurity/securityforge)
 [![WAF Detection](https://img.shields.io/badge/WAF_Vendors-25+-blue.svg?style=for-the-badge&logo=cloudflare)](https://github.com/dalisecurity/securityforge)
-[![AI Powered](https://img.shields.io/badge/AI_Powered-Claude_+_ChatGPT-purple.svg?style=for-the-badge&logo=openai)](https://github.com/dalisecurity/securityforge)
+[![Tests](https://img.shields.io/badge/Tests-61_Passing-success.svg?style=for-the-badge)](https://github.com/dalisecurity/securityforge/actions)
 
 [![OWASP Web](https://img.shields.io/badge/OWASP_Top_10-1690+_Payloads-orange.svg)](https://github.com/dalisecurity/securityforge)
 [![OWASP Mobile](https://img.shields.io/badge/OWASP_Mobile-575+_Payloads-green.svg)](https://github.com/dalisecurity/securityforge)
@@ -134,6 +134,57 @@ docker-compose up
 ```
 
 **Zero dependencies** for core functionality. Pure Python standard library.
+
+---
+
+## 🔍 Why SecurityForge?
+
+Tools like [PayloadsAllTheThings](https://github.com/swisskyrepo/PayloadsAllTheThings) are excellent community-maintained payload references. SecurityForge is not trying to replace them — it solves a different problem.
+
+| | PayloadsAllTheThings | SecurityForge |
+|---|---|---|
+| **Format** | Markdown docs with inline payloads | Structured JSON — every payload has `id`, `description`, `technique`, `source` |
+| **WAF detection** | ❌ None | ✅ 25-vendor fingerprinting engine (`securityforge detect`) |
+| **MCP server** | ❌ None | ✅ 6 tools for Claude/AI assistant integration |
+| **CLI testing** | ❌ Reference only | ✅ `securityforge test <url> -c xss` fires payloads at targets |
+| **Report generation** | ❌ None | ✅ JSON/HTML security reports with block rate analysis |
+| **IoT/robotics CVEs** | Minimal | CVE-2026-27509/27510 (Unitree Go2 DDS RCE, NVD-verified) |
+| **AI/LLM attacks** | Partial | 370 prompt injection + 650 LLM testing payloads (OWASP LLM Top 10) |
+| **Modern bypasses** | Some | HTTP/2 smuggling, WebSocket, GraphQL, gRPC (2025-2026 research) |
+| **pip installable** | ❌ | ✅ `pip install securityforge` |
+| **Raw payload breadth** | **Deeper, community-vetted** | Narrower — value is in tooling and structure |
+
+**TL;DR:** PayloadsAllTheThings is a payload encyclopedia. SecurityForge is a testing toolkit that happens to ship payloads.
+
+---
+
+## 🧪 Test Suite — 61 Tests
+
+SecurityForge has a real test suite that runs in CI on every push (Python 3.9–3.13):
+
+```bash
+pip install pytest "mcp[cli]"
+python -m pytest tests/test_package.py -v
+```
+
+| Category | Tests | What's covered |
+|----------|-------|----------------|
+| Package structure | 4 | Imports, version format, payloads directory, exports |
+| Payload integrity | 8 | Valid JSON, no duplicates, no fake test data, source provenance, no false CVE claims |
+| WAF detection logic | 10 | `_analyze_signatures` with mock responses for Cloudflare, AWS WAF, Akamai, Imperva, no-WAF, confidence capping, multi-vendor ranking |
+| Payload loading | 3 | JSON file loading, all categories loadable, error handling |
+| Report generation | 2 | JSON report output with block rate math, empty result handling |
+| IoT RCE CVEs | 6 | CVE-2026-27509/27510 metadata accuracy, CWE codes, payload structure |
+| MCP server | 13 | Helper functions, 6-tool registration, tool execution, error responses |
+| Data quality | 2 | No Python code fragments in payloads, no fabricated test results |
+| CLI commands | 8 | Help, version, category listing, error exits |
+
+**Data quality guarantees enforced by tests:**
+- No exact duplicate payloads within any JSON file
+- No fabricated `blocked: true` / `success_rate: 0.0` placeholder data
+- No Python source code fragments leaked into payload data
+- Every JSON payload has a `source` field
+- No false CVE attribution (e.g., WordPress CVEs that are actually openDCIM)
 
 ---
 

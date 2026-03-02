@@ -85,7 +85,35 @@ cd securityforge
 python3 waf_tester.py -i
 ```
 
-## 📚 Documentation
+## � Why SecurityForge?
+
+[PayloadsAllTheThings](https://github.com/swisskyrepo/PayloadsAllTheThings) is a great payload reference. SecurityForge solves a different problem — it's a **testing toolkit**, not an encyclopedia.
+
+| | PayloadsAllTheThings | SecurityForge |
+|---|---|---|
+| **Format** | Markdown docs | Structured JSON (`id`, `description`, `technique`, `source`) |
+| **WAF detection** | ❌ | ✅ 25-vendor fingerprinting |
+| **MCP server** | ❌ | ✅ 6 tools for AI assistants |
+| **CLI testing** | ❌ Reference only | ✅ `securityforge test <url> -c xss` |
+| **Reports** | ❌ | ✅ JSON/HTML with block rate analysis |
+| **pip install** | ❌ | ✅ `pip install securityforge` |
+| **Payload breadth** | **Deeper** | Narrower — value is in tooling |
+
+## 🧪 Test Suite — 61 Tests
+
+Real tests that run in CI on every push (Python 3.9–3.13):
+
+| Category | Tests |
+|----------|-------|
+| WAF detection logic | 10 (`_analyze_signatures` with mock data for 4 WAF vendors) |
+| MCP server | 13 (tool registration + execution) |
+| Payload integrity | 8 (no dupes, no fake data, source provenance) |
+| IoT RCE CVEs | 6 (CVE metadata accuracy) |
+| CLI commands | 8 |
+| Package + loading + reports | 9 |
+| Data quality | 2 (no code fragments, no fabricated results) |
+
+## �📚 Documentation
 
 - [Quick Start Guide](docs/quickstart.md)
 - [Full Documentation](README.md)
