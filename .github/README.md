@@ -115,7 +115,29 @@ Real tests that run in CI on every push (Python 3.9–3.13):
 
 ## 📄 Sample Report
 
+After running a scan, SecurityForge generates a self-contained HTML report you can share with your team or attach to a pentest deliverable.
+
+**What's in the report:**
+- **Executive summary** — total payloads tested, blocked vs bypassed count, security score
+- **Block rate progress bar** — visual effectiveness metric at a glance
+- **Category breakdown table** — per-category (XSS, SQLi, SSRF, etc.) block rates with status badges
+- **Vulnerabilities discovered** — bypassed payloads grouped by severity (Critical → Low)
+- **Recommendations** — WAF-specific tuning advice and OWASP remediation steps
+- **Detailed results** — full payload-by-payload log with status codes
+
 ![SecurityForge Sample Report](https://raw.githubusercontent.com/dalisecurity/securityforge/main/docs/sample-report.png)
+
+**Export:**
+```bash
+# Run a scan and export HTML report
+securityforge test https://target.com -c xss -o results.json
+
+# Generate a standalone sample report
+python -c "from securityforge.reporter import generate_sample_report; generate_sample_report()"
+# → opens sample_security_report.html in your browser
+```
+
+The HTML file is fully self-contained (inline CSS, no external dependencies) — just open it in any browser or convert to PDF via print.
 
 ## 📚 Documentation
 
