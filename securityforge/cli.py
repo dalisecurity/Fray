@@ -70,12 +70,20 @@ def cmd_test(args):
 
 def cmd_report(args):
     """Generate HTML report from results"""
-    from securityforge.reporter import ReportGenerator
-    generator = ReportGenerator()
-    if args.input:
-        generator.load_results(args.input)
-    output = args.output or "securityforge_report.html"
-    generator.generate_html(output)
+    if args.sample:
+        from securityforge.reporter import generate_sample_report
+        generate_sample_report()
+        return
+
+    from securityforge.reporter import SecurityReportGenerator
+    if not args.input:
+        print("Error: provide --input results.json or use --sample for a demo report")
+        sys.exit(1)
+    with open(args.input, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    generator = SecurityReportGenerator()
+    output = args.output
+    generator.generate_html_report(data, output)
     print(f"Report generated: {output}")
 
 
@@ -161,6 +169,7 @@ Documentation: https://github.com/dalisecurity/securityforge
     p_report = subparsers.add_parser("report", help="Generate HTML security report")
     p_report.add_argument("-i", "--input", help="Input results JSON file")
     p_report.add_argument("-o", "--output", default="securityforge_report.html", help="Output HTML file")
+    p_report.add_argument("--sample", action="store_true", help="Generate a sample demo report")
     p_report.set_defaults(func=cmd_report)
 
     # payloads

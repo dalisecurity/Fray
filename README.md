@@ -194,12 +194,13 @@ SecurityForge generates professional HTML security reports with executive summar
 
 ![SecurityForge Sample Report](docs/sample-report.png)
 
-Generate your own:
+**Export:**
 ```bash
-securityforge test https://your-target.com -c xss -o results.json
-# or generate a sample report
-python -c "from securityforge.reporter import generate_sample_report; generate_sample_report()"
+securityforge report --sample                      # generate a demo report
+securityforge report -i results.json -o report.html  # from real scan results
 ```
+
+Output is a self-contained HTML file — open in any browser or print to PDF.
 
 ---
 

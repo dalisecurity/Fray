@@ -129,15 +129,11 @@ After running a scan, SecurityForge generates a self-contained HTML report you c
 
 **Export:**
 ```bash
-# Run a scan and export HTML report
-securityforge test https://target.com -c xss -o results.json
-
-# Generate a standalone sample report
-python -c "from securityforge.reporter import generate_sample_report; generate_sample_report()"
-# → opens sample_security_report.html in your browser
+securityforge report --sample                      # generate a demo report
+securityforge report -i results.json -o report.html  # from real scan results
 ```
 
-The HTML file is fully self-contained (inline CSS, no external dependencies) — just open it in any browser or convert to PDF via print.
+Output is a self-contained HTML file — open in any browser or print to PDF.
 
 ## 📚 Documentation
 
