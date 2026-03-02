@@ -137,46 +137,60 @@ docker-compose up
 
 ---
 
-## 🤖 Using SecurityForge with AI Assistants
+## 🤖 MCP Server — AI Assistant Integration
 
-**SecurityForge's structured JSON payloads work well with AI coding assistants:**
+SecurityForge includes an **MCP (Model Context Protocol) server** that exposes payload data, WAF signatures, and CVE lookups as tools that AI assistants can call directly — no copy-paste needed.
 
-### 🔵 Claude Code (Windsurf IDE)
-Step-by-step guide to use SecurityForge with Claude AI directly in your IDE:
+### Install
+
+```bash
+pip install securityforge[mcp]
+```
+
+### Start the MCP Server
+
+```bash
+securityforge mcp
+```
+
+### Configure Claude Desktop
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "securityforge": {
+      "command": "python",
+      "args": ["-m", "securityforge.mcp_server"]
+    }
+  }
+}
+```
+
+### Available MCP Tools (6)
+
+| Tool | Description |
+|------|-------------|
+| `list_payload_categories` | List all 22 payload categories with file counts |
+| `get_payloads` | Retrieve payloads from a category (xss, sqli, iot_rce, etc.) |
+| `search_payloads` | Search across all categories by keyword (e.g. "reverse shell") |
+| `get_waf_signatures` | Get WAF detection signatures, optionally filtered by vendor |
+| `get_cve_details` | Look up a CVE across all payload files (e.g. CVE-2026-27509) |
+| `suggest_payloads_for_waf` | Recommend bypass payloads ranked for a specific WAF vendor |
+
+### Example: Ask Claude
+
+Once configured, you can ask Claude directly:
+- *"What XSS payloads work best against Cloudflare WAF?"* → calls `suggest_payloads_for_waf`
+- *"Show me the CVE-2026-27509 details"* → calls `get_cve_details`
+- *"Search for SSRF payloads that use DNS"* → calls `search_payloads`
+
+### Manual Usage (without MCP)
+
+You can also use SecurityForge with AI assistants manually:
 - **[Claude Code Usage Guide →](docs/claude-code-guide.md)**
-
-**Quick Start:**
-1. Open SecurityForge in Windsurf IDE
-2. Press `Cmd+L` (Mac) or `Ctrl+L` (Windows) to activate Claude
-3. Ask: "Show me XSS payloads for testing against Cloudflare WAF"
-4. Claude will read payloads, explain techniques, and guide you through testing
-
-### 💬 ChatGPT
-Step-by-step guide to use SecurityForge with ChatGPT:
 - **[ChatGPT Usage Guide →](docs/chatgpt-guide.md)**
-
-**Quick Start:**
-1. Clone SecurityForge repository
-2. Open [chat.openai.com](https://chat.openai.com)
-3. Share payload files or describe what you need
-4. ChatGPT will analyze, explain, and help you test
-
-**Example AI Workflows:**
-```
-"Show me the best Log4Shell payload and explain how to test it"
-"Generate 5 new XSS payloads that bypass WAFs using Unicode encoding"
-"Analyze these test results and tell me which payloads were blocked"
-"Create a professional security report for my findings"
-"Help me understand SSTI in Jinja2 with examples"
-```
-
-**Benefits:**
-- ✅ Instant payload explanations
-- ✅ Custom payload generation
-- ✅ Automated testing guidance
-- ✅ Result analysis and reporting
-- ✅ Learning and education
-- ✅ Bug bounty preparation
 
 ---
 

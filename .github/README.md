@@ -92,22 +92,34 @@ python3 waf_tester.py -i
 - [Docker Usage](docs/docker.md)
 - [OWASP Coverage](docs/owasp-complete-coverage.md)
 
-## 🤖 Use with AI Assistants
+## 🤖 MCP Server — AI Integration
 
-### Claude Code
-```
-Use SecurityForge to detect WAF and test our staging environment
+SecurityForge includes an MCP server that AI assistants can call directly:
+
+```bash
+pip install securityforge[mcp]
+securityforge mcp
 ```
 
-### ChatGPT
-```
-Run securityforge detect and test against https://example.com
+**6 MCP tools:** `list_payload_categories`, `get_payloads`, `search_payloads`, `get_waf_signatures`, `get_cve_details`, `suggest_payloads_for_waf`
+
+Configure Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "securityforge": {
+      "command": "python",
+      "args": ["-m", "securityforge.mcp_server"]
+    }
+  }
+}
 ```
 
 ### CLI
 ```bash
 securityforge detect https://example.com
 securityforge test https://example.com -c xss --max 10
+securityforge payloads
 ```
 
 ## 📊 Complete OWASP Coverage
