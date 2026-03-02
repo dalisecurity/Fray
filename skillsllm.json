@@ -1,8 +1,8 @@
 {
   "name": "SecurityForge",
-  "description": "Forge Your Security Testing Arsenal - 2,775+ comprehensive payloads covering Web, API, and AI security testing. 92% OWASP framework coverage. Interactive CLI for easy use with Claude Code, ChatGPT, and security workflows.",
-  "version": "2.0.0",
-  "author": "Security Research Community",
+  "description": "Forge your attack payloads with AI — 4,025+ exploits, 25 WAF detections, works with Claude & ChatGPT. The open-source offensive security toolkit built for the AI era.",
+  "version": "3.0.0",
+  "author": "DALI Security",
   "license": "MIT",
   "repository": "https://github.com/dalisecurity/securityforge",
   "homepage": "https://github.com/dalisecurity/securityforge",
@@ -18,8 +18,10 @@
     "sqli",
     "vulnerability-scanner",
     "ai-skill",
+    "ai-agent",
     "claude-code",
     "chatgpt",
+    "codex-cli",
     "cli-tool",
     "cybersecurity",
     "bug-bounty",
@@ -27,31 +29,34 @@
     "security-testing",
     "web-security",
     "waf",
-    "graphql",
-    "ssrf"
+    "waf-bypass",
+    "red-team",
+    "offensive-security",
+    "ssrf",
+    "ssti",
+    "llm-jailbreak"
   ],
   "categories": [
     "Security",
     "Testing",
     "CLI Tools",
     "AI Skills",
-    "OWASP",
-    "API Security",
-    "AI Security"
+    "Offensive Security",
+    "AI Security",
+    "Red Team"
   ],
   "features": [
-    "Interactive mode for guided testing",
-    "2,775 organized security payloads across Web, API, and AI security",
-    "92% OWASP framework coverage (Web 95%+, API 90%, LLM 90%)",
-    "370 AI/LLM security payloads (prompt injection, jailbreaks, RAG poisoning)",
-    "80 API security payloads (business logic, inventory management)",
-    "220 critical CVEs (2020-2026)",
-    "138 modern bypass techniques (2025-2026)",
-    "Easy payload creator - plain English input",
+    "4,025+ battle-tested attack payloads across 15 categories",
+    "25 WAF vendor fingerprinting (Cloudflare, AWS, Azure, Akamai, Imperva, etc.)",
+    "100% OWASP coverage (Top 10, Mobile, LLM, API)",
+    "AI-native — works with Claude Code and ChatGPT out of the box",
+    "Zero config interactive CLI: python3 waf_tester.py -i",
+    "120 CVE exploits (2020-2026) including CISA KEV",
+    "LLM jailbreak and prompt injection payloads",
+    "Professional HTML report generation",
+    "WAF detection → payload selection → report in one tool",
     "No external dependencies",
-    "Docker support",
-    "JSON report generation",
-    "Team collaboration ready"
+    "Docker support"
   ],
   "requirements": {
     "python": ">=3.7"
@@ -65,6 +70,6 @@
     "claude_code": true,
     "chatgpt": true,
     "codex_cli": true,
-    "description": "Can be invoked by AI assistants for automated security testing workflows across Web, API, and AI/LLM security"
+    "description": "AI-native offensive security toolkit — generate, test, and report payloads through natural language with Claude Code, ChatGPT, or Codex CLI"
   }
 }
