@@ -11,11 +11,8 @@ Not AI hype — pattern analysis on actual WAF responses:
 """
 
 import re
-import base64
-import html
 import random
-import urllib.parse
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Set, Tuple
 from dataclasses import dataclass, field
 
 
@@ -389,7 +386,7 @@ class PayloadMutator:
 
         return mutations
 
-    def _pick_strategies(self) -> List[Tuple[str, callable]]:
+    def _pick_strategies(self) -> list:
         """Select mutation strategies based on what the WAF does/doesn't block."""
         strategies = []
         p = self.profile

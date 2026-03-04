@@ -22,11 +22,8 @@ Zero external dependencies — stdlib only.
 
 import http.client
 import json
-import os
 import re
 import ssl
-import sys
-import base64
 import urllib.parse
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
@@ -1111,6 +1108,7 @@ def run_bounty(
     test_categories = [c for c in test_categories if c in available]
 
     urls: List[str] = []
+    scopes: List[Dict] = []
 
     # ── Fetch scope from platform ────────────────────────────────────────
     if urls_file:
@@ -1215,13 +1213,7 @@ def run_bounty(
         return
 
     # ── Extract required headers from scope instructions ───────────────
-    scope_headers: Dict[str, str] = {}
-    if 'scopes' in dir():
-        pass  # scopes might not exist for --urls mode
-    try:
-        scope_headers = extract_custom_headers(scopes)
-    except NameError:
-        pass
+    scope_headers: Dict[str, str] = extract_custom_headers(scopes) if scopes else {}
     if scope_headers:
         print(f"\n  {Colors.CYAN}{Colors.BOLD}Required Headers (from program instructions):{Colors.END}")
         for k, v in scope_headers.items():
