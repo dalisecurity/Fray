@@ -1,10 +1,10 @@
 # Fray
 
-### ⚔️ *オープンソースWAFセキュリティテストツールキット — 偵察、検出、テスト、レポート*
+### ⚔️ *オープンソースWAFセキュリティテストツールキット — 情報収集、検出、テスト、レポート*
 
 [![Payloads](https://img.shields.io/badge/ペイロード-5500+-brightgreen.svg?style=for-the-badge)](https://github.com/dalisecurity/fray)
 [![WAF Detection](https://img.shields.io/badge/WAF検出-25社+-blue.svg?style=for-the-badge&logo=cloudflare)](https://github.com/dalisecurity/fray)
-[![Recon Checks](https://img.shields.io/badge/偵察チェック-14項目-orange.svg?style=for-the-badge)](https://github.com/dalisecurity/fray)
+[![Recon Checks](https://img.shields.io/badge/情報収集チェック-14項目-orange.svg?style=for-the-badge)](https://github.com/dalisecurity/fray)
 [![OWASP](https://img.shields.io/badge/OWASP-100%25-success.svg?style=for-the-badge&logo=owasp)](https://github.com/dalisecurity/fray)
 
 [![PyPI](https://img.shields.io/pypi/v/fray.svg)](https://pypi.org/project/fray/)
@@ -20,7 +20,7 @@
 
 ## なぜ Fray？
 
-多くのペイロード集は静的なテキストファイルに過ぎません。Frayなら**一気通貫のワークフロー**で完結します — 偵察 → 検出 → テスト → レポート：
+多くのペイロード集は静的なテキストファイルに過ぎません。Frayなら**一気通貫のワークフロー**で完結します — 情報収集 → 検出 → テスト → レポート：
 
 - 🔍 **情報収集** — 14項目のチェック：TLS、ヘッダー、Cookie、DNS、CORS、公開ファイル、サブドメイン
 - 🎯 **スマートテスト** — WordPressを検出したら sqli + xss ペイロードを自動推奨。Y/Nで選択
@@ -48,10 +48,10 @@ pip install fray
 ```
 
 ```bash
-# 1. 偵察 — テスト前にターゲットを把握
+# 1. 情報収集 — テスト前にターゲットを把握
 fray recon https://example.com
 
-# 2. スマートモード — 偵察 + 対話的にペイロードを選択
+# 2. スマートモード — 情報収集 + 対話的にペイロードを選択
 fray test https://example.com --smart
 
 # 3. WAFベンダーの検出
@@ -66,7 +66,7 @@ fray report -i results.json -o report.html
 
 ---
 
-## 🔍 偵察 — `fray recon`
+## 🔍 情報収集 — `fray recon`
 
 14項目の自動チェックをワンコマンドで実行：
 
@@ -99,7 +99,7 @@ fray recon https://example.com -o recon.json # ファイルに保存
 
 ## 🎯 スマートモード — `fray test --smart`
 
-偵察を先に実行し、検出結果に基づき最適なペイロードを提案：
+情報収集を先に実行し、検出結果に基づき最適なペイロードを提案：
 
 ```
 🔍 Running reconnaissance on https://example.com...
@@ -162,10 +162,10 @@ fray detect https://example.com
 
 ## 🐛 バグバウンティ連携
 
-Frayはバグバウンティのワークフローに最適化されています — 偵察からレポート提出まで：
+Frayはバグバウンティのワークフローに最適化されています — 情報収集からレポート提出まで：
 
 ```bash
-# フルワークフロー：偵察 → スマートテスト → レポート
+# フルワークフロー：情報収集 → スマートテスト → レポート
 fray recon https://target.hackerone.com -o recon.json
 fray test https://target.hackerone.com --smart -y -o results.json
 fray report -i results.json -o report.html --format markdown
@@ -175,8 +175,8 @@ fray report -i results.json -o report.html --format markdown
 |---------------|-------------|
 | **HackerOne** | 構造化された発見事項、Markdownレポート、脆弱性分類の整合 |
 | **Bugcrowd** | JSON出力が提出テンプレートに対応 |
-| **Intigriti** | 偵察 → テスト → レポートのワークフロー |
-| **YesWeHack** | 偵察スコアからの重大度マッピング |
+| **Intigriti** | 情報収集 → テスト → レポートのワークフロー |
+| **YesWeHack** | 情報収集スコアからの重大度マッピング |
 
 ### ワークフロー例
 
@@ -255,7 +255,7 @@ fray payloads  # 全カテゴリを一覧表示
 fray/
 ├── fray/
 │   ├── cli.py              # CLIエントリーポイント
-│   ├── recon.py             # 14項目の偵察エンジン
+│   ├── recon.py             # 14項目の情報収集エンジン
 │   ├── detector.py          # WAF検出（25社対応）
 │   ├── tester.py            # ペイロードテストエンジン
 │   ├── evolve.py            # 適応型ペイロード進化
@@ -272,7 +272,7 @@ fray/
 ## 📈 ロードマップ
 
 **完了：**
-- [x] 14項目の偵察機能（`fray recon`）
+- [x] 14項目の情報収集機能（`fray recon`）
 - [x] 対話型プロンプトによるスマートペイロード選択（`--smart`）
 - [x] Cookie、CORS、公開ファイル、DNS、サブドメインスキャン
 - [x] 適応型ペイロード進化
