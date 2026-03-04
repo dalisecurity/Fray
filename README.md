@@ -303,6 +303,60 @@ fray ci show --minimal                          # print minimal workflow to stdo
 
 ---
 
+## 🎯 WAF Bypass Scoring
+
+The #1 thing pentesters search for. Fray probes the WAF, scores evasion candidates, mutates bypasses, and generates a shareable scorecard:
+
+```bash
+# Target a specific WAF with XSS payloads
+fray bypass https://target.com --waf cloudflare -c xss
+
+# Full evasion run with stealth + auth
+fray bypass https://target.com --waf aws_waf -c sqli \
+  --stealth --cookie "session=abc" --max 100
+
+# Save scorecard JSON for bug bounty reports
+fray bypass https://target.com --waf akamai -c xss -o bypass.json
+
+# JSON to stdout (pipe to jq, CI scripts, etc.)
+fray bypass https://target.com --waf imperva --json
+
+# List all supported WAF targets
+fray bypass --list-wafs
+```
+
+### How It Works
+
+1. **Probe** — 17 diagnostic requests fingerprint WAF behavior (blocked tags, events, keywords, encodings)
+2. **Score** — Rank all payloads by evasion probability based on WAF profile
+3. **Test** — Send top-ranked payloads, track bypasses and reflections
+4. **Mutate** — Generate bypass variants (encoding, case, comments, tag substitution, null bytes, double-encoding)
+5. **Scorecard** — Evasion score (0–10), top bypasses, effective techniques, WAF-specific tips
+
+### Supported WAFs
+
+| WAF | Flag | Known Weaknesses |
+|-----|------|-----------------|
+| Cloudflare | `--waf cloudflare` | HTML entities, mixed case, `<svg>`/`<details>` tags |
+| Akamai | `--waf akamai` | Double URL-encoding, alternative event handlers |
+| AWS WAF | `--waf aws_waf` | Comment injection, unicode escapes, mixed case |
+| Imperva | `--waf imperva` | Whitespace variations, tab characters, short payloads |
+| F5 BIG-IP | `--waf f5` | HTML entities, double encoding, HTML5 events |
+| Fastly | `--waf fastly` | Obfuscation, alternative protocols |
+| ModSecurity | `--waf modsecurity` | Double encoding, comment injection, null bytes |
+
+### Evasion Score
+
+| Score | Grade | Meaning |
+|-------|-------|---------|
+| 7.0–10.0 | CRITICAL | WAF is heavily bypassable — report immediately |
+| 5.0–6.9 | HIGH | Significant bypasses found |
+| 3.0–4.9 | MEDIUM | Some bypasses, WAF needs tuning |
+| 0.1–2.9 | LOW | WAF is mostly effective |
+| 0.0 | NONE | No bypasses found |
+
+---
+
 ## 🐛 Bug Bounty Integration
 
 Fray is built for bug bounty workflows — from recon to report submission:

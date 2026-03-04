@@ -14,6 +14,7 @@ Usage:
     fray submit-payload          Submit payload to community (auto GitHub PR)
     fray ci init                 Generate GitHub Actions WAF test workflow
     fray learn xss               Interactive CTF-style security tutorial
+    fray bypass <url> --waf cloudflare -c xss   WAF bypass scoring with evasion scorecard
     fray validate <url>          Blue team WAF config validation report
     fray bounty --platform h1    Bug bounty scope auto-fetch + batch test
     fray explain <CVE-ID>       Explain a CVE — payloads, severity, what to test
@@ -513,6 +514,90 @@ def cmd_recon(args):
         print(f"  Recon saved to {args.output}")
 
 
+def cmd_bypass(args):
+    """WAF bypass scoring — evasion-optimized testing"""
+    from fray.tester import WAFTester
+    from fray.bypass import run_bypass, resolve_waf_name, WAF_EVASION_HINTS
+
+    # If --list-wafs, just show supported vendors
+    if getattr(args, 'list_wafs', False):
+        print(f"\nFray v{__version__} — Supported WAF Targets\n")
+        for key, info in sorted(WAF_EVASION_HINTS.items()):
+            print(f"  {info['label']:<30} --waf {key}")
+        print(f"\n  Use: fray bypass <url> --waf <name> -c xss")
+        return
+
+    # Scope validation
+    scope_file = getattr(args, 'scope', None)
+    if scope_file:
+        from fray.scope import parse_scope_file, is_target_in_scope
+        scope = parse_scope_file(scope_file)
+        in_scope, reason = is_target_in_scope(args.target, scope)
+        if not in_scope:
+            print(f"\n  ⛔ Target is OUT OF SCOPE")
+            print(f"  {reason}")
+            print(f"  Scope file: {scope_file}")
+            print(f"\n  Fray will not test targets outside your scope file.")
+            sys.exit(1)
+        else:
+            print(f"  ✅ Target in scope — {reason}")
+
+    # Build tester
+    custom_headers = build_auth_headers(args)
+    tester = WAFTester(
+        target=args.target,
+        timeout=getattr(args, 'timeout', 8),
+        delay=getattr(args, 'delay', 0.5),
+        verify_ssl=not getattr(args, 'insecure', False),
+        custom_headers=custom_headers or None,
+        verbose=getattr(args, 'verbose', False),
+        jitter=getattr(args, 'jitter', 0.0),
+        stealth=getattr(args, 'stealth', False),
+        rate_limit=getattr(args, 'rate_limit', 0.0),
+    )
+
+    # Load payloads
+    all_payloads = []
+    if args.category:
+        category_dir = PAYLOADS_DIR / args.category
+        if not category_dir.exists():
+            print(f"Error: Category '{args.category}' not found.")
+            print(f"Available: {', '.join(list_categories())}")
+            sys.exit(1)
+        for pf in sorted(category_dir.glob("*.json")):
+            all_payloads.extend(tester.load_payloads(str(pf)))
+    else:
+        # Default: load xss payloads (most common bypass target)
+        xss_dir = PAYLOADS_DIR / "xss"
+        if xss_dir.exists():
+            for pf in sorted(xss_dir.glob("*.json")):
+                all_payloads.extend(tester.load_payloads(str(pf)))
+
+    if not all_payloads:
+        print("Error: No payloads loaded. Use -c <category> to specify.")
+        sys.exit(1)
+
+    print(f"\n  Loaded {len(all_payloads)} payloads")
+
+    # Run bypass assessment
+    output_file = getattr(args, 'output', None)
+    if output_file:
+        _validate_output_path(output_file)
+
+    run_bypass(
+        tester=tester,
+        payloads=all_payloads,
+        waf_name=getattr(args, 'waf', None),
+        max_payloads=getattr(args, 'max', 50),
+        max_mutations=getattr(args, 'mutations', 5),
+        mutation_budget=getattr(args, 'mutation_budget', 20),
+        param=getattr(args, 'param', 'input'),
+        verbose=True,
+        output_file=output_file,
+        json_output=getattr(args, 'json', False),
+    )
+
+
 def cmd_learn(args):
     """Start interactive CTF-style security tutorial"""
     from fray.learn import run_learn
@@ -841,6 +926,41 @@ Documentation: https://github.com/dalisecurity/fray
     p_test.add_argument("--rate-limit", type=float, default=0.0,
                          help="Max requests per second (e.g. --rate-limit 2 = max 2 req/s)")
     p_test.set_defaults(func=cmd_test)
+
+    # bypass
+    p_bypass = subparsers.add_parser("bypass",
+        help="WAF bypass scoring — evasion-optimized payload testing with scorecard")
+    p_bypass.add_argument("target", nargs="?", default=None, help="Target URL to test")
+    p_bypass.add_argument("--waf", default=None,
+                          help="WAF vendor (cloudflare, akamai, aws_waf, imperva, f5, fastly, modsecurity)")
+    p_bypass.add_argument("-c", "--category", default=None, help="Payload category (default: xss)")
+    p_bypass.add_argument("-m", "--max", type=int, default=50, help="Max payloads to test (default: 50)")
+    p_bypass.add_argument("--mutations", type=int, default=5, help="Max mutations per bypass (default: 5)")
+    p_bypass.add_argument("--mutation-budget", type=int, default=20,
+                          help="Total mutation test budget (default: 20)")
+    p_bypass.add_argument("--param", default="input", help="URL parameter to inject into (default: input)")
+    p_bypass.add_argument("-t", "--timeout", type=int, default=8, help="Request timeout (default: 8)")
+    p_bypass.add_argument("-d", "--delay", type=float, default=0.5, help="Delay between requests (default: 0.5)")
+    p_bypass.add_argument("-o", "--output", default=None, help="Save bypass scorecard JSON to file")
+    p_bypass.add_argument("--json", action="store_true", help="Output scorecard as JSON to stdout")
+    p_bypass.add_argument("--insecure", action="store_true", help="Skip SSL certificate verification")
+    p_bypass.add_argument("-v", "--verbose", action="store_true", help="Show raw HTTP requests")
+    p_bypass.add_argument("--list-wafs", action="store_true", help="List supported WAF targets and exit")
+    p_bypass.add_argument("--scope", default=None,
+                          help="Scope file — only test targets in this file")
+    p_bypass.add_argument("--cookie", default=None, help="Cookie header for authenticated scanning")
+    p_bypass.add_argument("--bearer", default=None, help="Bearer token for Authorization header")
+    p_bypass.add_argument("-H", "--header", action="append",
+                          help="Custom header (repeatable, format: 'Name: Value')")
+    p_bypass.add_argument("--login-flow", default=None,
+                          help="Form login: 'URL,field=value,field=value'")
+    p_bypass.add_argument("--jitter", type=float, default=0.0,
+                          help="Random delay variance in seconds")
+    p_bypass.add_argument("--stealth", action="store_true",
+                          help="Stealth mode: UA rotation + jitter + throttle")
+    p_bypass.add_argument("--rate-limit", type=float, default=0.0,
+                          help="Max requests per second")
+    p_bypass.set_defaults(func=cmd_bypass)
 
     # report
     p_report = subparsers.add_parser("report", help="Generate HTML security report")

@@ -288,6 +288,57 @@ fray ci show --minimal                             # 最小ワークフローを
 
 ---
 
+## 🎯 WAFバイパススコアリング
+
+ペンテスターが最も求める機能。FrayがWAFを調査し、回避候補をスコアリング、バイパスを変異させ、共有可能なスコアカードを生成：
+
+```bash
+# 特定のWAFにXSSペイロードでテスト
+fray bypass https://target.com --waf cloudflare -c xss
+
+# ステルス + 認証付きフル回避テスト
+fray bypass https://target.com --waf aws_waf -c sqli \
+  --stealth --cookie "session=abc" --max 100
+
+# スコアカードJSONを保存（バグバウンティレポート用）
+fray bypass https://target.com --waf akamai -c xss -o bypass.json
+
+# 対応WAF一覧
+fray bypass --list-wafs
+```
+
+### 動作フロー
+
+1. **プローブ** — 17リクエストでWAF動作をフィンガープリント（ブロックされるタグ、イベント、キーワード、エンコーディング）
+2. **スコアリング** — WAFプロファイルに基づき全ペイロードを回避確率順にランク付け
+3. **テスト** — 上位ペイロードを送信、バイパスとリフレクションを追跡
+4. **ミューテーション** — バイパス変異体を生成（エンコード、大小文字、コメント挿入、タグ置換、ヌルバイト、二重エンコード）
+5. **スコアカード** — 回避スコア（0–10）、トップバイパス、有効なテクニック、WAF固有のヒント
+
+### 対応WAF
+
+| WAF | フラグ | 既知の弱点 |
+|-----|------|----------|
+| Cloudflare | `--waf cloudflare` | HTMLエンティティ、大小文字混在、`<svg>`/`<details>`タグ |
+| Akamai | `--waf akamai` | 二重URLエンコード、代替イベントハンドラ |
+| AWS WAF | `--waf aws_waf` | コメント挿入、Unicodeエスケープ、大小文字混在 |
+| Imperva | `--waf imperva` | 空白文字バリエーション、タブ文字、短いペイロード |
+| F5 BIG-IP | `--waf f5` | HTMLエンティティ、二重エンコード、HTML5イベント |
+| Fastly | `--waf fastly` | 難読化、代替プロトコル |
+| ModSecurity | `--waf modsecurity` | 二重エンコード、コメント挿入、ヌルバイト |
+
+### 回避スコア
+
+| スコア | グレード | 意味 |
+|-------|---------|-----|
+| 7.0–10.0 | CRITICAL | WAFは大幅にバイパス可能 — 即時報告 |
+| 5.0–6.9 | HIGH | 重大なバイパスを発見 |
+| 3.0–4.9 | MEDIUM | 一部バイパス、WAFチューニングが必要 |
+| 0.1–2.9 | LOW | WAFはほぼ有効 |
+| 0.0 | NONE | バイパスなし |
+
+---
+
 ## 🐛 バグバウンティ連携
 
 Frayはバグバウンティのワークフローに最適化されています — 情報収集からレポート提出まで：
