@@ -1,8 +1,8 @@
 # Fray
 
-### ⚔️ *Open-source WAF security testing toolkit — 5,500+ payloads, 25 WAF detections, MCP server for AI workflows*
+### ⚔️ *Open-source WAF security testing toolkit — 5,500+ payloads, 25 WAF detections, 14-check recon, MCP server for AI workflows*
 
-**The open-source offensive security toolkit** • 5,500+ Payloads • 25 WAF Fingerprints • Zero Dependencies • 61 Tests
+**The open-source offensive security toolkit** • 5,500+ Payloads • 25 WAF Fingerprints • 14-Check Recon • Zero Dependencies
 
 [![Total Payloads](https://img.shields.io/badge/Total_Payloads-5500+-brightgreen.svg?style=for-the-badge)](https://github.com/dalisecurity/fray)
 [![OWASP Coverage](https://img.shields.io/badge/OWASP_Coverage-100%25-success.svg?style=for-the-badge&logo=owasp)](https://github.com/dalisecurity/fray)
@@ -34,10 +34,12 @@
 
 Most payload collections are just static text files. **Fray is different** — it's a structured toolkit that lets you **detect, test, and report** in seconds:
 
-- 🤖 **AI-compatible** — structured JSON payloads work well with Claude Code & ChatGPT
-- 🔍 **Auto-detect which WAF** you're facing — 25 vendors fingerprinted instantly
-- 📊 **One-command reports** — professional HTML output with vuln analysis
-- 🎯 **5,500+ battle-tested payloads** — XSS, SQLi, SSRF, SSTI, LLM jailbreaks, and more
+- 🔍 **Recon first** — 14-check fingerprinting: TLS, headers, cookies, DNS, CORS, exposed files, subdomains
+- 🎯 **Smart testing** — recon detects WordPress? Fray recommends sqli + xss payloads, you pick Y/N
+- 🤖 **AI-compatible** — structured JSON payloads work with Claude Code & ChatGPT via MCP
+- �️ **Auto-detect WAF** — 25 vendors fingerprinted instantly
+- 📊 **One-command reports** — professional HTML/Markdown output with vuln analysis
+- ⚔️ **5,500+ battle-tested payloads** — XSS, SQLi, SSRF, SSTI, LLM jailbreaks, and more
 - ⚡ **Zero config** — `pip install fray` and you're testing
 
 ### 📊 Full OWASP Coverage (100%)
@@ -103,6 +105,12 @@ Fray detects and fingerprints **25 major WAF vendors** using header analysis, co
 ```bash
 pip install fray
 
+# Recon — fingerprint target before testing
+fray recon https://example.com
+
+# Smart mode — recon + interactive payload selection
+fray test https://example.com --smart
+
 # Detect WAF vendor
 fray detect https://example.com
 
@@ -134,6 +142,170 @@ docker-compose up
 ```
 
 **Zero dependencies** for core functionality. Pure Python standard library.
+
+---
+
+## 🔍 Reconnaissance — `fray recon`
+
+Before firing payloads, know your target. `fray recon` runs **14 automated checks** in a single command:
+
+```bash
+fray recon https://example.com
+```
+
+### What It Checks
+
+| # | Check | What It Finds |
+|---|-------|---------------|
+| 1 | **HTTP** | Port 80 open, HTTPS redirect status |
+| 2 | **TLS** | Version, cipher suite, certificate expiry, TLS 1.0/1.1 support |
+| 3 | **Security Headers** | HSTS, CSP, X-Frame-Options, and 6 more (scored 0–100%) |
+| 4 | **Cookies** | HttpOnly, Secure, SameSite flags per cookie (scored) |
+| 5 | **App Fingerprinting** | WordPress, Drupal, PHP, Node.js, React, nginx, Apache, and 8 more |
+| 6 | **DNS** | A, AAAA, CNAME, MX, TXT, NS records + CDN detection |
+| 7 | **SPF/DMARC** | Email security policy audit |
+| 8 | **robots.txt** | Disallowed paths, interesting endpoints (admin, api, login, etc.) |
+| 9 | **CORS** | Wildcard origin, reflected origin, credentials misconfiguration |
+| 10 | **Exposed Files** | 28 probes — `.env`, `.git`, `phpinfo`, actuator, SQL dumps, dep files |
+| 11 | **HTTP Methods** | OPTIONS check for dangerous methods (PUT, DELETE, TRACE) |
+| 12 | **Error Page** | 404 page analysis for stack traces, version leaks, framework hints |
+| 13 | **Subdomains** | Certificate transparency logs via crt.sh |
+| 14 | **Smart Recommendation** | Maps detected tech → priority payload categories |
+
+### Example Output
+
+```
+Fray Recon — Target Reconnaissance
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Target: https://example.com
+  Host:   example.com
+
+  TLS
+    Version:    TLSv1.3
+    Cipher:     TLS_AES_256_GCM_SHA384 (256 bits)
+    Expiry:     120 days remaining
+
+  Security Headers (67%)
+    ✅ HSTS: max-age=31536000; includeSubdomains
+    ✅ CSP: default-src 'self'
+    ❌ Permissions-Policy (low)
+
+  Cookies (77%)
+    session_id          HttpOnly | Secure | SameSite
+    ⚠ session_id: Missing SameSite attribute
+
+  Detected Technologies
+    wordpress        ████████████████████ 100%
+    nginx            ██████████████░░░░░░  70%
+
+  DNS
+    A:     93.184.216.34
+    CDN:   cloudflare
+    SPF:   ✅  DMARC: ✅
+
+  robots.txt (12 disallowed paths)
+    Interesting paths:
+      /wp-admin
+      /api/internal
+
+  Exposed Files (1 found, 28 checked)
+    ⚠️ /.well-known/security.txt — Security contact info
+
+  Subdomains (42 found via crt.sh)
+    api.example.com
+    staging.example.com
+    ...
+
+  Recommended Payload Categories (priority order)
+    1. sqli
+    2. xss
+    3. path_traversal
+```
+
+### Options
+
+```bash
+fray recon https://example.com              # Pretty-print output
+fray recon https://example.com --json       # Raw JSON output
+fray recon https://example.com -o recon.json # Save to file
+fray recon https://example.com -t 12        # Custom timeout (seconds)
+```
+
+---
+
+## 🎯 Smart Mode — `fray test --smart`
+
+Smart mode combines **recon + interactive payload selection** — no guessing which payloads to run:
+
+```bash
+fray test https://example.com --smart
+```
+
+### How It Works
+
+1. **Recon runs first** — fingerprints target tech stack, TLS, headers, cookies
+2. **Shows summary** — what was detected and what it means
+3. **Recommends categories** — maps technologies to relevant payload types
+4. **Prompts you** — choose before any payloads fire
+
+### Example Flow
+
+```
+🔍 Running reconnaissance on https://example.com...
+
+───────────────────────────────────────────────────
+  Target:  https://example.com
+  TLS:     TLSv1.3
+  Headers: 67%
+  Stack:   wordpress (100%), nginx (70%)
+───────────────────────────────────────────────────
+
+  Recommended categories (based on detected stack):
+
+    1. sqli                      (1200 payloads)
+    2. xss                       (800 payloads)
+    3. path_traversal            (400 payloads)
+    4. command_injection          (350 payloads)
+    5. ssrf                      (200 payloads)
+
+    Total: 2950 payloads (vs 5500 if all categories)
+
+  [Y] Run recommended  [A] Run all  [N] Cancel  [1,3,5] Pick:
+```
+
+### Prompt Options
+
+| Input | Action |
+|-------|--------|
+| **Y** | Run the recommended categories based on detected tech |
+| **A** | Run all categories regardless of detection |
+| **N** or Enter | Cancel — nothing fires |
+| **1,3,5** | Pick specific categories by number |
+
+### Non-Interactive Mode (CI/Scripts)
+
+```bash
+# Auto-accept recommended categories
+fray test https://example.com --smart -y
+
+# Combine with other flags
+fray test https://example.com --smart -y --max 50 --report-format html
+```
+
+### Technology → Payload Mapping
+
+| Detected Tech | Priority Payloads |
+|--------------|-------------------|
+| **WordPress** | sqli, xss, path_traversal, command_injection, ssrf |
+| **Drupal** | sqli, ssti, xss, command_injection |
+| **PHP** | sqli, path_traversal, command_injection, file_upload |
+| **Node.js** | ssti, ssrf, xss, command_injection |
+| **Java** | ssti, xxe, sqli, command_injection |
+| **.NET** | sqli, path_traversal, xxe, command_injection |
+| **React** | xss |
+| **nginx** | path_traversal, ssrf |
+| **Apache** | path_traversal, ssrf |
+| **API (JSON)** | sqli, ssrf, command_injection |
 
 ---
 
@@ -919,11 +1091,13 @@ fray/
 │   ├── cli.py                        # CLI entry point
 │   ├── detector.py                   # WAF detection engine
 │   ├── tester.py                     # WAF testing engine
-│   ├── reporter.py                   # Report generator
+│   ├── reporter.py                   # Report generator (HTML + Markdown)
+│   ├── recon.py                      # Reconnaissance engine (14 checks)
+│   ├── evolve.py                     # Adaptive payload evolution
 │   ├── recommender.py                # WAF recommendations
 │   ├── payload_creator.py            # Easy payload creator
 │   ├── payload_generator.py          # Payload generator
-│   └── payloads/                     # 6,100+ attack payloads
+│   └── payloads/                     # 5,500+ attack payloads
 │       ├── xss/                      # XSS payloads (13 files)
 │       ├── sqli/                     # SQL injection
 │       ├── ssrf/                     # SSRF payloads
@@ -1288,6 +1462,17 @@ Use this to:
 
 ## 📈 Roadmap
 
+- [x] Target reconnaissance — 14 automated checks (`fray recon`)
+- [x] Smart payload selection — recon-based category recommendations (`--smart`)
+- [x] Interactive prompt — choose Y/A/N/pick before payloads fire
+- [x] Cookie security audit — HttpOnly, Secure, SameSite flag checking
+- [x] DNS + CDN detection — A/AAAA/CNAME/MX/TXT/NS + SPF/DMARC audit
+- [x] Exposed file scanning — 28 common leak paths with false-positive filtering
+- [x] Subdomain enumeration — crt.sh certificate transparency
+- [x] CORS misconfiguration detection
+- [x] Markdown report format (`--format markdown`)
+- [x] Adaptive payload evolution (`evolve.py`)
+- [ ] Shareable report URLs — random URL, hosted HTML report for a few days
 - [ ] Add more payload categories
 - [ ] Implement machine learning classification
 - [ ] Create web-based payload browser
