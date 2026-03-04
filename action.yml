@@ -1,0 +1,262 @@
+name: 'Fray WAF Security Test'
+description: 'Automated WAF security testing with 2300+ payloads. Detects WAF vendor, tests for bypasses, posts results as PR comments.'
+author: 'Dali Security'
+
+branding:
+  icon: 'shield'
+  color: 'red'
+
+inputs:
+  target:
+    description: 'Target URL to test (e.g. https://example.com)'
+    required: true
+  category:
+    description: 'Payload category (xss, sqli, ssrf, etc.) — blank for smart mode'
+    required: false
+    default: ''
+  max-payloads:
+    description: 'Maximum payloads to test per category'
+    required: false
+    default: '50'
+  mode:
+    description: 'Test mode: smart (recommended), all, or a specific category'
+    required: false
+    default: 'smart'
+  stealth:
+    description: 'Enable stealth mode (UA rotation, jitter, throttle)'
+    required: false
+    default: 'false'
+  delay:
+    description: 'Delay between requests in seconds'
+    required: false
+    default: '0.5'
+  scope-file:
+    description: 'Path to scope file for target validation'
+    required: false
+    default: ''
+  cookie:
+    description: 'Cookie header for authenticated scanning'
+    required: false
+    default: ''
+  bearer:
+    description: 'Bearer token for authenticated scanning'
+    required: false
+    default: ''
+  fail-on-bypass:
+    description: 'Fail the action if any payload bypasses the WAF'
+    required: false
+    default: 'false'
+  comment-on-pr:
+    description: 'Post results as a PR comment'
+    required: false
+    default: 'true'
+  webhook:
+    description: 'Webhook URL for notifications (Slack/Discord/Teams)'
+    required: false
+    default: ''
+  output-file:
+    description: 'Output JSON results file path'
+    required: false
+    default: 'fray-results.json'
+  python-version:
+    description: 'Python version to use'
+    required: false
+    default: '3.12'
+  fray-version:
+    description: 'Fray version to install (blank for latest)'
+    required: false
+    default: ''
+
+outputs:
+  total:
+    description: 'Total payloads tested'
+    value: ${{ steps.run-fray.outputs.total }}
+  blocked:
+    description: 'Payloads blocked by WAF'
+    value: ${{ steps.run-fray.outputs.blocked }}
+  bypassed:
+    description: 'Payloads that bypassed WAF'
+    value: ${{ steps.run-fray.outputs.bypassed }}
+  block-rate:
+    description: 'WAF block rate percentage'
+    value: ${{ steps.run-fray.outputs.block_rate }}
+  waf-vendor:
+    description: 'Detected WAF vendor'
+    value: ${{ steps.detect-waf.outputs.waf_vendor }}
+  results-file:
+    description: 'Path to the JSON results file'
+    value: ${{ inputs.output-file }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install Fray
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.fray-version }}" ]; then
+          pip install "fray==${{ inputs.fray-version }}" --quiet
+        else
+          pip install fray --quiet
+        fi
+        echo "Fray $(fray version) installed"
+
+    - name: Detect WAF
+      id: detect-waf
+      shell: bash
+      run: |
+        echo "::group::WAF Detection"
+        WAF_OUTPUT=$(fray detect "${{ inputs.target }}" 2>&1) || true
+        echo "$WAF_OUTPUT"
+        # Extract vendor name from output
+        VENDOR=$(echo "$WAF_OUTPUT" | grep -i "vendor\|detected" | head -1 | sed 's/.*: //' || echo "unknown")
+        echo "waf_vendor=$VENDOR" >> $GITHUB_OUTPUT
+        echo "::endgroup::"
+
+    - name: Run Fray WAF tests
+      id: run-fray
+      shell: bash
+      run: |
+        echo "::group::Fray WAF Test"
+        TARGET="${{ inputs.target }}"
+        OUTPUT="${{ inputs.output-file }}"
+
+        # Build command
+        CMD="fray test \"$TARGET\""
+
+        # Mode
+        MODE="${{ inputs.mode }}"
+        if [ "$MODE" = "smart" ]; then
+          CMD="$CMD --smart -y"
+        elif [ "$MODE" = "all" ]; then
+          CMD="$CMD --all"
+        elif [ -n "$MODE" ] && [ "$MODE" != "smart" ] && [ "$MODE" != "all" ]; then
+          CMD="$CMD --category $MODE"
+        fi
+
+        # Category override
+        CATEGORY="${{ inputs.category }}"
+        if [ -n "$CATEGORY" ]; then
+          CMD="$CMD --category $CATEGORY"
+        fi
+
+        # Max payloads
+        CMD="$CMD --max ${{ inputs.max-payloads }}"
+
+        # Delay
+        CMD="$CMD --delay ${{ inputs.delay }}"
+
+        # Stealth
+        if [ "${{ inputs.stealth }}" = "true" ]; then
+          CMD="$CMD --stealth"
+        fi
+
+        # Scope
+        SCOPE="${{ inputs.scope-file }}"
+        if [ -n "$SCOPE" ] && [ -f "$SCOPE" ]; then
+          CMD="$CMD --scope $SCOPE"
+        fi
+
+        # Auth
+        COOKIE="${{ inputs.cookie }}"
+        if [ -n "$COOKIE" ]; then
+          CMD="$CMD --cookie \"$COOKIE\""
+        fi
+        BEARER="${{ inputs.bearer }}"
+        if [ -n "$BEARER" ]; then
+          CMD="$CMD --bearer \"$BEARER\""
+        fi
+
+        # Webhook
+        WEBHOOK="${{ inputs.webhook }}"
+        if [ -n "$WEBHOOK" ]; then
+          CMD="$CMD --webhook \"$WEBHOOK\""
+        fi
+
+        # Output
+        CMD="$CMD --output $OUTPUT"
+
+        echo "Running: $CMD"
+        eval $CMD || true
+
+        # Parse results for outputs
+        if [ -f "$OUTPUT" ]; then
+          TOTAL=$(python3 -c "import json; d=json.load(open('$OUTPUT')); print(d.get('summary',{}).get('total',0))")
+          BLOCKED=$(python3 -c "import json; d=json.load(open('$OUTPUT')); print(d.get('summary',{}).get('blocked',0))")
+          PASSED=$(python3 -c "import json; d=json.load(open('$OUTPUT')); print(d.get('summary',{}).get('passed',0))")
+          RATE=$(python3 -c "import json; d=json.load(open('$OUTPUT')); print(d.get('summary',{}).get('block_rate','N/A'))")
+
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+          echo "blocked=$BLOCKED" >> $GITHUB_OUTPUT
+          echo "bypassed=$PASSED" >> $GITHUB_OUTPUT
+          echo "block_rate=$RATE" >> $GITHUB_OUTPUT
+
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  Total:    $TOTAL"
+          echo "  Blocked:  $BLOCKED"
+          echo "  Bypassed: $PASSED"
+          echo "  Rate:     $RATE"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        else
+          echo "total=0" >> $GITHUB_OUTPUT
+          echo "blocked=0" >> $GITHUB_OUTPUT
+          echo "bypassed=0" >> $GITHUB_OUTPUT
+          echo "block_rate=N/A" >> $GITHUB_OUTPUT
+          echo "::warning::No results file produced"
+        fi
+        echo "::endgroup::"
+
+    - name: Upload results artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: fray-results
+        path: ${{ inputs.output-file }}
+        retention-days: 30
+        if-no-files-found: ignore
+
+    - name: Fail on bypass
+      if: inputs.fail-on-bypass == 'true' && steps.run-fray.outputs.bypassed != '0'
+      shell: bash
+      run: |
+        echo "::error::${{ steps.run-fray.outputs.bypassed }} payload(s) bypassed the WAF"
+        exit 1
+
+    - name: Comment on PR
+      if: inputs.comment-on-pr == 'true' && github.event_name == 'pull_request' && always()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const total = '${{ steps.run-fray.outputs.total }}';
+          const blocked = '${{ steps.run-fray.outputs.blocked }}';
+          const bypassed = '${{ steps.run-fray.outputs.bypassed }}';
+          const rate = '${{ steps.run-fray.outputs.block_rate }}';
+          const vendor = '${{ steps.detect-waf.outputs.waf_vendor }}';
+          const icon = parseInt(bypassed) > 0 ? ':warning:' : ':white_check_mark:';
+
+          const body = [
+            `## ${icon} Fray WAF Test Results`,
+            '',
+            `| Metric | Value |`,
+            `|--------|-------|`,
+            `| Target | \`${{ inputs.target }}\` |`,
+            `| WAF Detected | ${vendor} |`,
+            `| Total Payloads | ${total} |`,
+            `| Blocked | ${blocked} |`,
+            `| Bypassed | ${bypassed} |`,
+            `| Block Rate | ${rate} |`,
+            '',
+            `> Powered by [Fray](https://github.com/dalisecurity/fray) — AI-Powered WAF Security Testing`,
+          ].join('\n');
+
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: body
+          });

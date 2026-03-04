@@ -229,6 +229,65 @@ fray test https://target.com --stealth --scope scope.txt \
 
 ---
 
+## ⚡ GitHub Actions — CI/CD連携
+
+PRごとにWAFテストを自動実行：
+
+```yaml
+# .github/workflows/waf-test.yml
+name: WAF Security Test
+on: [pull_request]
+permissions:
+  pull-requests: write
+
+jobs:
+  waf-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dalisecurity/fray@v1
+        with:
+          target: ${{ secrets.FRAY_TARGET_URL }}
+          mode: smart
+          fail-on-bypass: 'true'
+```
+
+### 全オプション
+
+```yaml
+- uses: dalisecurity/fray@v1
+  with:
+    target: 'https://staging.example.com'
+    mode: smart              # smart | all | xss | sqli | ssrf ...
+    max-payloads: '50'       # カテゴリ別最大ペイロード数
+    stealth: 'true'          # UA回転 + ジッター + スロットル
+    cookie: ${{ secrets.SESSION_COOKIE }}
+    bearer: ${{ secrets.API_TOKEN }}
+    scope-file: 'scope.txt'  # スコープ内のみテスト
+    fail-on-bypass: 'true'   # WAFバイパス時にCI失敗
+    comment-on-pr: 'true'    # PR結果テーブルをコメント
+    webhook: ${{ secrets.SLACK_WEBHOOK }}
+```
+
+### 動作内容
+
+1. **Frayインストール** — PyPIから自動取得
+2. **WAF検出** — ベンダー特定（Cloudflare、AWS WAF等）
+3. **ペイロードテスト** — スマートモードまたはカテゴリ指定
+4. **結果アップロード** — ビルドアーティファクトとして保存
+5. **PRコメント** — 結果テーブル（ブロック/バイパス/レート）を投稿
+6. **CI失敗** — WAFバイパス検出時に自動失敗（オプション）
+
+### CLIからワークフロー生成
+
+```bash
+fray ci init                                       # .github/workflows/ にYAMLを生成
+fray ci init --target https://staging.example.com  # ターゲットURL指定
+fray ci show --minimal                             # 最小ワークフローを表示
+```
+
+---
+
 ## 🐛 バグバウンティ連携
 
 Frayはバグバウンティのワークフローに最適化されています — 情報収集からレポート提出まで：

@@ -229,6 +229,80 @@ fray test https://target.com --stealth --scope scope.txt \
 
 ---
 
+## ⚡ GitHub Actions — CI/CD Integration
+
+Test your WAF on every PR with one line:
+
+```yaml
+# .github/workflows/waf-test.yml
+name: WAF Security Test
+on: [pull_request]
+permissions:
+  pull-requests: write
+
+jobs:
+  waf-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dalisecurity/fray@v1
+        with:
+          target: ${{ secrets.FRAY_TARGET_URL }}
+          mode: smart
+          fail-on-bypass: 'true'
+```
+
+### Full Options
+
+```yaml
+- uses: dalisecurity/fray@v1
+  with:
+    target: 'https://staging.example.com'
+    mode: smart              # smart | all | xss | sqli | ssrf ...
+    max-payloads: '50'       # payloads per category
+    stealth: 'true'          # UA rotation + jitter + throttle
+    cookie: ${{ secrets.SESSION_COOKIE }}
+    bearer: ${{ secrets.API_TOKEN }}
+    scope-file: 'scope.txt'  # only test in-scope targets
+    fail-on-bypass: 'true'   # fail CI if WAF is bypassed
+    comment-on-pr: 'true'    # post results table on PR
+    webhook: ${{ secrets.SLACK_WEBHOOK }}
+```
+
+### What It Does
+
+1. **Installs Fray** from PyPI
+2. **Detects WAF** vendor (Cloudflare, AWS WAF, etc.)
+3. **Runs payload tests** (smart mode or specific category)
+4. **Uploads results** as build artifact
+5. **Comments on PR** with results table (blocked/bypassed/rate)
+6. **Fails CI** if any payload bypasses the WAF (optional)
+
+### Action Outputs
+
+```yaml
+steps:
+  - uses: dalisecurity/fray@v1
+    id: fray
+    with:
+      target: ${{ secrets.TARGET }}
+  - run: |
+      echo "Blocked: ${{ steps.fray.outputs.blocked }}"
+      echo "Bypassed: ${{ steps.fray.outputs.bypassed }}"
+      echo "Rate: ${{ steps.fray.outputs.block-rate }}"
+      echo "WAF: ${{ steps.fray.outputs.waf-vendor }}"
+```
+
+### Generate Workflow from CLI
+
+```bash
+fray ci init                                    # create .github/workflows/fray-waf-test.yml
+fray ci init --target https://staging.example.com  # with hardcoded target
+fray ci show --minimal                          # print minimal workflow to stdout
+```
+
+---
+
 ## 🐛 Bug Bounty Integration
 
 Fray is built for bug bounty workflows — from recon to report submission:

@@ -1,0 +1,67 @@
+# Example: Using dalisecurity/fray GitHub Action for WAF security testing
+# Copy this to your repo's .github/workflows/ directory
+#
+# Required secrets:
+#   FRAY_TARGET_URL — Your target URL (e.g. https://staging.example.com)
+#
+# Optional secrets:
+#   FRAY_COOKIE     — Session cookie for authenticated scanning
+#   FRAY_BEARER     — Bearer token for API testing
+#   FRAY_WEBHOOK    — Slack/Discord webhook for notifications
+
+name: WAF Security Test
+
+on:
+  pull_request:
+    branches: [main, master]
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly Monday 6AM UTC
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Target URL override'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # ─── Quick test on every PR ─────────────────────────────────
+  waf-test:
+    name: WAF Security Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fray WAF Test
+        uses: dalisecurity/fray@v1
+        with:
+          target: ${{ github.event.inputs.target || secrets.FRAY_TARGET_URL }}
+          mode: smart
+          max-payloads: '50'
+          fail-on-bypass: 'true'
+          comment-on-pr: 'true'
+          webhook: ${{ secrets.FRAY_WEBHOOK }}
+
+  # ─── Deep authenticated scan (weekly) ───────────────────────
+  deep-scan:
+    name: Deep Authenticated Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fray Deep Scan
+        uses: dalisecurity/fray@v1
+        with:
+          target: ${{ secrets.FRAY_TARGET_URL }}
+          mode: all
+          max-payloads: '200'
+          stealth: 'true'
+          cookie: ${{ secrets.FRAY_COOKIE }}
+          fail-on-bypass: 'false'
+          output-file: 'fray-deep-results.json'
