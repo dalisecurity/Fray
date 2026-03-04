@@ -201,28 +201,78 @@ def _parse_url(url: str) -> Tuple[str, str, int, bool]:
     return host, path, port, use_ssl
 
 
+def _make_ssl_context(verify: bool = True) -> ssl.SSLContext:
+    """Create an SSL context, optionally unverified."""
+    if verify:
+        return ssl.create_default_context()
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
 def _http_get(host: str, port: int, path: str, use_ssl: bool,
-              timeout: int = 8) -> Tuple[int, Dict[str, str], str]:
-    """Make a raw HTTP GET and return (status, headers_dict, body)."""
-    try:
-        if use_ssl:
-            ctx = ssl.create_default_context()
-            conn = http.client.HTTPSConnection(host, port, context=ctx, timeout=timeout)
-        else:
-            conn = http.client.HTTPConnection(host, port, timeout=timeout)
-        conn.request("GET", path, headers={
-            "User-Agent": f"Fray/{__version__} Recon",
-            "Accept": "text/html,application/json,*/*",
-            "Connection": "close",
-        })
-        resp = conn.getresponse()
-        status = resp.status
-        headers = {k.lower(): v for k, v in resp.getheaders()}
-        body = resp.read(200000).decode("utf-8", errors="replace")
-        conn.close()
-        return status, headers, body
-    except Exception as e:
-        return 0, {}, str(e)
+              timeout: int = 8, max_redirects: int = 5) -> Tuple[int, Dict[str, str], str]:
+    """Make a raw HTTP GET, follow redirects, return (status, headers_dict, body)."""
+    all_headers: Dict[str, str] = {}
+    for _ in range(max_redirects + 1):
+        try:
+            if use_ssl:
+                # Try verified first, fallback to unverified on cert errors
+                try:
+                    ctx = _make_ssl_context(verify=True)
+                    conn = http.client.HTTPSConnection(host, port, context=ctx, timeout=timeout)
+                    conn.request("GET", path, headers={
+                        "Host": host,
+                        "User-Agent": f"Fray/{__version__} Recon",
+                        "Accept": "text/html,application/json,*/*",
+                        "Connection": "close",
+                    })
+                    resp = conn.getresponse()
+                except ssl.SSLError:
+                    ctx = _make_ssl_context(verify=False)
+                    conn = http.client.HTTPSConnection(host, port, context=ctx, timeout=timeout)
+                    conn.request("GET", path, headers={
+                        "Host": host,
+                        "User-Agent": f"Fray/{__version__} Recon",
+                        "Accept": "text/html,application/json,*/*",
+                        "Connection": "close",
+                    })
+                    resp = conn.getresponse()
+            else:
+                conn = http.client.HTTPConnection(host, port, timeout=timeout)
+                conn.request("GET", path, headers={
+                    "Host": host,
+                    "User-Agent": f"Fray/{__version__} Recon",
+                    "Accept": "text/html,application/json,*/*",
+                    "Connection": "close",
+                })
+                resp = conn.getresponse()
+
+            status = resp.status
+            headers = {k.lower(): v for k, v in resp.getheaders()}
+            all_headers.update(headers)
+            body = resp.read(200000).decode("utf-8", errors="replace")
+            conn.close()
+
+            if status in (301, 302, 303, 307, 308):
+                location = headers.get("location", "")
+                if location.startswith("https://") or location.startswith("http://"):
+                    parsed = urllib.parse.urlparse(location)
+                    host = parsed.hostname or host
+                    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+                    use_ssl = parsed.scheme == "https"
+                    path = parsed.path or "/"
+                    if parsed.query:
+                        path += f"?{parsed.query}"
+                    continue
+                elif location.startswith("/"):
+                    path = location
+                    continue
+            return status, all_headers, body
+        except Exception as e:
+            return 0, all_headers, str(e)
+    return status, all_headers, body
 
 
 def check_http(host: str, timeout: int = 5) -> Dict[str, Any]:
@@ -266,55 +316,70 @@ def check_tls(host: str, port: int = 443, timeout: int = 8) -> Dict[str, Any]:
     }
 
     # Main connection — best TLS version
-    try:
-        ctx = ssl.create_default_context()
-        sock = socket.create_connection((host, port), timeout=timeout)
-        ssock = ctx.wrap_socket(sock, server_hostname=host)
+    # Try verified first; fallback to unverified on cert errors (common on macOS)
+    ssock = None
+    for verify in (True, False):
+        try:
+            if verify:
+                ctx = ssl.create_default_context()
+            else:
+                ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+            sock = socket.create_connection((host, port), timeout=timeout)
+            ssock = ctx.wrap_socket(sock, server_hostname=host)
+            break
+        except ssl.SSLError:
+            if verify:
+                continue  # Retry without verification
+            result["error"] = "TLS handshake failed"
+        except Exception as e:
+            result["error"] = str(e)
+            break
 
-        result["tls_version"] = ssock.version()
-        cipher_info = ssock.cipher()
-        if cipher_info:
-            result["cipher"] = cipher_info[0]
-            result["cipher_bits"] = cipher_info[2]
+    if ssock:
+        try:
+            result["tls_version"] = ssock.version()
+            cipher_info = ssock.cipher()
+            if cipher_info:
+                result["cipher"] = cipher_info[0]
+                result["cipher_bits"] = cipher_info[2]
 
-        cert = ssock.getpeercert()
-        if cert:
-            # Subject
-            subject_parts = []
-            for rdn in cert.get("subject", ()):
-                for attr_type, attr_value in rdn:
-                    if attr_type == "commonName":
-                        subject_parts.append(attr_value)
-            result["cert_subject"] = ", ".join(subject_parts) or None
+            cert = ssock.getpeercert()
+            if cert:
+                # Subject
+                subject_parts = []
+                for rdn in cert.get("subject", ()):
+                    for attr_type, attr_value in rdn:
+                        if attr_type == "commonName":
+                            subject_parts.append(attr_value)
+                result["cert_subject"] = ", ".join(subject_parts) or None
 
-            # Issuer
-            issuer_parts = []
-            for rdn in cert.get("issuer", ()):
-                for attr_type, attr_value in rdn:
-                    if attr_type in ("organizationName", "commonName"):
-                        issuer_parts.append(attr_value)
-            result["cert_issuer"] = ", ".join(issuer_parts) or None
+                # Issuer
+                issuer_parts = []
+                for rdn in cert.get("issuer", ()):
+                    for attr_type, attr_value in rdn:
+                        if attr_type in ("organizationName", "commonName"):
+                            issuer_parts.append(attr_value)
+                result["cert_issuer"] = ", ".join(issuer_parts) or None
 
-            # Expiry
-            not_after = cert.get("notAfter")
-            if not_after:
-                # Format: 'Sep 29 00:00:00 2025 GMT'
-                try:
-                    expiry = datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z")
-                    expiry = expiry.replace(tzinfo=timezone.utc)
-                    result["cert_expiry"] = expiry.isoformat()
-                    now = datetime.now(timezone.utc)
-                    delta = expiry - now
-                    result["cert_days_remaining"] = delta.days
-                    result["cert_expired"] = delta.days < 0
-                except ValueError:
-                    result["cert_expiry"] = not_after
+                # Expiry
+                not_after = cert.get("notAfter")
+                if not_after:
+                    try:
+                        expiry = datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z")
+                        expiry = expiry.replace(tzinfo=timezone.utc)
+                        result["cert_expiry"] = expiry.isoformat()
+                        now = datetime.now(timezone.utc)
+                        delta = expiry - now
+                        result["cert_days_remaining"] = delta.days
+                        result["cert_expired"] = delta.days < 0
+                    except ValueError:
+                        result["cert_expiry"] = not_after
 
-        ssock.close()
-    except ssl.SSLError as e:
-        result["error"] = str(e)
-    except Exception as e:
-        result["error"] = str(e)
+            ssock.close()
+        except Exception as e:
+            result["error"] = str(e)
 
     # Probe for weak TLS versions
     for proto_name, proto_const in [("tls_1_0", ssl.PROTOCOL_TLS), ("tls_1_1", ssl.PROTOCOL_TLS)]:
