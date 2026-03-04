@@ -2,228 +2,262 @@
   <img src="https://raw.githubusercontent.com/dalisecurity/Fray/hugo/.github/banner.png" alt="Fray — Open-source WAF security testing toolkit" width="100%">
 </p>
 
-### ⚔️ *Open-source WAF security testing toolkit — 5,500+ payloads, 25 WAF detections, MCP server for AI workflows*
+### ⚔️ *Open-source WAF security testing toolkit — recon, detect, test, report*
 
-**The open-source offensive security toolkit** • 5,500+ Payloads • 25 WAF Fingerprints • Zero Dependencies • 61 Tests
-
-[![Total Payloads](https://img.shields.io/badge/Total_Payloads-5500+-brightgreen.svg?style=for-the-badge)](https://github.com/dalisecurity/fray)
-[![OWASP Coverage](https://img.shields.io/badge/OWASP_Coverage-100%25-success.svg?style=for-the-badge&logo=owasp)](https://github.com/dalisecurity/fray)
+[![Payloads](https://img.shields.io/badge/Payloads-5500+-brightgreen.svg?style=for-the-badge)](https://github.com/dalisecurity/fray)
 [![WAF Detection](https://img.shields.io/badge/WAF_Vendors-25+-blue.svg?style=for-the-badge&logo=cloudflare)](https://github.com/dalisecurity/fray)
-[![Tests](https://img.shields.io/badge/Tests-61_Passing-success.svg?style=for-the-badge)](https://github.com/dalisecurity/fray/actions)
+[![Recon Checks](https://img.shields.io/badge/Recon_Checks-14-orange.svg?style=for-the-badge)](https://github.com/dalisecurity/fray)
+[![OWASP](https://img.shields.io/badge/OWASP-100%25-success.svg?style=for-the-badge&logo=owasp)](https://github.com/dalisecurity/fray)
 
 [![PyPI](https://img.shields.io/pypi/v/fray.svg)](https://pypi.org/project/fray/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/dalisecurity/fray?style=social)](https://github.com/dalisecurity/fray/stargazers)
 
-## ⚡ Why Fray?
+> ⚠️ **FOR AUTHORIZED SECURITY TESTING ONLY** — Only test systems you own or have explicit written permission to test.
 
-Most payload collections are just static text files. **Fray is different** — it's a structured toolkit that lets you **detect, test, and report** in seconds:
+---
 
-- 🤖 **AI-compatible** — structured JSON payloads work well with Claude Code & ChatGPT
-- 🔍 **Auto-detect which WAF** you're facing — 25 vendors fingerprinted instantly
-- 📊 **One-command reports** — professional HTML output with vuln analysis
-- 🎯 **5,500+ battle-tested payloads** — XSS, SQLi, SSRF, SSTI, LLM jailbreaks, and more
-- ⚡ **Zero config** — `pip install fray` and you're testing
+## Why Fray?
 
-### 🔥 Built For
+Most payload collections are static text files. Fray is a **complete workflow** — recon → detect → test → report:
 
-- **Bug bounty hunters** — ready-made payloads from real-world disclosures + 120 CVEs
-- **Red teamers & pentesters** — WAF detection → payload selection → report, all in one tool
-- **Security researchers** — structured payloads for bypass research and analysis
-- **Blue teams** — validate your WAF config against 5,500+ real attack patterns
-- **Students** — learn offensive security with guided AI workflows
+- 🔍 **Recon first** — 14 checks: TLS, headers, cookies, DNS, CORS, exposed files, subdomains
+- 🎯 **Smart testing** — detects WordPress? Recommends sqli + xss payloads. You pick Y/N
+- 🛡️ **WAF detection** — fingerprints 25 vendors (Cloudflare, AWS, Akamai, Imperva, etc.)
+- 🐛 **HackerOne ready** — structured JSON output maps to HackerOne severity/weakness taxonomy
+- 🤖 **AI-native** — MCP server for Claude Code & ChatGPT integration
+- 📊 **One-command reports** — HTML & Markdown with vulnerability analysis
+- ⚡ **Zero dependencies** — pure Python stdlib, `pip install fray` and go
 
-### �️ WAF Vendor Detection — 25 Vendors Supported
+| OWASP Framework | Payloads | Coverage |
+|----------------|----------|----------|
+| **Web Top 10:2021** | 1,690+ | ✅ 100% |
+| **Mobile Top 10:2024** | 575+ | ✅ 100% |
+| **LLM Top 10** (AI/ML) | 300+ | ✅ 100% |
+| **API Security Top 10** | 520+ | ✅ 100% |
 
-Fray detects and fingerprints **25 major WAF vendors** using header analysis, cookie inspection, response patterns, and error signatures.
+**Built for:** Bug bounty hunters · Red teamers & pentesters · Security researchers · Blue teams validating WAF configs · Students learning offensive security
 
-| # | WAF Vendor | Detection Method | Key Signatures |
-|---|-----------|-----------------|----------------|
-| 1 | **Cloudflare** | Headers, Cookies, Error Page | `cf-ray`, `__cfduid`, Ray ID pattern |
-| 2 | **Akamai** | Headers, Cookies, Bot Manager | `akamai-grn`, `ak_bmsc`, Reference # |
-| 3 | **AWS WAF** | Headers, Cookies, Response Body | `x-amzn-waf-action`, `awsalb`, CloudFront |
-| 4 | **Imperva (Incapsula)** | Headers, Cookies, Challenge | `x-iinfo`, `incap_ses`, Incident ID |
-| 5 | **F5 BIG-IP** | Headers, Cookies, Error Page | `x-wa-info`, `bigipserver`, Support ID |
-| 6 | **Fastly (Signal Sciences)** | Headers, Cookies, Server | `x-sigsci-requestid`, `x-served-by` |
-| 7 | **Microsoft Azure WAF** | Headers, Cookies, Front Door | `x-azure-fdid`, `x-azure-ref`, `arr_affinity` |
-| 8 | **Google Cloud Armor** | Headers, Server, reCAPTCHA | `x-cloud-trace-context`, `gfe`, Cloud Armor |
-| 9 | **Barracuda** | Headers, Cookies, Server | `x-barracuda-url`, `barra_counter_session` |
-| 10 | **Citrix NetScaler** | Headers, Cookies, Server | `citrix-transactionid`, `nsc_`, NetScaler |
-| 11 | **Radware** | Headers, Response Text | `x-protected-by`, AppWall |
-| 12 | **Palo Alto (Prisma Cloud)** | Headers, Response Text | `x-pan-`, `x-prisma` |
-| 13 | **Check Point** | Headers, Response Text | `x-checkpoint`, Check Point |
-| 14 | **Trustwave (ModSecurity)** | Headers, Server, Response | `x-mod-security`, ModSecurity |
-| 15 | **Qualys WAF** | Headers, Response Text | `x-qualys` |
-| 16 | **Penta Security (WAPPLES)** | Headers, Cookies | `x-wapples`, `wapples` |
-| 17 | **StackPath** | Headers, Server | `x-stackpath-shield`, StackPath |
-| 18 | **Sophos** | Headers, Response Text | `x-sophos`, UTM |
-| 19 | **Scutum** | Headers, Response Text | `x-scutum` |
-| 20 | **Rohde & Schwarz** | Headers, Response Text | `x-rs-` |
-| 21 | **Sucuri** | Headers, Cookies, Server | `x-sucuri-id`, `sucuri_cloudproxy_uuid` |
-| 22 | **Fortinet FortiWeb** | Headers, Cookies, Server | `x-fortiweb`, `fortiwafsid` |
-| 23 | **Wallarm** | Headers, Server | `x-wallarm-waf-check`, `nginx-wallarm` |
-| 24 | **Reblaze** | Headers, Cookies, Server | `x-reblaze-protection`, `rbzid` |
-| 25 | **Vercel** | Headers, Server | `x-vercel-id`, `x-vercel-cache` |
+---
 
-## ⚡ Quick Start
+## Quick Start
 
 ```bash
-# Install from PyPI
 pip install fray
+```
 
-# Detect WAF vendor
+```bash
+# 1. Recon — know your target before testing
+fray recon https://example.com
+
+# 2. Smart mode — recon + pick payloads interactively
+fray test https://example.com --smart
+
+# 3. Detect WAF vendor
 fray detect https://example.com
 
-# Test with XSS payloads
+# 4. Test specific category
 fray test https://example.com -c xss --max 10
 
-# List all payload categories
-fray payloads
-
-# Or clone and use directly
-git clone https://github.com/dalisecurity/fray.git
-cd fray
-python3 waf_tester.py -i
+# 5. Generate report
+fray report -i results.json -o report.html
 ```
 
-## � Why Fray?
+---
 
-[PayloadsAllTheThings](https://github.com/swisskyrepo/PayloadsAllTheThings) is a great payload reference. Fray solves a different problem — it's a **testing toolkit**, not an encyclopedia.
+## 🔍 Reconnaissance — `fray recon`
 
-| | PayloadsAllTheThings | Fray |
-|---|---|---|
-| **Format** | Markdown docs | Structured JSON (`id`, `description`, `technique`, `source`) |
-| **WAF detection** | ❌ | ✅ 25-vendor fingerprinting |
-| **MCP server** | ❌ | ✅ 6 tools for AI assistants |
-| **CLI testing** | ❌ Reference only | ✅ `fray test <url> -c xss` |
-| **Reports** | ❌ | ✅ JSON/HTML with block rate analysis |
-| **pip install** | ❌ | ✅ `pip install fray` |
-| **Payload breadth** | **Deeper** | Narrower — value is in tooling |
+14 automated checks in a single command:
 
-## 🧪 Test Suite — 61 Tests
-
-Real tests that run in CI on every push (Python 3.9–3.13):
-
-| Category | Tests |
-|----------|-------|
-| WAF detection logic | 10 (`_analyze_signatures` with mock data for 4 WAF vendors) |
-| MCP server | 13 (tool registration + execution) |
-| Payload integrity | 8 (no dupes, no fake data, source provenance) |
-| IoT RCE CVEs | 6 (CVE metadata accuracy) |
-| CLI commands | 8 |
-| Package + loading + reports | 9 |
-| Data quality | 2 (no code fragments, no fabricated results) |
-
-## 📄 Sample Report
-
-After running a scan, Fray generates a self-contained HTML report you can share with your team or attach to a pentest deliverable.
-
-**What's in the report:**
-- **Executive summary** — total payloads tested, blocked vs bypassed count, security score
-- **Block rate progress bar** — visual effectiveness metric at a glance
-- **Category breakdown table** — per-category (XSS, SQLi, SSRF, etc.) block rates with status badges
-- **Vulnerabilities discovered** — bypassed payloads grouped by severity (Critical → Low)
-- **Recommendations** — WAF-specific tuning advice and OWASP remediation steps
-- **Detailed results** — full payload-by-payload log with status codes
-
-![Fray Sample Report](https://raw.githubusercontent.com/dalisecurity/fray/main/docs/sample-report.png)
-
-**Export:**
 ```bash
-fray report --sample                      # generate a demo report
-fray report -i results.json -o report.html  # from real scan results
+fray recon https://example.com
 ```
 
-Output is a self-contained HTML file — open in any browser or print to PDF.
+| Check | What It Finds |
+|-------|---------------|
+| **TLS** | Version, cipher, cert expiry, TLS 1.0/1.1 |
+| **Security Headers** | HSTS, CSP, X-Frame-Options + 6 more (scored) |
+| **Cookies** | HttpOnly, Secure, SameSite flags (scored) |
+| **Fingerprinting** | WordPress, Drupal, PHP, Node.js, React, nginx, Apache, Java, .NET + more |
+| **DNS** | A/AAAA/CNAME/MX/TXT/NS, CDN detection, SPF/DMARC |
+| **robots.txt** | Disallowed paths, interesting endpoints (admin, api, login) |
+| **CORS** | Wildcard origin, reflected origin, credentials misconfig |
+| **Exposed Files** | 28 probes — `.env`, `.git`, phpinfo, actuator, SQL dumps |
+| **HTTP Methods** | Dangerous methods: PUT, DELETE, TRACE |
+| **Error Page** | Stack traces, version leaks, framework hints from 404 |
+| **Subdomains** | crt.sh certificate transparency enumeration |
 
-## 📚 Documentation
+```bash
+fray recon https://example.com --json       # Raw JSON
+fray recon https://example.com -o recon.json # Save to file
+```
 
-- [Quick Start Guide](docs/quickstart.md)
-- [Full Documentation](README.md)
-- [Docker Usage](docs/docker.md)
-- [OWASP Coverage](docs/owasp-complete-coverage.md)
+> 📖 For more details, see [docs/quickstart.md](docs/quickstart.md)
+
+---
+
+## 🎯 Smart Mode — `fray test --smart`
+
+Recon runs first, then recommends payloads based on what it finds:
+
+```
+🔍 Running reconnaissance on https://example.com...
+
+───────────────────────────────────────────────────
+  Target:  https://example.com
+  TLS:     TLSv1.3
+  Headers: 67%
+  Stack:   wordpress (100%), nginx (70%)
+───────────────────────────────────────────────────
+
+  Recommended categories (based on detected stack):
+
+    1. sqli                      (1200 payloads)
+    2. xss                       (800 payloads)
+    3. path_traversal            (400 payloads)
+
+    Total: 2400 payloads (vs 5500 if all categories)
+
+  [Y] Run recommended  [A] Run all  [N] Cancel  [1,3] Pick:
+```
+
+| Input | Action |
+|-------|--------|
+| **Y** | Run recommended categories |
+| **A** | Run all categories |
+| **N** | Cancel |
+| **1,3** | Pick specific categories |
+
+```bash
+fray test https://example.com --smart -y    # Auto-accept (CI/scripts)
+```
+
+> 📖 See full OWASP coverage at [docs/owasp-complete-coverage.md](docs/owasp-complete-coverage.md)
+
+---
+
+## 🛡️ WAF Detection — 25 Vendors
+
+```bash
+fray detect https://example.com
+```
+
+Detects: **Cloudflare, AWS WAF, Akamai, Imperva, F5 BIG-IP, Fastly, Azure WAF, Google Cloud Armor, Sucuri, Fortinet, Wallarm, Vercel** and 13 more.
+
+[Full vendor table + detection signatures →](docs/waf-detection-guide.md) · [WAF research →](docs/waf-detection-research.md)
+
+---
+
+## 🐛 Bug Bounty Integration
+
+Fray is built for bug bounty workflows — from recon to report submission:
+
+```bash
+# Full workflow: recon → smart test → report
+fray recon https://target.hackerone.com -o recon.json
+fray test https://target.hackerone.com --smart -y -o results.json
+fray report -i results.json -o report.html --format markdown
+```
+
+| Platform | How Fray Helps |
+|----------|---------------|
+| **HackerOne** | Structured findings, markdown reports, weakness taxonomy alignment |
+| **Bugcrowd** | JSON output feeds into submission templates |
+| **Intigriti** | Recon → test → report workflow |
+| **YesWeHack** | Severity mapping from recon scores |
+
+---
 
 ## 🤖 MCP Server — AI Integration
-
-Fray includes an MCP server that AI assistants can call directly:
 
 ```bash
 pip install fray[mcp]
 fray mcp
 ```
 
-**6 MCP tools:** `list_payload_categories`, `get_payloads`, `search_payloads`, `get_waf_signatures`, `get_cve_details`, `suggest_payloads_for_waf`
+Add to Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
-Configure Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 ```json
 {
   "mcpServers": {
-    "fray": {
-      "command": "python",
-      "args": ["-m", "fray.mcp_server"]
-    }
+    "fray": { "command": "python", "args": ["-m", "fray.mcp_server"] }
   }
 }
 ```
 
-### CLI
-```bash
-fray detect https://example.com
-fray test https://example.com -c xss --max 10
-fray payloads
-```
+**6 tools:** `list_payload_categories`, `get_payloads`, `search_payloads`, `get_waf_signatures`, `get_cve_details`, `suggest_payloads_for_waf`
 
-## 📊 Complete OWASP Coverage
+Ask Claude: *"What XSS payloads bypass Cloudflare?"* → it calls the MCP tools directly.
 
-**5,500+ total payloads across 40+ categories:**
-
-### OWASP Top 10:2021 (Web) - 1,690+ Payloads
-- A01: Broken Access Control (150+)
-- A02: Cryptographic Failures (50+)
-- A03: Injection (500+ - XSS, SQLi, XXE, SSTI, Command Injection)
-- A04: Insecure Design (80+)
-- A05: Security Misconfiguration (100+)
-- A06: Vulnerable Components (450+ - WordPress CVEs)
-- A07: Authentication Failures (200+)
-- A08: Software/Data Integrity (70+)
-- A09: Logging/Monitoring (30+)
-- A10: SSRF (60+)
-
-### OWASP Mobile Top 10:2024 - 575+ Payloads
-- M1-M10: Complete mobile security coverage (Android & iOS)
-
-### OWASP LLM Top 10 - 300+ Payloads
-- LLM01: Prompt Injection (100+)
-- LLM02-LLM10: AI/ML security testing
-
-### OWASP API Security Top 10 - 520+ Payloads
-- API1-API10: Complete API security coverage (REST, GraphQL, SOAP)
-
-### WordPress Security - 450+ Payloads
-- REST API auth bypass & user enumeration (150+)
-- File upload bypass & web shell detection (200+)
-- XML-RPC amplification & brute force (100+)
-
-### Additional Attack Vectors - 490+ Payloads
-- XSS, SQLi, SSRF, Path Traversal, LDAP, XPath, CRLF, and more
-
-See [docs/owasp-complete-coverage.md](docs/owasp-complete-coverage.md) for detailed breakdown.
-
-## 🔒 Legal & Ethical Use
-
-**IMPORTANT**: Only test systems you own or have explicit permission to test. See [LICENSE](LICENSE) for full legal disclaimer.
-
-## 🤝 Contributing
-
-Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md)
-
-## 📜 License
-
-MIT License - See [LICENSE](LICENSE)
+[Claude Code guide →](docs/claude-code-guide.md) · [ChatGPT guide →](docs/chatgpt-guide.md)
 
 ---
 
-**⭐ Star this repo if you find it useful!**
+## 📊 Reports
 
-📚 **Documentation**: [docs/](docs/) | [PyPI](https://pypi.org/project/fray/) | [Blog](https://dalisec.io/research/blog-fray-launch.html)
+```bash
+fray report --sample                           # Demo report
+fray report -i results.json -o report.html     # HTML report
+fray report -i results.json --format markdown  # Markdown report
+```
+
+![Fray Sample Report](https://raw.githubusercontent.com/dalisecurity/fray/hugo/docs/sample-report.png)
+
+[Report guide →](docs/report-guide.md) · [POC simulation guide →](docs/poc-simulation-guide.md)
+
+---
+
+## 📦 5,500+ Payloads
+
+```bash
+fray payloads  # List all categories
+```
+
+| Category | Payloads | Category | Payloads |
+|----------|----------|----------|----------|
+| XSS | 867 | SSRF | 167 |
+| SQLi | 456 | SSTI | 98 |
+| Command Injection | 234 | XXE | 123 |
+| Path Traversal | 189 | File Upload | 70+ |
+| AI/LLM Prompt Injection | 370 | Web Shells | 160+ |
+| OWASP Mobile | 575+ | CVE Exploits | 220 |
+
+Includes **120 real-world CVEs** (2020–2026): Log4Shell, Spring4Shell, ProxyShell, and more.
+
+[Full payload database →](docs/payload-database-coverage.md) · [CVE coverage →](docs/cve-real-world-bypasses.md) · [AI security →](docs/ai-security-guide.md) · [Mobile security →](docs/owasp-mobile-top10.md) · [API security →](docs/owasp-api-security.md)
+
+---
+
+## 📈 Roadmap
+
+**Done:**
+- [x] 14-check reconnaissance (`fray recon`)
+- [x] Smart payload selection with interactive prompt (`--smart`)
+- [x] Cookie, CORS, exposed file, DNS, subdomain scanning
+- [x] Adaptive payload evolution
+- [x] HTML + Markdown report generation
+- [x] MCP server for AI integration
+
+**Next:**
+- [ ] Shareable report URLs (hosted HTML, temporary links)
+- [ ] HackerOne API integration (auto-submit findings)
+- [ ] Web-based report dashboard
+- [ ] ML-based payload effectiveness scoring
+- [ ] Multi-WAF comparison testing
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). We welcome payload contributions, tool improvements, and documentation PRs.
+
+## Legal
+
+**MIT License** — See [LICENSE](LICENSE). Only test systems you own or have explicit authorization to test. The authors are not responsible for misuse.
+
+**Security issues:** soc@dalisec.io · [SECURITY.md](SECURITY.md)
+
+---
+
+**[📖 All Documentation (28 guides)](docs/) · [PyPI](https://pypi.org/project/fray/) · [Issues](https://github.com/dalisecurity/fray/issues) · [Discussions](https://github.com/dalisecurity/fray/discussions) · [Blog](https://dalisec.io/research/blog-fray-launch.html)**
