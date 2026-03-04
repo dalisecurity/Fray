@@ -10,6 +10,7 @@ Usage:
     fray report                 Generate HTML report
     fray payloads               List available payload categories
     fray doctor                 Check environment + auto-fix issues
+    fray submit-payload          Submit payload to community (auto GitHub PR)
     fray version                Show version
 """
 
@@ -140,6 +141,22 @@ def cmd_doctor(args):
     run_doctor(auto_fix=args.fix, verbose=args.verbose)
 
 
+def cmd_submit_payload(args):
+    """Submit a payload to the Fray community database via GitHub PR"""
+    from fray.submit import run_submit_payload
+    run_submit_payload(
+        payload=args.payload,
+        category=args.category,
+        subcategory=args.subcategory,
+        description=args.description,
+        technique=args.technique,
+        contributor_name=args.name,
+        contributor_github=args.github,
+        file=args.file,
+        dry_run=args.dry_run,
+    )
+
+
 def cmd_mcp(args):
     """Start MCP server for AI assistant integration"""
     try:
@@ -172,6 +189,9 @@ Examples:
   fray test https://example.com --webhook https://hooks.slack.com/xxx
   fray doctor
   fray doctor --fix
+  fray submit-payload
+  fray submit-payload --payload '<svg/onload=alert(1)>' --category xss
+  fray submit-payload --file my_payloads.json
   fray payloads
   fray report --output report.html
 
@@ -219,6 +239,19 @@ Documentation: https://github.com/dalisecurity/fray
     p_doctor.add_argument("--fix", action="store_true", help="Auto-fix issues where possible")
     p_doctor.add_argument("-v", "--verbose", action="store_true", help="Show detailed fix suggestions")
     p_doctor.set_defaults(func=cmd_doctor)
+
+    # submit-payload
+    p_submit = subparsers.add_parser("submit-payload", help="Submit payload to community database via GitHub PR")
+    p_submit.add_argument("--payload", default=None, help="Payload string to submit")
+    p_submit.add_argument("-c", "--category", default=None, help="Payload category (e.g. xss, sqli)")
+    p_submit.add_argument("--subcategory", default=None, help="Subcategory / target file (default: community)")
+    p_submit.add_argument("--description", default=None, help="What the payload does")
+    p_submit.add_argument("--technique", default=None, help="Technique (e.g. direct_injection, waf_bypass)")
+    p_submit.add_argument("--name", default=None, help="Contributor name")
+    p_submit.add_argument("--github", default=None, help="Contributor GitHub username")
+    p_submit.add_argument("--file", default=None, help="JSON file with payloads for bulk submission")
+    p_submit.add_argument("--dry-run", action="store_true", help="Preview without creating PR")
+    p_submit.set_defaults(func=cmd_submit_payload)
 
     # mcp
     p_mcp = subparsers.add_parser("mcp", help="Start MCP server for AI assistant integration")
