@@ -301,6 +301,33 @@ class WAFTester:
 
                 blocked = status in (403, 406, 429, 503)
 
+                # Enhanced block detection: WAF body signatures
+                if not blocked and resp_str:
+                    resp_lower = resp_str.lower()
+                    # Cloudflare challenge / block pages
+                    if 'attention required' in resp_lower or 'cf-error-details' in resp_lower:
+                        blocked = True
+                    # Akamai block page
+                    elif 'reference #' in resp_lower and 'akamai' in resp_lower:
+                        blocked = True
+                    # Imperva / Incapsula block
+                    elif 'incident id' in resp_lower and ('incapsula' in resp_lower or 'imperva' in resp_lower):
+                        blocked = True
+                    # F5 BIG-IP block
+                    elif 'the requested url was rejected' in resp_lower:
+                        blocked = True
+                    # AWS WAF block
+                    elif 'request blocked' in resp_lower and ('security policy' in resp_lower or 'aws' in resp_lower):
+                        blocked = True
+                    # ModSecurity block
+                    elif 'mod_security' in resp_lower or 'modsecurity' in resp_lower:
+                        blocked = True
+                    # Generic WAF signatures
+                    elif 'web application firewall' in resp_lower:
+                        blocked = True
+                    elif 'access denied' in resp_lower and status in (200, 403, 406):
+                        blocked = True
+
                 # Extract response body for reflection analysis
                 resp_body = ''
                 if '\r\n\r\n' in resp_str:

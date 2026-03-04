@@ -394,61 +394,140 @@ def run_bypass(
 
         tester._stealth_delay()
 
-    # ── Phase 4: Aggressive mutation of bypasses ──────────────────────────
+    # ── Phase 4: Feedback loop — mutate BLOCKED payloads, retry ─────────
+    #
+    # Core insight: the real value is turning blocks INTO bypasses.
+    # For each blocked payload: mutate → test → if still blocked → re-mutate → retry.
+    # Also mutate bypasses to find MORE variants (amplification).
+    #
     mutation_count = 0
     mutation_bypasses: List[BypassResult] = []
+    mutator = PayloadMutator(profile)
+    mut_remaining = mutation_budget
+    max_retry_depth = 2  # How many times to re-mutate a blocked mutation
 
-    if bypass_results:
-        mutator = PayloadMutator(profile)
-        mut_remaining = mutation_budget
+    # Collect blocked payloads from Phase 3 (top candidates by score)
+    blocked_results = [r for r in all_results if r.get("blocked")]
+    blocked_payloads = [r.get("payload", "") for r in blocked_results[:10]]
 
+    # Also include bypasses for amplification
+    bypass_payloads = [b.payload for b in bypass_results[:5]]
+
+    # WAF-specific mutation ordering: reorder mutator strategies if hints available
+    priority_muts = hints.get("priority_mutations", [])
+    if priority_muts:
+        mutator_strategies = mutator._pick_strategies()
+        # Reorder: priority mutations first, then the rest
+        priority_set = set(priority_muts)
+        ordered = [s for s in mutator_strategies if s[0] in priority_set]
+        rest = [s for s in mutator_strategies if s[0] not in priority_set]
+        mutator._pick_strategies = lambda: ordered + rest
+
+    if mut_remaining > 0 and (blocked_payloads or bypass_payloads):
         if verbose:
-            print(f"\n{Colors.CYAN}  Phase 4: Mutating {len(bypass_results)} bypass(es) "
-                  f"(budget: {mutation_budget} mutations)...{Colors.END}")
+            print(f"\n{Colors.CYAN}  Phase 4: Evasion feedback loop "
+                  f"({len(blocked_payloads)} blocked + {len(bypass_payloads)} bypasses, "
+                  f"budget: {mutation_budget}, depth: {max_retry_depth})...{Colors.END}")
 
-        for bp in bypass_results[:5]:  # Mutate top 5 bypasses
+        # --- 4a: Mutate BLOCKED payloads → try to turn blocks into bypasses ---
+        for payload_str in blocked_payloads:
             if mut_remaining <= 0:
                 break
-            mutations = mutator.mutate(bp.payload, max_mutations=max_mutations)
 
-            for mut in mutations:
+            # Iterative retry: mutate → test → if blocked, mutate the mutation
+            candidates = [payload_str]
+            for depth in range(max_retry_depth + 1):
                 if mut_remaining <= 0:
                     break
+                next_candidates = []
+                for candidate in candidates:
+                    if mut_remaining <= 0:
+                        break
+                    mutations = mutator.mutate(candidate, max_mutations=max_mutations)
+                    for mut in mutations:
+                        if mut_remaining <= 0:
+                            break
+                        result = tester.test_payload(mut["payload"], param=param)
+                        mutation_count += 1
+                        mut_remaining -= 1
+                        ev_score = _compute_evasion_score(result, profile, is_mutation=True)
 
-                result = tester.test_payload(mut["payload"], param=param)
-                mutation_count += 1
-                mut_remaining -= 1
+                        mbr = BypassResult(
+                            payload=mut["payload"],
+                            blocked=result.get("blocked", True),
+                            status=result.get("status", 0),
+                            technique=mut["mutation"],
+                            parent=mut["parent"],
+                            evasion_score=ev_score,
+                            reflected=result.get("reflected", False),
+                            reflection_context=result.get("reflection_context", ""),
+                            response_length=result.get("response_length", 0),
+                        )
 
-                ev_score = _compute_evasion_score(result, profile, is_mutation=True)
+                        if verbose:
+                            depth_tag = f"d{depth}" if depth > 0 else "MUT"
+                            if mbr.blocked:
+                                print(f"    {depth_tag} {Colors.RED}BLOCKED{Colors.END} "
+                                      f"[{mut['mutation']}] | {result.get('status', 0)}")
+                            else:
+                                reflected_tag = f" {Colors.YELLOW}REFLECTED{Colors.END}" if mbr.reflected else ""
+                                print(f"    {depth_tag} {Colors.GREEN}BYPASS{Colors.END}  "
+                                      f"[{mut['mutation']}] | Score: {Colors.BOLD}{ev_score}{Colors.END} "
+                                      f"| {result.get('status', 0)}{reflected_tag}")
 
-                mbr = BypassResult(
-                    payload=mut["payload"],
-                    blocked=result.get("blocked", True),
-                    status=result.get("status", 0),
-                    technique=mut["mutation"],
-                    parent=mut["parent"],
-                    evasion_score=ev_score,
-                    reflected=result.get("reflected", False),
-                    reflection_context=result.get("reflection_context", ""),
-                    response_length=result.get("response_length", 0),
-                )
+                        if not mbr.blocked:
+                            mutation_bypasses.append(mbr)
+                        else:
+                            # Feed back into next depth for re-mutation
+                            next_candidates.append(mut["payload"])
 
-                if not mbr.blocked:
-                    mutation_bypasses.append(mbr)
+                        tester._stealth_delay()
 
-                if verbose:
-                    if mbr.blocked:
-                        print(f"    MUT {Colors.RED}BLOCKED{Colors.END} "
-                              f"[{mut['mutation']}] | {result.get('status', 0)}")
-                    else:
-                        reflected_tag = f" {Colors.YELLOW}REFLECTED{Colors.END}" if mbr.reflected else ""
-                        print(f"    MUT {Colors.GREEN}BYPASS{Colors.END}  "
-                              f"[{mut['mutation']}] | Score: {Colors.BOLD}{ev_score}{Colors.END} "
-                              f"| {result.get('status', 0)}{reflected_tag}")
+                # Next depth: re-mutate blocked mutations
+                candidates = next_candidates[:3]  # Limit re-mutation breadth
+                if not candidates:
+                    break  # All mutations bypassed or no more to try
 
-                tester._stealth_delay()
+        # --- 4b: Amplify bypasses — find more variants of what already works ---
+        if mut_remaining > 0 and bypass_payloads:
+            if verbose:
+                print(f"\n    {Colors.DIM}Amplifying {len(bypass_payloads)} bypass(es)...{Colors.END}")
+            for payload_str in bypass_payloads:
+                if mut_remaining <= 0:
+                    break
+                mutations = mutator.mutate(payload_str, max_mutations=max_mutations)
+                for mut in mutations:
+                    if mut_remaining <= 0:
+                        break
+                    result = tester.test_payload(mut["payload"], param=param)
+                    mutation_count += 1
+                    mut_remaining -= 1
+                    ev_score = _compute_evasion_score(result, profile, is_mutation=True)
+                    mbr = BypassResult(
+                        payload=mut["payload"],
+                        blocked=result.get("blocked", True),
+                        status=result.get("status", 0),
+                        technique=mut["mutation"],
+                        parent=mut["parent"],
+                        evasion_score=ev_score,
+                        reflected=result.get("reflected", False),
+                        reflection_context=result.get("reflection_context", ""),
+                        response_length=result.get("response_length", 0),
+                    )
+                    if not mbr.blocked:
+                        mutation_bypasses.append(mbr)
+                    if verbose:
+                        if mbr.blocked:
+                            print(f"    AMP {Colors.RED}BLOCKED{Colors.END} "
+                                  f"[{mut['mutation']}] | {result.get('status', 0)}")
+                        else:
+                            reflected_tag = f" {Colors.YELLOW}REFLECTED{Colors.END}" if mbr.reflected else ""
+                            print(f"    AMP {Colors.GREEN}BYPASS{Colors.END}  "
+                                  f"[{mut['mutation']}] | Score: {Colors.BOLD}{ev_score}{Colors.END} "
+                                  f"| {result.get('status', 0)}{reflected_tag}")
+                    tester._stealth_delay()
     elif verbose:
-        print(f"\n{Colors.DIM}  Phase 4: Skipped — no bypasses to mutate{Colors.END}")
+        print(f"\n{Colors.DIM}  Phase 4: Skipped — no payloads to mutate{Colors.END}")
 
     # ── Build Scorecard ───────────────────────────────────────────────────
     all_bypasses = bypass_results + mutation_bypasses
