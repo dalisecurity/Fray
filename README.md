@@ -1,5 +1,7 @@
 # Fray
 
+**🌐 Language:** **English** | [日本語](README.ja.md)
+
 ### ⚔️ *Open-source WAF security testing toolkit — recon, detect, test, report*
 
 [![Total Payloads](https://img.shields.io/badge/Payloads-5500+-brightgreen.svg?style=for-the-badge)](https://github.com/dalisecurity/fray)
