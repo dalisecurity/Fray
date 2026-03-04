@@ -433,6 +433,92 @@ def check_security_headers(headers: Dict[str, str]) -> Dict[str, Any]:
     return results
 
 
+def check_cookies(headers: Dict[str, str]) -> Dict[str, Any]:
+    """Audit cookies for security flags: HttpOnly, Secure, SameSite, Path."""
+    results: Dict[str, Any] = {
+        "cookies": [],
+        "issues": [],
+        "score": 100,
+    }
+
+    # Collect all Set-Cookie headers. http.client merges them with ", " but
+    # that's unreliable. We look for the raw header which may appear once or
+    # be comma-joined. Split carefully on ", " only when followed by a cookie name=.
+    raw = headers.get("set-cookie", "")
+    if not raw:
+        return results
+
+    # Split on boundaries that look like a new cookie (name=value after ", ")
+    cookie_strings = re.split(r',\s*(?=[A-Za-z0-9_.-]+=)', raw)
+
+    for cs in cookie_strings:
+        cs = cs.strip()
+        if not cs or '=' not in cs:
+            continue
+
+        parts = cs.split(";")
+        name_value = parts[0].strip()
+        name = name_value.split("=", 1)[0].strip()
+
+        flags_raw = [p.strip().lower() for p in parts[1:]]
+        flags_set = set(flags_raw)
+
+        has_httponly = any("httponly" in f for f in flags_set)
+        has_secure = any("secure" in f for f in flags_set)
+        has_samesite = any("samesite" in f for f in flags_set)
+        samesite_value = None
+        for f in flags_raw:
+            if f.startswith("samesite="):
+                samesite_value = f.split("=", 1)[1].strip()
+                break
+
+        cookie_info: Dict[str, Any] = {
+            "name": name,
+            "httponly": has_httponly,
+            "secure": has_secure,
+            "samesite": samesite_value or (True if has_samesite else None),
+        }
+        results["cookies"].append(cookie_info)
+
+        # Flag issues
+        if not has_httponly:
+            results["issues"].append({
+                "cookie": name,
+                "issue": "Missing HttpOnly flag",
+                "severity": "high",
+                "risk": "Cookie accessible via JavaScript — XSS can steal sessions",
+            })
+        if not has_secure:
+            results["issues"].append({
+                "cookie": name,
+                "issue": "Missing Secure flag",
+                "severity": "high",
+                "risk": "Cookie sent over HTTP — vulnerable to MITM interception",
+            })
+        if not has_samesite:
+            results["issues"].append({
+                "cookie": name,
+                "issue": "Missing SameSite attribute",
+                "severity": "medium",
+                "risk": "Vulnerable to CSRF attacks",
+            })
+        elif samesite_value and samesite_value.lower() == "none" and not has_secure:
+            results["issues"].append({
+                "cookie": name,
+                "issue": "SameSite=None without Secure flag",
+                "severity": "high",
+                "risk": "Browser will reject this cookie (Chrome/Firefox require Secure with SameSite=None)",
+            })
+
+    # Score: deduct points per issue
+    if results["cookies"]:
+        deductions = len([i for i in results["issues"] if i["severity"] == "high"]) * 15
+        deductions += len([i for i in results["issues"] if i["severity"] == "medium"]) * 8
+        results["score"] = max(0, 100 - deductions)
+
+    return results
+
+
 def fingerprint_app(headers: Dict[str, str], body: str,
                     cookies_raw: str = "") -> Dict[str, Any]:
     """Detect technology stack from headers, body, and cookies."""
@@ -508,6 +594,7 @@ def run_recon(url: str, timeout: int = 8) -> Dict[str, Any]:
         "http": {},
         "tls": {},
         "headers": {},
+        "cookies": {},
         "fingerprint": {},
         "recommended_categories": [],
     }
@@ -526,10 +613,13 @@ def run_recon(url: str, timeout: int = 8) -> Dict[str, Any]:
     # 4. Security headers
     result["headers"] = check_security_headers(headers)
 
-    # 5. App fingerprinting
+    # 5. Cookie security audit
+    result["cookies"] = check_cookies(headers)
+
+    # 6. App fingerprinting
     result["fingerprint"] = fingerprint_app(headers, body)
 
-    # 6. Smart payload recommendation
+    # 7. Smart payload recommendation
     result["recommended_categories"] = recommend_categories(result["fingerprint"])
 
     return result
@@ -596,6 +686,41 @@ def print_recon(result: Dict[str, Any]) -> None:
         sev_color = Colors.RED if sev == "high" else (Colors.YELLOW if sev == "medium" else Colors.DIM)
         print(f"    {Colors.RED}❌{Colors.END} {name} {sev_color}({sev}){Colors.END}")
     print()
+
+    # Cookies
+    ck = result.get("cookies", {})
+    cookies = ck.get("cookies", [])
+    issues = ck.get("issues", [])
+    if cookies:
+        ck_score = ck.get("score", 100)
+        ck_color = Colors.GREEN if ck_score >= 80 else (Colors.YELLOW if ck_score >= 50 else Colors.RED)
+        print(f"  {Colors.BOLD}Cookies{Colors.END} ({ck_color}{ck_score}%{Colors.END})")
+        for c in cookies:
+            flags = []
+            if c.get("httponly"):
+                flags.append(f"{Colors.GREEN}HttpOnly{Colors.END}")
+            else:
+                flags.append(f"{Colors.RED}HttpOnly{Colors.END}")
+            if c.get("secure"):
+                flags.append(f"{Colors.GREEN}Secure{Colors.END}")
+            else:
+                flags.append(f"{Colors.RED}Secure{Colors.END}")
+            ss = c.get("samesite")
+            if ss and ss is not True:
+                flags.append(f"{Colors.GREEN}SameSite={ss}{Colors.END}")
+            elif ss is True:
+                flags.append(f"{Colors.GREEN}SameSite{Colors.END}")
+            else:
+                flags.append(f"{Colors.RED}SameSite{Colors.END}")
+            print(f"    {c['name']:<30} {' | '.join(flags)}")
+        if issues:
+            print()
+            for iss in issues:
+                sev = iss["severity"]
+                sev_color = Colors.RED if sev == "high" else Colors.YELLOW
+                print(f"    {sev_color}⚠ {iss['cookie']}: {iss['issue']}{Colors.END}")
+                print(f"      {Colors.DIM}{iss['risk']}{Colors.END}")
+        print()
 
     # Fingerprint
     fp = result.get("fingerprint", {})
