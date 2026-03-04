@@ -12,7 +12,9 @@ Uses only Python stdlib (http.client + json) — zero dependencies.
 """
 
 import http.client
+import ipaddress
 import json
+import socket
 import ssl
 import urllib.parse
 from typing import Dict, Optional
@@ -217,6 +219,16 @@ def send_webhook(webhook_url: str, report: Dict, verbose: bool = False) -> bool:
     use_ssl = parsed.scheme == "https"
     if port is None:
         port = 443 if use_ssl else 80
+
+    # Block webhooks to private/internal IPs (SSRF prevention)
+    if host:
+        try:
+            ip = ipaddress.ip_address(socket.gethostbyname(host))
+            if ip.is_private or ip.is_loopback or ip.is_link_local:
+                print(f"  {Colors.RED}Webhook blocked{Colors.END}: destination resolves to private/internal IP ({ip})")
+                return False
+        except (socket.gaierror, ValueError):
+            pass  # Let the connection attempt handle DNS failures
 
     body = json.dumps(payload).encode("utf-8")
 

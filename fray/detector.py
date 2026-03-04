@@ -235,7 +235,7 @@ class WAFDetector:
             }
         }
     
-    def detect_waf(self, target: str, timeout: int = 8) -> Dict:
+    def detect_waf(self, target: str, timeout: int = 8, verify_ssl: bool = True) -> Dict:
         """Detect WAF vendor for a target"""
         
         # Parse target URL
@@ -266,8 +266,9 @@ class WAFDetector:
             # Create connection
             if use_ssl:
                 ctx = ssl.create_default_context()
-                ctx.check_hostname = False
-                ctx.verify_mode = ssl.CERT_NONE
+                if not verify_ssl:
+                    ctx.check_hostname = False
+                    ctx.verify_mode = ssl.CERT_NONE
                 sock = socket.create_connection((host, port), timeout=timeout)
                 conn = ctx.wrap_socket(sock, server_hostname=host)
             else:
@@ -290,7 +291,7 @@ class WAFDetector:
                     resp += data
                     if len(resp) > 100000:
                         break
-                except:
+                except (socket.error, socket.timeout, OSError):
                     break
             
             conn.close()

@@ -31,7 +31,8 @@ def cmd_detect(args):
     """Detect WAF vendor on target"""
     from fray.detector import WAFDetector
     detector = WAFDetector()
-    results = detector.detect_waf(args.target)
+    verify = not getattr(args, 'insecure', False)
+    results = detector.detect_waf(args.target, verify_ssl=verify)
     detector.print_results(results)
 
 
@@ -41,7 +42,8 @@ def cmd_test(args):
     tester = WAFTester(
         target=args.target,
         timeout=args.timeout,
-        delay=args.delay
+        delay=args.delay,
+        verify_ssl=not getattr(args, 'insecure', False),
     )
 
     all_payloads = []
@@ -291,6 +293,7 @@ Documentation: https://github.com/dalisecurity/fray
     # detect
     p_detect = subparsers.add_parser("detect", help="Detect WAF vendor on target URL")
     p_detect.add_argument("target", help="Target URL (e.g. https://example.com)")
+    p_detect.add_argument("--insecure", action="store_true", help="Disable TLS certificate verification")
     p_detect.set_defaults(func=cmd_detect)
 
     # test
@@ -306,6 +309,7 @@ Documentation: https://github.com/dalisecurity/fray
     p_test.add_argument("--smart", action="store_true",
                          help="Adaptive payload evolution: probe WAF, skip redundant payloads, mutate bypasses")
     p_test.add_argument("--webhook", default=None, help="Webhook URL for notifications (Slack/Discord/Teams)")
+    p_test.add_argument("--insecure", action="store_true", help="Disable TLS certificate verification")
     p_test.set_defaults(func=cmd_test)
 
     # report

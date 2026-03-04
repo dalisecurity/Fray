@@ -5,6 +5,7 @@ Simple command-line interface for testing WAFs with comprehensive payload databa
 """
 
 import argparse
+import ipaddress
 import json
 import socket
 import ssl
@@ -15,6 +16,17 @@ from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime
 import sys
+
+
+def _is_private_host(hostname: str) -> bool:
+    """Check if a hostname resolves to a private/internal IP address."""
+    if not hostname:
+        return True
+    try:
+        ip = ipaddress.ip_address(socket.gethostbyname(hostname))
+        return ip.is_private or ip.is_loopback or ip.is_link_local
+    except (socket.gaierror, ValueError):
+        return False
 
 # Import WAF detector if available
 try:
@@ -37,13 +49,15 @@ class WAFTester:
     """Main WAF testing class"""
     
     def __init__(self, target: str, timeout: int = 8, delay: float = 0.5,
-                 custom_headers: Optional[Dict[str, str]] = None):
+                 custom_headers: Optional[Dict[str, str]] = None,
+                 verify_ssl: bool = True):
         self.target = target
         self.timeout = timeout
         self.delay = delay
         self.results = []
         self.start_time = None
         self.custom_headers = custom_headers or {}
+        self.verify_ssl = verify_ssl
         
         # Parse target URL
         if not target.startswith('http'):
@@ -61,6 +75,9 @@ class WAFTester:
         """Build extra header lines from custom_headers dict."""
         lines = ""
         for k, v in self.custom_headers.items():
+            # Sanitize CRLF to prevent header injection
+            k = k.replace('\r', '').replace('\n', '')
+            v = v.replace('\r', '').replace('\n', '')
             lines += f"{k}: {v}\r\n"
         return lines
 
@@ -69,8 +86,9 @@ class WAFTester:
         """Send a raw HTTP request and return (status, response_str, headers_dict)."""
         if use_ssl:
             ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
+            if not self.verify_ssl:
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
             sock = socket.create_connection((host, port), timeout=self.timeout)
             conn = ctx.wrap_socket(sock, server_hostname=host)
         else:
@@ -87,7 +105,7 @@ class WAFTester:
                 resp += data
                 if len(resp) > 100000:
                     break
-            except:
+            except (socket.error, socket.timeout, OSError):
                 break
         conn.close()
 
@@ -145,7 +163,18 @@ class WAFTester:
                         current_query = location.split('?')[1] if '?' in location else ''
                     elif location.startswith('http'):
                         parsed = urllib.parse.urlparse(location)
-                        current_host = parsed.hostname or current_host
+                        redirect_host = parsed.hostname or current_host
+                        # Block redirects to private/internal IPs (SSRF prevention)
+                        if _is_private_host(redirect_host):
+                            return {
+                                'payload': payload,
+                                'status': status,
+                                'error': f'Redirect to private/internal host blocked: {redirect_host}',
+                                'blocked': True,
+                                'redirects': hop,
+                                'timestamp': datetime.now().isoformat()
+                            }
+                        current_host = redirect_host
                         current_port = parsed.port or (443 if parsed.scheme == 'https' else 80)
                         current_ssl = parsed.scheme == 'https'
                         current_path = parsed.path or '/'
@@ -159,7 +188,7 @@ class WAFTester:
                     if error_match:
                         error_code = error_match.group(1)
 
-                blocked = status in (403, 406, 503)
+                blocked = status in (403, 406, 429, 503)
 
                 # Extract response body for reflection analysis
                 resp_body = ''

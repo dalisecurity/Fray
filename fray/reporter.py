@@ -22,8 +22,7 @@ class SecurityReportGenerator:
     def __init__(self):
         self.dali_logo_html = '''
         <div class="dali-logo-container" style="display: flex; align-items: center; gap: 15px;">
-            <a href="http://localhost:8090/" target="_blank" style="display: flex; align-items: center; gap: 12px; text-decoration: none;">
-                <img src="http://localhost:8090/logo-icon.svg" alt="DALI Security Icon" style="height: 50px; width: 50px;">
+            <a href="https://dalisec.io/" target="_blank" style="display: flex; align-items: center; gap: 12px; text-decoration: none;">
                 <div style="display: flex; flex-direction: column; line-height: 1.2;">
                     <span style="font-size: 28px; font-weight: bold; color: white; letter-spacing: 2px;">DALI</span>
                     <span style="font-size: 14px; color: rgba(255,255,255,0.9); letter-spacing: 3px;">SECURITY</span>
@@ -458,7 +457,7 @@ class SecurityReportGenerator:
             </div>
             <div class="meta-card">
                 <div class="label">Target URL</div>
-                <div class="value">{waf_detection.get('target', 'N/A') if waf_detection else 'N/A'}</div>
+                <div class="value">{self._escape_html(waf_detection.get('target', 'N/A')) if waf_detection else 'N/A'}</div>
             </div>
             <div class="meta-card">
                 <div class="label">Test Duration</div>
