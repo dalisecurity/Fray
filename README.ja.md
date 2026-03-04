@@ -196,7 +196,40 @@ fray test https://app.example.com --smart --scope scope.txt \
 
 ---
 
-## �🐛 バグバウンティ連携
+## 🥷 レート制限 & ステルスモード
+
+実際のペンテストではレート制限で頻繁にブロックされます。Frayには回避機能を内蔵：
+
+```bash
+# ランダムなジッター（0〜2秒）を基本遅延に追加
+fray test https://target.com -c xss --delay 1 --jitter 2
+
+# リクエスト/秒を制限（例：最大2 req/s）
+fray test https://target.com -c sqli --rate-limit 2
+
+# ステルスモード — 1つのフラグで完全回避：
+#   • User-Agentランダム化（Chrome/Firefox/Safari/Edge/モバイル）
+#   • Accept-Languageランダム化
+#   • 自動ジッター（1秒）+ スロットル（最大2 req/s）
+fray test https://target.com --smart --stealth
+
+# 全機能組み合わせ
+fray test https://target.com --stealth --scope scope.txt \
+  --cookie "session=abc" --delay 2 --jitter 3 --rate-limit 1
+```
+
+| フラグ | デフォルト | 説明 |
+|------|---------|------|
+| `--delay` | 0.5秒 | リクエスト間の固定遅延 |
+| `--jitter` | 0 | 遅延に加算されるランダム変動（0〜N秒） |
+| `--rate-limit` | 0（無制限） | 1秒あたりの最大リクエスト数 |
+| `--stealth` | オフ | UA回転、ジッター（1秒）、スロットル（2 req/s）を有効化 |
+
+`--stealth`はデフォルト値を設定しますが、`--delay 5 --jitter 3`などの手動指定を優先します。
+
+---
+
+## 🐛 バグバウンティ連携
 
 Frayはバグバウンティのワークフローに最適化されています — 情報収集からレポート提出まで：
 

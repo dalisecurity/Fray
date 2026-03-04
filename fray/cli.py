@@ -178,6 +178,9 @@ def cmd_test(args):
         custom_headers=custom_headers or None,
         verbose=getattr(args, 'verbose', False),
         max_redirects=max_redirects,
+        jitter=getattr(args, 'jitter', 0.0),
+        stealth=getattr(args, 'stealth', False),
+        rate_limit=getattr(args, 'rate_limit', 0.0),
     )
 
     all_payloads = []
@@ -831,6 +834,12 @@ Documentation: https://github.com/dalisecurity/fray
                          help="Skip interactive prompt in --smart mode (auto-accept recommendations)")
     p_test.add_argument("--scope", default=None,
                          help="Scope file — only test targets listed in this file (one domain/IP/CIDR per line)")
+    p_test.add_argument("--jitter", type=float, default=0.0,
+                         help="Random delay variance in seconds added to --delay (e.g. --jitter 1.0)")
+    p_test.add_argument("--stealth", action="store_true",
+                         help="Stealth mode: randomize User-Agent, add jitter, throttle requests — evade rate limiting")
+    p_test.add_argument("--rate-limit", type=float, default=0.0,
+                         help="Max requests per second (e.g. --rate-limit 2 = max 2 req/s)")
     p_test.set_defaults(func=cmd_test)
 
     # report

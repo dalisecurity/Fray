@@ -7,6 +7,7 @@ Simple command-line interface for testing WAFs with comprehensive payload databa
 import argparse
 import ipaddress
 import json
+import random
 import socket
 import ssl
 import re
@@ -16,6 +17,30 @@ from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime
 import sys
+
+
+# Realistic User-Agent pool for stealth mode
+_STEALTH_USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:123.0) Gecko/20100101 Firefox/123.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Mobile/15E148 Safari/604.1",
+]
+
+# Accept-Language variants for stealth
+_STEALTH_ACCEPT_LANGS = [
+    "en-US,en;q=0.9",
+    "en-GB,en;q=0.9",
+    "en-US,en;q=0.9,ja;q=0.8",
+    "en-US,en;q=0.8",
+    "en,*;q=0.5",
+]
 
 
 def _is_private_host(hostname: str) -> bool:
@@ -51,16 +76,30 @@ class WAFTester:
     def __init__(self, target: str, timeout: int = 8, delay: float = 0.5,
                  custom_headers: Optional[Dict[str, str]] = None,
                  verify_ssl: bool = True, verbose: bool = False,
-                 max_redirects: int = 5):
+                 max_redirects: int = 5, jitter: float = 0.0,
+                 stealth: bool = False, rate_limit: float = 0.0):
         self.target = target
         self.timeout = timeout
         self.delay = delay
+        self.jitter = jitter
+        self.stealth = stealth
+        self.rate_limit = rate_limit
         self.results = []
         self.start_time = None
         self.custom_headers = custom_headers or {}
         self.verify_ssl = verify_ssl
         self.verbose = verbose
         self.max_redirects = max_redirects
+        self._last_request_time = 0.0
+
+        # Stealth mode defaults: if --stealth is on, apply sane defaults
+        if self.stealth:
+            if self.delay < 1.0:
+                self.delay = 1.5
+            if self.jitter == 0.0:
+                self.jitter = 1.0
+            if self.rate_limit == 0.0:
+                self.rate_limit = 2.0  # max 2 req/s
         
         # Parse target URL
         if not target.startswith('http'):
@@ -74,6 +113,33 @@ class WAFTester:
         self.path = parsed.path or '/'
         self.query = parsed.query
     
+    def _stealth_delay(self):
+        """Apply delay + jitter + rate limit between requests."""
+        # Rate limit: enforce minimum interval between requests
+        if self.rate_limit > 0:
+            min_interval = 1.0 / self.rate_limit
+            elapsed = time.time() - self._last_request_time
+            if elapsed < min_interval:
+                time.sleep(min_interval - elapsed)
+
+        # Base delay + random jitter
+        wait = self.delay
+        if self.jitter > 0:
+            wait += random.uniform(0, self.jitter)
+        if wait > 0:
+            time.sleep(wait)
+
+        self._last_request_time = time.time()
+
+    def _get_stealth_headers(self) -> str:
+        """Return randomized User-Agent and Accept-Language for stealth mode."""
+        if not self.stealth:
+            return ""
+        ua = random.choice(_STEALTH_USER_AGENTS)
+        lang = random.choice(_STEALTH_ACCEPT_LANGS)
+        lines = f"User-Agent: {ua}\r\nAccept-Language: {lang}\r\nAccept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\n"
+        return lines
+
     def _build_extra_headers(self) -> str:
         """Build extra header lines from custom_headers dict."""
         lines = ""
@@ -166,10 +232,13 @@ class WAFTester:
             try:
                 enc = urllib.parse.quote(payload, safe='')
 
+                stealth_hdrs = self._get_stealth_headers()
+
                 if method == 'GET' or hop > 0:
                     query_string = f"{current_query}&{param}={enc}" if current_query else f"{param}={enc}"
                     req = (f"GET {current_path}?{query_string} HTTP/1.1\r\n"
                            f"Host: {current_host}\r\n"
+                           f"{stealth_hdrs}"
                            f"{extra_hdrs}"
                            f"Connection: close\r\n\r\n")
                 else:
@@ -178,6 +247,7 @@ class WAFTester:
                            f"Host: {current_host}\r\n"
                            f"Content-Type: application/x-www-form-urlencoded\r\n"
                            f"Content-Length: {len(body)}\r\n"
+                           f"{stealth_hdrs}"
                            f"{extra_hdrs}"
                            f"Connection: close\r\n\r\n{body}")
 
@@ -335,7 +405,7 @@ class WAFTester:
                   f"Status: {result['status']} | "
                   f"{desc[:40] if desc else payload[:40]}")
             
-            time.sleep(self.delay)
+            self._stealth_delay()
         
         return results
     

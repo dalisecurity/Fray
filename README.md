@@ -196,7 +196,40 @@ fray test https://app.example.com --smart --scope scope.txt \
 
 ---
 
-## �🐛 Bug Bounty Integration
+## 🥷 Rate Limiting & Stealth Mode
+
+Real pentesters get blocked constantly. Fray has built-in evasion:
+
+```bash
+# Add random jitter (0–2s) on top of the base delay
+fray test https://target.com -c xss --delay 1 --jitter 2
+
+# Cap requests per second (e.g. max 2 req/s)
+fray test https://target.com -c sqli --rate-limit 2
+
+# Stealth mode — one flag, full evasion:
+#   • Randomized User-Agent (Chrome/Firefox/Safari/Edge/Mobile)
+#   • Randomized Accept-Language
+#   • Auto jitter (1s) + throttle (max 2 req/s)
+fray test https://target.com --smart --stealth
+
+# Combine everything for authorized engagements
+fray test https://target.com --stealth --scope scope.txt \
+  --cookie "session=abc" --delay 2 --jitter 3 --rate-limit 1
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--delay` | 0.5s | Fixed delay between requests |
+| `--jitter` | 0 | Random variance added to delay (0 to N seconds) |
+| `--rate-limit` | 0 (unlimited) | Max requests per second |
+| `--stealth` | off | Enables UA rotation, jitter (1s), throttle (2 req/s) |
+
+`--stealth` sets sane defaults but respects your overrides — if you pass `--delay 5 --jitter 3`, those values are used instead.
+
+---
+
+## 🐛 Bug Bounty Integration
 
 Fray is built for bug bounty workflows — from recon to report submission:
 
