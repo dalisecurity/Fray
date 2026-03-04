@@ -462,15 +462,17 @@ class TestMCPServer:
         assert "cookies" in cf
         assert "cf-ray" in cf["headers"]
 
-    def test_create_server_registers_6_tools(self):
+    def test_create_server_registers_10_tools(self):
         try:
             from fray.mcp_server import create_server
             server = create_server()
             tools = server._tool_manager._tools
-            assert len(tools) == 6
+            assert len(tools) == 10
             expected = {"list_payload_categories", "get_payloads",
                         "search_payloads", "get_waf_signatures",
-                        "get_cve_details", "suggest_payloads_for_waf"}
+                        "get_cve_details", "suggest_payloads_for_waf",
+                        "analyze_scan_results", "generate_bypass_strategy",
+                        "explain_vulnerability", "create_custom_payload"}
             assert set(tools.keys()) == expected
         except ImportError:
             pytest.skip("MCP SDK not installed")
