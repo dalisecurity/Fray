@@ -27,6 +27,18 @@ from pathlib import Path
 from fray import __version__, PAYLOADS_DIR
 
 
+def _validate_output_path(output: str) -> None:
+    """Ensure output path is within the current working directory subtree."""
+    resolved = Path(output).resolve()
+    cwd = Path.cwd().resolve()
+    if not str(resolved).startswith(str(cwd)):
+        print(f"Error: Output path '{output}' is outside the current working directory.")
+        print(f"  Resolved to: {resolved}")
+        print(f"  CWD:         {cwd}")
+        print("Use a relative path or a path under your working directory.")
+        sys.exit(1)
+
+
 def cmd_detect(args):
     """Detect WAF vendor on target"""
     from fray.detector import WAFDetector
@@ -45,6 +57,11 @@ def cmd_test(args):
         custom_headers['Cookie'] = args.cookie
     if getattr(args, 'bearer', None):
         custom_headers['Authorization'] = f'Bearer {args.bearer}'
+    # Redirect policy
+    if getattr(args, 'no_follow_redirects', False):
+        max_redirects = 0
+    else:
+        max_redirects = getattr(args, 'redirect_limit', 5) or 5
     tester = WAFTester(
         target=args.target,
         timeout=args.timeout,
@@ -52,6 +69,7 @@ def cmd_test(args):
         verify_ssl=not getattr(args, 'insecure', False),
         custom_headers=custom_headers or None,
         verbose=getattr(args, 'verbose', False),
+        max_redirects=max_redirects,
     )
 
     all_payloads = []
@@ -90,6 +108,7 @@ def cmd_test(args):
 
     # Save results
     output = args.output or "fray_results.json"
+    _validate_output_path(output)
     tester.generate_report(results, output=output)
     print(f"\nResults saved to {output}")
 
@@ -131,6 +150,7 @@ def cmd_report(args):
         data = json.load(f)
     generator = SecurityReportGenerator()
     output = args.output
+    _validate_output_path(output)
     generator.generate_html_report(data, output)
     print(f"Report generated: {output}")
 
@@ -182,6 +202,8 @@ def cmd_submit_payload(args):
 
 def cmd_validate(args):
     """Validate WAF configuration and generate report"""
+    if args.output:
+        _validate_output_path(args.output)
     from fray.validate import run_validate
     categories = [c.strip() for c in args.categories.split(",")] if args.categories else None
     run_validate(
@@ -198,6 +220,8 @@ def cmd_validate(args):
 
 def cmd_bounty(args):
     """Run bug bounty scope fetch and batch WAF testing"""
+    if args.output:
+        _validate_output_path(args.output)
     from fray.bounty import run_bounty
     categories = [c.strip() for c in args.categories.split(",")] if args.categories else None
     run_bounty(
@@ -321,6 +345,8 @@ Documentation: https://github.com/dalisecurity/fray
     p_test.add_argument("--cookie", default=None, help="Cookie header value for authenticated scanning")
     p_test.add_argument("--bearer", default=None, help="Bearer token for Authorization header")
     p_test.add_argument("-v", "--verbose", action="store_true", help="Show raw HTTP request/response for debugging")
+    p_test.add_argument("--no-follow-redirects", action="store_true", help="Do not follow HTTP redirects")
+    p_test.add_argument("--redirect-limit", type=int, default=5, help="Max redirects to follow (default: 5, 0 = none)")
     p_test.set_defaults(func=cmd_test)
 
     # report

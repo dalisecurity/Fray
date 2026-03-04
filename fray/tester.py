@@ -50,7 +50,8 @@ class WAFTester:
     
     def __init__(self, target: str, timeout: int = 8, delay: float = 0.5,
                  custom_headers: Optional[Dict[str, str]] = None,
-                 verify_ssl: bool = True, verbose: bool = False):
+                 verify_ssl: bool = True, verbose: bool = False,
+                 max_redirects: int = 5):
         self.target = target
         self.timeout = timeout
         self.delay = delay
@@ -59,6 +60,7 @@ class WAFTester:
         self.custom_headers = custom_headers or {}
         self.verify_ssl = verify_ssl
         self.verbose = verbose
+        self.max_redirects = max_redirects
         
         # Parse target URL
         if not target.startswith('http'):
@@ -151,8 +153,8 @@ class WAFTester:
         return status, resp_str, headers
 
     def test_payload(self, payload: str, method: str = 'GET', param: str = 'input') -> Dict:
-        """Test a single payload, following redirects up to 5 hops."""
-        max_redirects = 5
+        """Test a single payload, following redirects up to max_redirects hops."""
+        max_redirects = self.max_redirects
         current_host = self.host
         current_port = self.port
         current_ssl = self.use_ssl
