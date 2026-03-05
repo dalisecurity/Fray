@@ -361,10 +361,16 @@ class PayloadMutator:
         self.profile = profile
         self.category = category.lower() if category else "xss"
 
+    # Content-type confusion strategies return content_type metadata
+    _CT_STRATEGIES = {"ct_json", "ct_multipart", "ct_xml", "ct_plain"}
+
     def mutate(self, payload: str, max_mutations: int = 5) -> List[Dict]:
         """Generate mutations of a payload based on WAF profile.
 
-        Returns list of {"payload": str, "mutation": str, "parent": str}
+        Returns list of dicts. Standard mutations:
+            {"payload": str, "mutation": str, "parent": str}
+        Content-type confusion mutations add:
+            {"...", "method": "POST", "content_type": str}
         """
         mutations = []
         seen = {payload}
@@ -376,14 +382,29 @@ class PayloadMutator:
             if len(mutations) >= max_mutations:
                 break
             try:
-                variant = strategy_fn(payload)
-                if variant and variant not in seen:
-                    seen.add(variant)
-                    mutations.append({
-                        "payload": variant,
-                        "mutation": strategy_name,
-                        "parent": payload[:60],
-                    })
+                # Content-type confusion: payload stays the same, delivery changes
+                if strategy_name in self._CT_STRATEGIES:
+                    ct_value = strategy_fn(payload)
+                    # Dedup key includes content-type to avoid skipping
+                    dedup_key = f"{payload}||ct:{ct_value}"
+                    if dedup_key not in seen:
+                        seen.add(dedup_key)
+                        mutations.append({
+                            "payload": payload,
+                            "mutation": strategy_name,
+                            "parent": payload[:60],
+                            "method": "POST",
+                            "content_type": ct_value,
+                        })
+                else:
+                    variant = strategy_fn(payload)
+                    if variant and variant not in seen:
+                        seen.add(variant)
+                        mutations.append({
+                            "payload": variant,
+                            "mutation": strategy_name,
+                            "parent": payload[:60],
+                        })
             except Exception:
                 continue
 
@@ -558,6 +579,16 @@ class PayloadMutator:
                 ("sql_whitespace_sub", self._sql_whitespace_sub),
                 ("sql_keyword_synonym", self._sql_keyword_synonym),
             ])
+
+        # ── Content-type confusion strategies (universal) ────────────
+        # These don't transform the payload — they change how it's delivered.
+        # Marked with _CT_CONFUSION prefix so mutate() adds metadata.
+        strategies.extend([
+            ("ct_json", self._ct_json),
+            ("ct_multipart", self._ct_multipart),
+            ("ct_xml", self._ct_xml),
+            ("ct_plain", self._ct_plain),
+        ])
 
         return strategies
 
@@ -765,6 +796,30 @@ class PayloadMutator:
             if new_result != result:
                 return new_result
         return result
+
+    # ── Content-type confusion implementations ────────────────────────
+    # These methods return a content_type string, NOT a mutated payload.
+    # mutate() handles them specially: payload stays the same, delivery changes.
+
+    def _ct_json(self, payload: str) -> str:
+        """Send payload in JSON body instead of form-urlencoded.
+        Many WAFs only inspect form-urlencoded bodies."""
+        return 'application/json'
+
+    def _ct_multipart(self, payload: str) -> str:
+        """Send payload as multipart/form-data.
+        Boundary-based encoding confuses WAF pattern matchers."""
+        return 'multipart/form-data'
+
+    def _ct_xml(self, payload: str) -> str:
+        """Send payload wrapped in XML body.
+        WAFs that don't parse XML miss the payload entirely."""
+        return 'text/xml'
+
+    def _ct_plain(self, payload: str) -> str:
+        """Send payload as text/plain.
+        Some WAFs skip body inspection for non-standard content types."""
+        return 'text/plain'
 
 
 # ── Adaptive Test Runner ─────────────────────────────────────────────────────

@@ -541,10 +541,16 @@ def run_bypass(
                     for mut in mutations:
                         if mut_remaining <= 0:
                             break
-                        if mut["payload"] in seen_payloads:
+                        # Dedup: include content_type in key for CT confusion mutations
+                        dedup_key = mut["payload"] + (f"||ct:{mut['content_type']}" if "content_type" in mut else "")
+                        if dedup_key in seen_payloads:
                             continue
-                        seen_payloads.add(mut["payload"])
-                        result = tester.test_payload(mut["payload"], param=param)
+                        seen_payloads.add(dedup_key)
+                        result = tester.test_payload(
+                            mut["payload"], param=param,
+                            method=mut.get("method", "GET"),
+                            content_type=mut.get("content_type"),
+                        )
                         mutation_count += 1
                         mut_remaining -= 1
                         bl_match = _is_baseline_match(result, baseline)
@@ -601,10 +607,15 @@ def run_bypass(
                 for mut in mutations:
                     if mut_remaining <= 0:
                         break
-                    if mut["payload"] in seen_payloads:
+                    dedup_key = mut["payload"] + (f"||ct:{mut['content_type']}" if "content_type" in mut else "")
+                    if dedup_key in seen_payloads:
                         continue
-                    seen_payloads.add(mut["payload"])
-                    result = tester.test_payload(mut["payload"], param=param)
+                    seen_payloads.add(dedup_key)
+                    result = tester.test_payload(
+                        mut["payload"], param=param,
+                        method=mut.get("method", "GET"),
+                        content_type=mut.get("content_type"),
+                    )
                     mutation_count += 1
                     mut_remaining -= 1
                     bl_match = _is_baseline_match(result, baseline)

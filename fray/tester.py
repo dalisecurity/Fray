@@ -140,6 +140,48 @@ class WAFTester:
         lines = f"User-Agent: {ua}\r\nAccept-Language: {lang}\r\nAccept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\n"
         return lines
 
+    def _build_post_body(self, payload: str, param: str, enc: str,
+                         content_type: str = None) -> tuple:
+        """Build Content-Type header and body for POST requests.
+
+        Returns (content_type_header, body_string).
+        Supports content-type confusion: JSON, multipart, XML, text/plain.
+        """
+        if not content_type:
+            return ('application/x-www-form-urlencoded', f"{param}={enc}")
+
+        ct = content_type.lower()
+
+        if 'json' in ct:
+            # JSON body — WAFs that only inspect form-urlencoded miss this
+            import json as _json
+            body = _json.dumps({param: payload})
+            return ('application/json', body)
+
+        elif 'multipart' in ct:
+            # Multipart form-data — boundary-based encoding confuses pattern matchers
+            boundary = '----FrayBoundary' + str(random.randint(100000, 999999))
+            body = (f"--{boundary}\r\n"
+                    f"Content-Disposition: form-data; name=\"{param}\"\r\n\r\n"
+                    f"{payload}\r\n"
+                    f"--{boundary}--\r\n")
+            return (f'multipart/form-data; boundary={boundary}', body)
+
+        elif 'xml' in ct:
+            # XML body — WAFs may not parse XML param extraction
+            body = (f'<?xml version="1.0"?>\n'
+                    f'<request><{param}>{payload}</{param}></request>')
+            return ('text/xml', body)
+
+        elif 'plain' in ct:
+            # text/plain — some WAFs skip body inspection entirely
+            body = f"{param}={payload}"
+            return ('text/plain', body)
+
+        else:
+            # Custom content-type — send raw payload
+            return (content_type, f"{param}={payload}")
+
     def _build_extra_headers(self) -> str:
         """Build extra header lines from custom_headers dict."""
         lines = ""
@@ -218,8 +260,23 @@ class WAFTester:
 
         return status, resp_str, headers
 
-    def test_payload(self, payload: str, method: str = 'GET', param: str = 'input') -> Dict:
-        """Test a single payload, following redirects up to max_redirects hops."""
+    def test_payload(self, payload: str, method: str = 'GET', param: str = 'input',
+                     content_type: str = None) -> Dict:
+        """Test a single payload, following redirects up to max_redirects hops.
+
+        Args:
+            content_type: Override Content-Type for POST body (content-type confusion).
+                          When set, method is forced to POST. Supported:
+                          - 'application/json'
+                          - 'multipart/form-data'
+                          - 'text/xml' / 'application/xml'
+                          - 'text/plain'
+                          - Any custom value (payload sent as raw body)
+        """
+        # Content-type confusion forces POST
+        if content_type:
+            method = 'POST'
+
         max_redirects = self.max_redirects
         current_host = self.host
         current_port = self.port
@@ -242,10 +299,10 @@ class WAFTester:
                            f"{extra_hdrs}"
                            f"Connection: close\r\n\r\n")
                 else:
-                    body = f"{param}={enc}"
+                    ct, body = self._build_post_body(payload, param, enc, content_type)
                     req = (f"POST {current_path} HTTP/1.1\r\n"
                            f"Host: {current_host}\r\n"
-                           f"Content-Type: application/x-www-form-urlencoded\r\n"
+                           f"Content-Type: {ct}\r\n"
                            f"Content-Length: {len(body)}\r\n"
                            f"{stealth_hdrs}"
                            f"{extra_hdrs}"
@@ -299,7 +356,7 @@ class WAFTester:
                     if error_match:
                         error_code = error_match.group(1)
 
-                blocked = status in (403, 406, 429, 503)
+                blocked = status in (403, 406, 429, 500, 501, 503)
 
                 # Enhanced block detection: WAF body signatures
                 # Modern WAFs and secure apps often return 200 with a block

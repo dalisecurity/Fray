@@ -209,8 +209,10 @@ class TestPayloadMutator(unittest.TestCase):
 
     def test_mutate_no_duplicates(self):
         mutations = self.mutator.mutate("<script>alert(1)</script>", max_mutations=10)
-        payloads = [m["payload"] for m in mutations]
-        self.assertEqual(len(payloads), len(set(payloads)))
+        # CT confusion mutations share the same payload but differ by content_type
+        keys = [m["payload"] + (f"||ct:{m['content_type']}" if "content_type" in m else "")
+                for m in mutations]
+        self.assertEqual(len(keys), len(set(keys)))
 
     def test_mutate_has_metadata(self):
         mutations = self.mutator.mutate("<img src=x onerror=alert(1)>")
