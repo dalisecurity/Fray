@@ -1951,7 +1951,8 @@ def cmd_help(args):
   ─────────────────────────────
   fray recon <url>              Full recon: TLS, headers, DNS, cookies, fingerprint,
                                 GraphQL, API discovery, Host injection, admin panels (21 checks)
-  fray recon <url> --js         Extract hidden API endpoints from JavaScript files
+  fray recon <url> --js         LinkFinder-style JS extraction: endpoints, hostnames,
+                                cloud buckets (S3/GCS/Azure), API keys, secrets
   fray recon <url> --history    Discover old URLs via Wayback Machine / sitemap / robots
   fray recon <url> --params     Brute-force 136 common parameter names (?id= ?file= ?redirect=)
   fray recon <url> --ai         AI-ready JSON output for LLMs

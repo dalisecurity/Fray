@@ -2178,6 +2178,78 @@ _JS_ENDPOINT_PATTERNS = [
     re.compile(r"""\+\s*['"`](/[a-zA-Z0-9_/\-]{3,})['"`]"""),
 ]
 
+# ── LinkFinder-style patterns for full URLs, hostnames, cloud buckets ──
+
+# Full absolute URLs in JS string literals
+_JS_FULL_URL_RE = re.compile(
+    r"""['"`](https?://[a-zA-Z0-9\-._~:/?#\[\]@!$&'()*+,;=%]{8,})['"`]""",
+)
+
+# Internal hostnames / subdomains referenced in JS
+_JS_HOSTNAME_RE = re.compile(
+    r"""['"`]((?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+"""
+    r"""(?:com|org|net|io|dev|app|co|ai|cloud|internal|local|corp|intranet"""
+    r"""|staging|test|qa|uat|prod|infra))['"`]""",
+    re.IGNORECASE,
+)
+
+# Cloud storage buckets
+_JS_CLOUD_BUCKET_PATTERNS = [
+    # AWS S3: s3.amazonaws.com/bucket or bucket.s3.amazonaws.com or s3://bucket
+    re.compile(r"""['"`](?:https?://)?([a-zA-Z0-9.\-]+\.s3[.\-]amazonaws\.com)[/'"` ]""", re.IGNORECASE),
+    re.compile(r"""['"`](?:https?://)?s3[.\-]amazonaws\.com/([a-zA-Z0-9.\-]+)""", re.IGNORECASE),
+    re.compile(r"""['"`]s3://([a-zA-Z0-9.\-]+)['"`]""", re.IGNORECASE),
+    # Google Cloud Storage
+    re.compile(r"""['"`](?:https?://)?storage\.googleapis\.com/([a-zA-Z0-9.\-_]+)""", re.IGNORECASE),
+    re.compile(r"""['"`](?:https?://)?([a-zA-Z0-9.\-_]+\.storage\.googleapis\.com)""", re.IGNORECASE),
+    re.compile(r"""['"`]gs://([a-zA-Z0-9.\-_]+)['"`]""", re.IGNORECASE),
+    # Azure Blob Storage
+    re.compile(r"""['"`](?:https?://)?([a-zA-Z0-9]+\.blob\.core\.windows\.net)""", re.IGNORECASE),
+    # Firebase
+    re.compile(r"""['"`](?:https?://)?([a-zA-Z0-9\-]+\.firebaseio\.com)""", re.IGNORECASE),
+    re.compile(r"""['"`](?:https?://)?([a-zA-Z0-9\-]+\.firebasestorage\.googleapis\.com)""", re.IGNORECASE),
+    # DigitalOcean Spaces
+    re.compile(r"""['"`](?:https?://)?([a-zA-Z0-9.\-]+\.digitaloceanspaces\.com)""", re.IGNORECASE),
+]
+
+# API keys and secrets (high-entropy strings with known prefixes)
+_JS_SECRET_PATTERNS = [
+    # AWS
+    ("AWS Access Key", re.compile(r"""(?:^|['"` ,=:])((AKIA|ABIA|ACCA|ASIA)[A-Z0-9]{16})(?:['"` ,]|$)""")),
+    # Google
+    ("Google API Key", re.compile(r"""['"`](AIza[0-9A-Za-z\-_]{35})['"`]""")),
+    ("Google OAuth", re.compile(r"""['"`](\d{12}-[a-z0-9]{32}\.apps\.googleusercontent\.com)['"`]""")),
+    # GitHub
+    ("GitHub Token", re.compile(r"""['"`](gh[pousr]_[A-Za-z0-9_]{36,})['"`]""")),
+    # Stripe
+    ("Stripe Key", re.compile(r"""['"`](sk_live_[A-Za-z0-9]{20,})['"`]""")),
+    ("Stripe Publishable", re.compile(r"""['"`](pk_live_[A-Za-z0-9]{20,})['"`]""")),
+    # Slack
+    ("Slack Token", re.compile(r"""['"`](xox[bpoas]-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24,32})['"`]""")),
+    ("Slack Webhook", re.compile(r"""['"`](https://hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+/[a-zA-Z0-9]+)['"`]""")),
+    # Twilio
+    ("Twilio Key", re.compile(r"""['"`](SK[a-f0-9]{32})['"`]""")),
+    # SendGrid
+    ("SendGrid Key", re.compile(r"""['"`](SG\.[a-zA-Z0-9\-_]{22}\.[a-zA-Z0-9\-_]{43})['"`]""")),
+    # Mailgun
+    ("Mailgun Key", re.compile(r"""['"`](key-[a-f0-9]{32})['"`]""")),
+    # Generic API key patterns (variable assignment context)
+    ("API Key (generic)", re.compile(
+        r"""(?:api[_\-]?key|apikey|api[_\-]?secret|secret[_\-]?key|access[_\-]?token|auth[_\-]?token)"""
+        r"""\s*[:=]\s*['"`]([a-zA-Z0-9\-_./+]{20,})['"`]""",
+        re.IGNORECASE,
+    )),
+    # JWT tokens
+    ("JWT Token", re.compile(r"""['"`](eyJ[a-zA-Z0-9\-_]+\.eyJ[a-zA-Z0-9\-_]+\.[a-zA-Z0-9\-_.+/=]+)['"`]""")),
+    # Private keys
+    ("Private Key", re.compile(r"""(-----BEGIN (?:RSA |EC )?PRIVATE KEY-----)""")),
+    # Bearer tokens in headers
+    ("Bearer Token", re.compile(
+        r"""['"](Bearer\s+[a-zA-Z0-9\-_./+]{20,})['"]""",
+        re.IGNORECASE,
+    )),
+]
+
 # Patterns to extract <script src="..."> tags
 _SCRIPT_SRC_RE = re.compile(r'<script[^>]+src\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE)
 
@@ -2185,20 +2257,46 @@ _SCRIPT_SRC_RE = re.compile(r'<script[^>]+src\s*=\s*["\']([^"\']+)["\']', re.IGN
 def discover_js_endpoints(url: str, max_depth: int = 2, max_pages: int = 10,
                           timeout: int = 8, verify_ssl: bool = True,
                           extra_headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
-    """Deep JS endpoint extraction.
+    """Deep JS endpoint extraction (LinkFinder-style).
 
     Crawls HTML pages, finds all <script src="..."> tags, fetches external
-    JS files, and extracts API endpoints using comprehensive regex patterns.
-
-    Finds hidden API routes, admin endpoints, GraphQL, internal paths.
+    JS files, and extracts:
+      - API endpoints (paths + full URLs)
+      - Internal hostnames / subdomains
+      - Cloud storage buckets (S3, GCS, Azure, Firebase, DO Spaces)
+      - API keys and secrets (AWS, Google, GitHub, Stripe, Slack, JWT, etc.)
     """
     from fray.scanner import _fetch, extract_links, _same_origin, _normalize_url
+
+    parsed_target = urllib.parse.urlparse(url)
+    target_domain = parsed_target.netloc.split(":")[0].lower()
 
     visited_pages = set()
     visited_js = set()
     queue = [(url, 0)]
     endpoints = []   # list of dicts
     seen_paths = set()
+
+    # LinkFinder-style collections
+    full_urls = []       # absolute URLs found in JS
+    seen_urls = set()
+    hostnames = []       # internal hostnames / subdomains
+    seen_hosts = set()
+    cloud_buckets = []   # S3, GCS, Azure, Firebase, DO Spaces
+    seen_buckets = set()
+    secrets = []         # API keys, tokens, credentials
+    seen_secrets = set()
+
+    def _process_js(js_content: str, source_url: str) -> None:
+        """Extract all intelligence from a JS source."""
+        _extract_endpoints_from_js(js_content, source_url, endpoints, seen_paths)
+        _extract_full_urls(js_content, source_url, target_domain,
+                           full_urls, seen_urls)
+        _extract_hostnames(js_content, source_url, target_domain,
+                           hostnames, seen_hosts)
+        _extract_cloud_buckets(js_content, source_url,
+                               cloud_buckets, seen_buckets)
+        _extract_secrets(js_content, source_url, secrets, seen_secrets)
 
     while queue and len(visited_pages) < max_pages:
         current_url, depth = queue.pop(0)
@@ -2234,7 +2332,7 @@ def discover_js_endpoints(url: str, max_depth: int = 2, max_pages: int = 10,
 
         # Extract endpoints from inline JS in HTML pages
         if "text/html" in content_type or "application/xhtml" in content_type:
-            _extract_endpoints_from_js(body, current_url, endpoints, seen_paths)
+            _process_js(body, current_url)
 
             # Find and fetch external JS files
             for m in _SCRIPT_SRC_RE.finditer(body):
@@ -2248,7 +2346,7 @@ def discover_js_endpoints(url: str, max_depth: int = 2, max_pages: int = 10,
                                                verify_ssl=verify_ssl,
                                                headers=extra_headers)
                 if js_status == 200 and js_body:
-                    _extract_endpoints_from_js(js_body, js_url, endpoints, seen_paths)
+                    _process_js(js_body, js_url)
 
             # Follow links
             if depth < max_depth:
@@ -2280,6 +2378,11 @@ def discover_js_endpoints(url: str, max_depth: int = 2, max_pages: int = 10,
                 x in e["path"].lower() for x in ("/api/", "/v1/", "/v2/", "/graphql", "/admin/", "/internal/", "/auth/", "/oauth/")
             )),
         },
+        # LinkFinder-style intelligence
+        "full_urls": full_urls,
+        "hostnames": hostnames,
+        "cloud_buckets": cloud_buckets,
+        "secrets": secrets,
     }
 
 
@@ -2330,6 +2433,138 @@ def _extract_endpoints_from_js(js_content: str, source_url: str,
             })
 
 
+def _extract_full_urls(js_content: str, source_url: str, target_domain: str,
+                       full_urls: List[Dict], seen_urls: set) -> None:
+    """Extract absolute URLs from JS content."""
+    # Common noise domains to skip
+    _NOISE_DOMAINS = {
+        "w3.org", "schema.org", "xmlns.com", "purl.org", "google.com/recaptcha",
+        "fonts.googleapis.com", "fonts.gstatic.com", "cdn.jsdelivr.net",
+        "cdnjs.cloudflare.com", "unpkg.com", "maps.googleapis.com",
+        "www.googletagmanager.com", "www.google-analytics.com",
+        "connect.facebook.net", "platform.twitter.com",
+    }
+    for m in _JS_FULL_URL_RE.finditer(js_content):
+        raw_url = m.group(1).strip().rstrip("'\"`;,)")
+        if raw_url in seen_urls:
+            continue
+        # Filter noise
+        if len(raw_url) > 500:
+            continue
+        try:
+            parsed = urllib.parse.urlparse(raw_url)
+            host = parsed.netloc.split(":")[0].lower()
+        except Exception:
+            continue
+        if not host or any(n in raw_url for n in _NOISE_DOMAINS):
+            continue
+        # Skip same-origin static assets
+        if host == target_domain and any(raw_url.lower().endswith(ext) for ext in (
+            ".js", ".css", ".png", ".jpg", ".gif", ".svg", ".ico", ".woff2",
+        )):
+            continue
+        seen_urls.add(raw_url)
+        # Classify
+        is_same_org = target_domain in host or host in target_domain
+        category = "same-origin" if is_same_org else "third-party"
+        if any(kw in raw_url.lower() for kw in ("/api/", "/v1/", "/v2/", "/graphql", "/rest/")):
+            category = "api"
+        elif any(kw in raw_url.lower() for kw in ("/admin", "/internal", "/debug")):
+            category = "admin"
+        full_urls.append({
+            "url": raw_url,
+            "host": host,
+            "category": category,
+            "source": urllib.parse.urlparse(source_url).path or source_url,
+        })
+
+
+def _extract_hostnames(js_content: str, source_url: str, target_domain: str,
+                       hostnames: List[Dict], seen_hosts: set) -> None:
+    """Extract internal hostnames and subdomains from JS content."""
+    # Extract the base domain (last two parts) for matching related subdomains
+    parts = target_domain.split(".")
+    base_domain = ".".join(parts[-2:]) if len(parts) >= 2 else target_domain
+
+    for m in _JS_HOSTNAME_RE.finditer(js_content):
+        hostname = m.group(1).strip().lower()
+        if hostname in seen_hosts:
+            continue
+        if len(hostname) < 5 or len(hostname) > 253:
+            continue
+        # Skip the target itself
+        if hostname == target_domain:
+            continue
+        seen_hosts.add(hostname)
+        # Classify: related subdomain vs third-party
+        is_related = base_domain in hostname
+        risk = "info"
+        if is_related:
+            if any(kw in hostname for kw in ("staging", "dev", "test", "internal", "admin", "debug")):
+                risk = "medium"
+            elif any(kw in hostname for kw in ("prod", "api", "db", "redis", "mongo", "mysql")):
+                risk = "high"
+        hostnames.append({
+            "hostname": hostname,
+            "related": is_related,
+            "risk": risk,
+            "source": urllib.parse.urlparse(source_url).path or source_url,
+        })
+
+
+def _extract_cloud_buckets(js_content: str, source_url: str,
+                            cloud_buckets: List[Dict], seen_buckets: set) -> None:
+    """Extract cloud storage bucket references from JS content."""
+    _PROVIDER_MAP = {
+        "s3": "AWS S3",
+        "amazonaws": "AWS S3",
+        "storage.googleapis": "Google Cloud Storage",
+        "gs://": "Google Cloud Storage",
+        "blob.core.windows": "Azure Blob",
+        "firebaseio": "Firebase",
+        "firebasestorage": "Firebase Storage",
+        "digitaloceanspaces": "DigitalOcean Spaces",
+    }
+    for pattern in _JS_CLOUD_BUCKET_PATTERNS:
+        for m in pattern.finditer(js_content):
+            bucket = m.group(1).strip()
+            if bucket in seen_buckets or len(bucket) < 3:
+                continue
+            seen_buckets.add(bucket)
+            # Determine provider
+            provider = "Unknown"
+            for key, name in _PROVIDER_MAP.items():
+                if key in bucket.lower() or key in pattern.pattern.lower():
+                    provider = name
+                    break
+            cloud_buckets.append({
+                "bucket": bucket,
+                "provider": provider,
+                "risk": "high",
+                "source": urllib.parse.urlparse(source_url).path or source_url,
+            })
+
+
+def _extract_secrets(js_content: str, source_url: str,
+                     secrets: List[Dict], seen_secrets: set) -> None:
+    """Extract API keys, tokens, and credentials from JS content."""
+    for label, pattern in _JS_SECRET_PATTERNS:
+        for m in pattern.finditer(js_content):
+            secret = m.group(1).strip()
+            if secret in seen_secrets or len(secret) < 8:
+                continue
+            seen_secrets.add(secret)
+            # Mask the secret for display (show first 8 chars + ...)
+            masked = secret[:8] + "..." + secret[-4:] if len(secret) > 16 else secret[:8] + "..."
+            secrets.append({
+                "type": label,
+                "value_masked": masked,
+                "length": len(secret),
+                "risk": "critical",
+                "source": urllib.parse.urlparse(source_url).path or source_url,
+            })
+
+
 def print_js_endpoints(target: str, result: Dict[str, Any]) -> None:
     """Pretty-print JS endpoint extraction results."""
     from fray.output import console, print_header
@@ -2377,9 +2612,65 @@ def print_js_endpoints(target: str, result: Dict[str, Any]) -> None:
         if len(eps) > 30:
             console.print(f"    [dim]... and {len(eps) - 30} more[/dim]")
         console.print()
-        console.print(f"  [dim]Test these: fray scan {target} -c xss -m 3[/dim]")
     else:
         console.print("  [dim]No JS endpoints found[/dim]")
+        console.print()
+
+    # ── Full URLs ──
+    urls = result.get("full_urls", [])
+    if urls:
+        console.print(f"  [bold]Full URLs[/bold] ({len(urls)})")
+        url_cat_styles = {
+            "api": "[green]api[/green]", "admin": "[red]admin[/red]",
+            "same-origin": "[cyan]same-origin[/cyan]", "third-party": "[dim]3rd-party[/dim]",
+        }
+        for u in urls[:15]:
+            style = url_cat_styles.get(u["category"], "[dim]other[/dim]")
+            console.print(f"    {style} {u['url']}")
+        if len(urls) > 15:
+            console.print(f"    [dim]... +{len(urls) - 15} more[/dim]")
+        console.print()
+
+    # ── Hostnames ──
+    hosts = result.get("hostnames", [])
+    if hosts:
+        related = [h for h in hosts if h["related"]]
+        third = [h for h in hosts if not h["related"]]
+        console.print(f"  [bold]Hostnames[/bold] ({len(hosts)}: {len(related)} related, {len(third)} third-party)")
+        risk_styles = {
+            "high": "[bold red]HIGH[/bold red]", "medium": "[yellow]MED[/yellow]",
+            "info": "[dim]info[/dim]",
+        }
+        for h in sorted(hosts, key=lambda x: (0 if x["risk"] == "high" else 1 if x["risk"] == "medium" else 2))[:15]:
+            risk = risk_styles.get(h["risk"], "[dim]info[/dim]")
+            rel = " [cyan](related)[/cyan]" if h["related"] else ""
+            console.print(f"    {risk} {h['hostname']}{rel}")
+        if len(hosts) > 15:
+            console.print(f"    [dim]... +{len(hosts) - 15} more[/dim]")
+        console.print()
+
+    # ── Cloud Buckets ──
+    buckets = result.get("cloud_buckets", [])
+    if buckets:
+        console.print(f"  [bold red]Cloud Buckets[/bold red] ({len(buckets)})")
+        for b in buckets[:10]:
+            console.print(f"    [bold red]⚠[/bold red] {b['provider']}: [bold]{b['bucket']}[/bold]  [dim]({b['source']})[/dim]")
+        console.print()
+
+    # ── Secrets ──
+    secs = result.get("secrets", [])
+    if secs:
+        console.print(f"  [bold red]⚠ Exposed Secrets[/bold red] ({len(secs)})")
+        for s in secs[:10]:
+            console.print(f"    [bold red]CRITICAL[/bold red] {s['type']}: [bold]{s['value_masked']}[/bold] ({s['length']} chars)  [dim]({s['source']})[/dim]")
+        console.print()
+
+    # Summary
+    total_findings = len(eps) + len(urls) + len(hosts) + len(buckets) + len(secs)
+    console.print(f"  [bold]{total_findings}[/bold] total findings across JS files")
+    if secs or buckets:
+        console.print(f"  [bold red]⚠ {len(secs)} secret(s) + {len(buckets)} bucket(s) require immediate attention[/bold red]")
+    console.print(f"  [dim]Test these: fray scan {target} -c xss -m 3[/dim]")
     console.print()
 
 

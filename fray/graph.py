@@ -224,6 +224,37 @@ def build_graph(target: str, recon: Dict[str, Any],
                     label=f"... +{len(js_eps) - 15} more", type="detail", risk="info"))
             root.children.append(js_node)
 
+        # JS-discovered hostnames
+        js_hosts = js_endpoints.get("hostnames", [])
+        if js_hosts:
+            host_node = GraphNode(label=f"JS Hostnames ({len(js_hosts)})", type="group")
+            for h in sorted(js_hosts, key=lambda x: (0 if x.get("risk") == "high" else 1 if x.get("risk") == "medium" else 2))[:15]:
+                risk = h.get("risk", "info")
+                rel = " (related)" if h.get("related") else ""
+                host_node.children.append(GraphNode(
+                    label=f"{h['hostname']}{rel}", type="subdomain", risk=risk))
+            root.children.append(host_node)
+
+        # JS-discovered cloud buckets
+        js_buckets = js_endpoints.get("cloud_buckets", [])
+        if js_buckets:
+            bucket_node = GraphNode(label=f"Cloud Buckets ({len(js_buckets)})", type="group")
+            for b in js_buckets:
+                bucket_node.children.append(GraphNode(
+                    label=f"{b['provider']}: {b['bucket']}", type="file", risk="high"))
+            root.children.append(bucket_node)
+
+        # JS-discovered secrets
+        js_secrets = js_endpoints.get("secrets", [])
+        if js_secrets:
+            sec_node = GraphNode(label=f"Exposed Secrets ({len(js_secrets)})", type="group")
+            for s in js_secrets:
+                sec_node.children.append(GraphNode(
+                    label=f"{s['type']}: {s['value_masked']}", type="vuln", risk="high",
+                    meta={"length": s["length"]},
+                ))
+            root.children.append(sec_node)
+
     # ── Historical URLs ──
     if historical:
         wayback = historical.get("wayback_urls", [])

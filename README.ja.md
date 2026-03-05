@@ -137,7 +137,7 @@ fray recon https://example.com --params   # パラメータブルートフォー
 |------------|--------|
 | **パラメータ発見** | クエリ文字列、フォーム入力、JS APIエンドポイント |
 | **パラメータマイニング** | 136個の一般的なパラメータ名をブルートフォース、隠れた`?id=`、`?file=`、`?redirect=`を検出 |
-| **JSエンドポイント抽出** | 隠しAPI、管理画面ルート、GraphQL、認証エンドポイントを`.js`ファイルから発見 |
+| **JSエンドポイント抽出** | LinkFinder型：隠しAPI、ホスト名、クラウドバケット（S3/GCS/Azure）、APIキー、シークレット |
 | **過去URL発見** | Wayback Machine、sitemap.xml、robots.txtから古いエンドポイントを取得 |
 | **GraphQLイントロスペクション** | 10個の一般的なエンドポイントをプローブ、スキーマ公開（型、フィールド、ミューテーション）を検出 |
 | **API発見** | Swagger/OpenAPIスペック、`/api/v1/`、`/api-docs`、ヘルスエンドポイント — 全ルートとパラメータを露出 |
@@ -152,7 +152,7 @@ fray recon https://example.com --params   # パラメータブルートフォー
 
 その他：28件の公開ファイルプローブ（`.env`、`.git`、phpinfo、actuator）· crt.sh経由のサブドメイン列挙
 
-`--js` はインラインおよび外部JavaScriptファイルから `fetch()`、`axios`、`XMLHttpRequest`、`/api/`、`/graphql`、`/admin/`、`/internal/` パスを解析します。
+`--js` はインラインおよび外部JavaScriptファイルをLinkFinder型で解析 — `fetch()`、`axios`、`XMLHttpRequest` 呼び出し、完全URL、内部ホスト名/サブドメイン、クラウドストレージバケット（AWS S3、GCS、Azure Blob、Firebase、DO Spaces）、漏洩シークレット（AWSキー、Google APIキー、GitHubトークン、Stripeキー、Slack Webhook、JWT、Bearerトークン、汎用APIキー）。
 
 `--history` はWayback Machine CDX API、sitemap.xml、robots.txt Disallowパスを検索。古いエンドポイントはWAFルールが弱いことが多いです。
 

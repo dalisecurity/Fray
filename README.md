@@ -137,7 +137,7 @@ fray recon https://example.com --params   # Parameter brute-force mining
 |-------|---------------|
 | **Parameter Discovery** | Query strings, form inputs, JS API endpoints |
 | **Parameter Mining** | Brute-force 136 common param names, detect hidden `?id=`, `?file=`, `?redirect=` |
-| **JS Endpoint Extraction** | Hidden APIs, admin routes, GraphQL, auth endpoints from `.js` files |
+| **JS Endpoint Extraction** | LinkFinder-style: hidden APIs, hostnames, cloud buckets (S3/GCS/Azure), API keys, secrets |
 | **Historical URLs** | Old endpoints via Wayback Machine, sitemap.xml, robots.txt |
 | **GraphQL Introspection** | Probe 10 common endpoints, detect exposed schema (types, fields, mutations) |
 | **API Discovery** | Swagger/OpenAPI specs, `/api/v1/`, `/api-docs`, health endpoints — exposes every route & param |
@@ -152,7 +152,7 @@ fray recon https://example.com --params   # Parameter brute-force mining
 
 Plus: 28 exposed file probes (`.env`, `.git`, phpinfo, actuator) · subdomains via crt.sh
 
-`--js` parses inline and external JavaScript files for `fetch()`, `axios`, `XMLHttpRequest`, `/api/`, `/graphql`, `/admin/`, `/internal/` paths.
+`--js` parses inline and external JavaScript files — LinkFinder-style extraction of `fetch()`, `axios`, `XMLHttpRequest` calls, full absolute URLs, internal hostnames/subdomains, cloud storage buckets (AWS S3, GCS, Azure Blob, Firebase, DO Spaces), and leaked secrets (AWS keys, Google API keys, GitHub tokens, Stripe keys, Slack webhooks, JWTs, Bearer tokens, generic API keys).
 
 `--history` queries Wayback Machine CDX API, sitemap.xml, and robots.txt Disallow paths. Old endpoints often have weaker WAF rules.
 
