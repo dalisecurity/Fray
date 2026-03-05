@@ -4,7 +4,7 @@
 
 [![Payloads](https://img.shields.io/badge/ペイロード-5500+-brightgreen.svg?style=for-the-badge)](https://github.com/dalisecurity/fray)
 [![WAF Detection](https://img.shields.io/badge/WAF検出-25社+-blue.svg?style=for-the-badge&logo=cloudflare)](https://github.com/dalisecurity/fray)
-[![Recon Checks](https://img.shields.io/badge/情報収集チェック-18項目-orange.svg?style=for-the-badge)](https://github.com/dalisecurity/fray)
+[![Recon Checks](https://img.shields.io/badge/情報収集チェック-19項目-orange.svg?style=for-the-badge)](https://github.com/dalisecurity/fray)
 [![OWASP](https://img.shields.io/badge/OWASP-100%25-success.svg?style=for-the-badge&logo=owasp)](https://github.com/dalisecurity/fray)
 
 [![PyPI](https://img.shields.io/pypi/v/fray.svg)](https://pypi.org/project/fray/)
@@ -23,7 +23,7 @@
 多くのペイロード集は静的なテキストファイルに過ぎません。Frayは**一気通貫のワークフロー**です：
 
 - **`fray scan`** — 自動クロール → パラメータ発見 → ペイロード注入（新機能）
-- **`fray recon`** — 18項目の自動チェック（TLS、ヘッダー、DNS、パラメータ発見、JS抽出、過去URL、GraphQL）
+- **`fray recon`** — 19項目の自動チェック（TLS、ヘッダー、DNS、パラメータ、JS、過去URL、GraphQL、API発見）
 - **`fray detect`** — 25社のWAFベンダーをフィンガープリント
 - **`fray test`** — 5,500以上のペイロード（23のOWASPカテゴリ、prototype pollution含む）
 - **`fray report`** — HTML・Markdownレポート
@@ -115,7 +115,7 @@ fray scan https://target.com --json -o results.json
 
 ---
 
-## `fray recon` — 18項目の自動チェック
+## `fray recon` — 19項目の自動チェック
 
 ```bash
 fray recon https://example.com
@@ -131,6 +131,7 @@ fray recon https://example.com --params   # パラメータブルートフォー
 | **JSエンドポイント抽出** | 隠しAPI、管理画面ルート、GraphQL、認証エンドポイントを`.js`ファイルから発見 |
 | **過去URL発見** | Wayback Machine、sitemap.xml、robots.txtから古いエンドポイントを取得 |
 | **GraphQLイントロスペクション** | 10個の一般的なエンドポイントをプローブ、スキーマ公開（型、フィールド、ミューテーション）を検出 |
+| **API発見** | Swagger/OpenAPIスペック、`/api/v1/`、`/api-docs`、ヘルスエンドポイント — 全ルートとパラメータを露出 |
 | **TLS** | バージョン、暗号スイート、証明書有効期限 |
 | **セキュリティヘッダー** | HSTS、CSP、X-Frame-Options（スコア付き） |
 | **Cookie** | HttpOnly、Secure、SameSiteフラグ |
@@ -147,6 +148,10 @@ fray recon https://example.com --params   # パラメータブルートフォー
 `--params` は136個の一般的なパラメータ名をブルートフォース。レスポンス差分（ステータス、サイズ、反射）で隠れたパラメータを検出。リスク評価：HIGH（SSRF/LFI/インジェクション）、MEDIUM（XSS/IDOR）。
 
 GraphQLイントロスペクションはフルrecon時に自動実行。`/graphql`、`/api/graphql`、`/v1/graphql`、`/graphiql`、`/playground`等をプローブします。
+
+API発見は30以上の一般的なパスをプローブ：`swagger.json`、`openapi.json`、`/api-docs`、`/swagger-ui/`、バージョン付きAPIルート。スペックを解析して全エンドポイント、メソッド、認証方式を抽出します。
+
+**Fray初めて？** `fray help` で全コマンドのガイドを表示。
 
 [情報収集ガイド →](docs/quickstart.md)
 

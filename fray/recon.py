@@ -1221,6 +1221,149 @@ def check_graphql_introspection(host: str, port: int, use_ssl: bool,
     return result
 
 
+# ── API Discovery ────────────────────────────────────────────────────────
+
+# Common API spec / documentation paths
+_API_SPEC_PATHS = [
+    # OpenAPI / Swagger
+    ("/swagger.json", "swagger"),
+    ("/swagger/v1/swagger.json", "swagger"),
+    ("/api/swagger.json", "swagger"),
+    ("/v1/swagger.json", "swagger"),
+    ("/v2/swagger.json", "swagger"),
+    ("/v3/swagger.json", "swagger"),
+    ("/openapi.json", "openapi"),
+    ("/api/openapi.json", "openapi"),
+    ("/v1/openapi.json", "openapi"),
+    ("/v2/openapi.json", "openapi"),
+    ("/v3/openapi.json", "openapi"),
+    ("/openapi.yaml", "openapi"),
+    ("/swagger-ui.html", "swagger-ui"),
+    ("/swagger-ui/", "swagger-ui"),
+    ("/swagger/", "swagger-ui"),
+    ("/api-docs", "api-docs"),
+    ("/api-docs/", "api-docs"),
+    ("/docs", "docs"),
+    ("/redoc", "redoc"),
+    # Common API versioned roots
+    ("/api/", "api-root"),
+    ("/api/v1/", "api-root"),
+    ("/api/v2/", "api-root"),
+    ("/api/v3/", "api-root"),
+    ("/v1/", "api-root"),
+    ("/v2/", "api-root"),
+    # Health / metadata endpoints
+    ("/api/health", "health"),
+    ("/health", "health"),
+    ("/healthz", "health"),
+    ("/api/status", "status"),
+    ("/api/version", "version"),
+    ("/api/info", "info"),
+    # GraphQL docs (supplement to introspection probe)
+    ("/graphql/schema", "graphql"),
+    ("/graphql/explorer", "graphql"),
+]
+
+
+def check_api_discovery(host: str, port: int, use_ssl: bool,
+                         timeout: int = 5,
+                         extra_headers: Optional[Dict[str, str]] = None,
+                         ) -> Dict[str, Any]:
+    """Probe common API paths to discover specs, docs, and versioned endpoints.
+
+    Swagger/OpenAPI specs expose every endpoint, parameter, and auth method.
+    """
+    scheme = "https" if use_ssl else "http"
+    port_str = "" if (use_ssl and port == 443) or (not use_ssl and port == 80) else f":{port}"
+    base = f"{scheme}://{host}{port_str}"
+
+    found = []
+    specs = []
+    errors = []
+
+    for api_path, category in _API_SPEC_PATHS:
+        url = f"{base}{api_path}"
+        try:
+            status, body, resp_headers = _fetch_url(url, timeout=timeout,
+                                                     verify_ssl=True,
+                                                     headers=extra_headers)
+            # SSL fallback
+            if status == 0 and use_ssl:
+                status, body, resp_headers = _fetch_url(url, timeout=timeout,
+                                                         verify_ssl=False,
+                                                         headers=extra_headers)
+        except Exception:
+            continue
+
+        if status == 0 or status >= 400:
+            continue
+
+        # Validate it's a real API response (not a generic 200 page)
+        ct = resp_headers.get("content-type", "")
+        is_json = "json" in ct or "yaml" in ct
+        is_html = "html" in ct
+
+        entry = {
+            "path": api_path,
+            "status": status,
+            "category": category,
+            "content_type": ct.split(";")[0].strip(),
+        }
+
+        # Parse OpenAPI/Swagger spec if JSON
+        if is_json and body and category in ("swagger", "openapi"):
+            try:
+                spec = json.loads(body)
+                info = spec.get("info", {})
+                paths = spec.get("paths", {})
+                entry["spec"] = True
+                entry["title"] = info.get("title", "")
+                entry["version"] = info.get("version", "")
+                entry["endpoints"] = len(paths)
+                entry["methods"] = []
+                # Extract endpoint + method pairs
+                for ep_path, methods in list(paths.items())[:30]:
+                    for method in methods:
+                        if method.lower() in ("get", "post", "put", "patch", "delete", "options"):
+                            entry["methods"].append(f"{method.upper()} {ep_path}")
+                specs.append(entry)
+            except (json.JSONDecodeError, AttributeError):
+                pass
+
+        # Swagger UI / docs pages (HTML)
+        elif is_html and body and category in ("swagger-ui", "api-docs", "docs", "redoc"):
+            lower = body.lower()
+            if any(kw in lower for kw in ("swagger", "openapi", "api", "redoc",
+                                           "endpoint", "schema", "try it out")):
+                entry["spec"] = False
+                entry["docs_page"] = True
+                found.append(entry)
+                continue
+
+        # API root / health / version — just confirm it responds
+        elif category in ("api-root", "health", "status", "version", "info"):
+            # Validate it's not just a generic website page
+            if is_json or (is_html and len(body) < 5000):
+                found.append(entry)
+                continue
+            else:
+                continue
+
+        if entry.get("spec"):
+            found.append(entry)
+        elif category in ("swagger-ui", "api-docs", "docs", "redoc"):
+            pass  # Already handled above
+        else:
+            found.append(entry)
+
+    return {
+        "endpoints_found": found,
+        "specs_found": specs,
+        "total": len(found),
+        "has_spec": len(specs) > 0,
+    }
+
+
 # ── Historical URL Discovery ─────────────────────────────────────────────
 
 # Path patterns interesting for WAF testing — old/dev/debug endpoints
@@ -2191,6 +2334,11 @@ def run_recon(url: str, timeout: int = 8,
     result["graphql"] = check_graphql_introspection(host, port, use_ssl,
                                                      timeout=timeout,
                                                      extra_headers=headers)
+    # 19. API discovery (Swagger/OpenAPI specs, versioned roots, health)
+    result["api_discovery"] = check_api_discovery(host, port, use_ssl,
+                                                   timeout=timeout,
+                                                   extra_headers=headers)
+
     # Add prototype_pollution to recommendations if Node.js detected
     fp_techs = result.get("fingerprint", {}).get("technologies", {})
     if any(t in fp_techs for t in ("node.js", "express")):
@@ -2541,6 +2689,36 @@ def print_recon(result: Dict[str, Any]) -> None:
             console.print(f"  [bold]GraphQL[/bold] — endpoints found, introspection disabled")
             for ep in gql_endpoints:
                 console.print(f"    [green]✓[/green] {ep} (introspection blocked)")
+        console.print()
+
+    # ── API Discovery ──
+    api = result.get("api_discovery", {})
+    api_found = api.get("endpoints_found", [])
+    api_specs = api.get("specs_found", [])
+    if api_found or api_specs:
+        has_spec = api.get("has_spec", False)
+        if has_spec:
+            console.print(f"  [bold red]API Discovery[/bold red] — [red]OpenAPI/Swagger spec EXPOSED[/red] ⚠")
+        else:
+            console.print(f"  [bold]API Discovery[/bold] — [cyan]{len(api_found)} endpoints found[/cyan]")
+        for spec in api_specs:
+            title = spec.get("title", "Untitled")
+            ver = spec.get("version", "")
+            eps = spec.get("endpoints", 0)
+            console.print(f"    [red]⚠ {spec['path']}[/red] — {title} v{ver} ({eps} endpoints)")
+            for m in spec.get("methods", [])[:8]:
+                console.print(f"      [dim]{m}[/dim]")
+            if len(spec.get("methods", [])) > 8:
+                console.print(f"      [dim]... and {len(spec['methods']) - 8} more[/dim]")
+        for ep in api_found:
+            if ep.get("spec"):
+                continue  # Already shown above
+            cat = ep.get("category", "")
+            path = ep["path"]
+            if ep.get("docs_page"):
+                console.print(f"    [yellow]⚠ {path}[/yellow] — API docs page [dim]({cat})[/dim]")
+            else:
+                console.print(f"    [green]→[/green] {path} [dim]({cat})[/dim]")
         console.print()
 
     # ── Recommended Categories ──

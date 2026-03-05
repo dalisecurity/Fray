@@ -1081,6 +1081,75 @@ def cmd_demo(args):
     print(f"\n  Run 'fray scan {target}' for a full assessment.\n")
 
 
+def cmd_help(args):
+    """Friendly high-level guide to every fray command."""
+    print(f"""
+  ⚔️  Fray v{__version__} — WAF Security Testing Toolkit
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  🔍 RECON — Know your target
+  ─────────────────────────────
+  fray recon <url>              Full recon: TLS, headers, DNS, cookies, fingerprint,
+                                GraphQL, exposed files, subdomains (19 checks)
+  fray recon <url> --js         Extract hidden API endpoints from JavaScript files
+  fray recon <url> --history    Discover old URLs via Wayback Machine / sitemap / robots
+  fray recon <url> --params     Brute-force 136 common parameter names (?id= ?file= ?redirect=)
+
+  🛡️  DETECT — Identify the WAF
+  ─────────────────────────────
+  fray detect <url>             Fingerprint WAF vendor (Cloudflare, AWS, Akamai, etc.)
+
+  🎯 SCAN — Automated vulnerability scan
+  ─────────────────────────────
+  fray scan <url>               Auto crawl → param discovery → payload injection
+  fray scan <url> -c sqli       Scan with specific payload category
+  fray scan <url> --depth 5     Control crawl depth and scope
+
+  ⚡ TEST — Payload injection
+  ─────────────────────────────
+  fray test <url> -c xss        Test a specific payload category
+  fray test <url> --all         Test ALL 23 payload categories
+  fray test <url> --smart       Adaptive mode: probe WAF first, skip redundant payloads
+
+  🔓 BYPASS — WAF evasion scoring
+  ─────────────────────────────
+  fray bypass <url>             Evasion-optimized testing with bypass scorecard
+  fray bypass <url> --waf cloudflare   Target a specific WAF vendor
+
+  🕵️  SMUGGLE — HTTP request smuggling
+  ─────────────────────────────
+  fray smuggle <url>            Detect CL.TE / TE.CL / TE.TE smuggling vulns
+
+  📊 REPORT — Generate reports
+  ─────────────────────────────
+  fray report -i results.json   Generate HTML security report
+  fray report --sample          Generate a sample demo report
+
+  🔎 OTHER TOOLS
+  ─────────────────────────────
+  fray payloads                 List all {len(list_categories())} payload categories with counts
+  fray validate <url>           Blue team: validate WAF config (defense report)
+  fray bounty --platform hackerone   Bug bounty integration
+  fray diff before.json after.json   Compare scan results (regression testing)
+  fray explain CVE-2021-44228   Explain a CVE with payloads and severity
+  fray demo                     Quick showcase: detect WAF + XSS scan
+  fray learn xss                Interactive CTF-style security tutorial
+  fray ci init                  Generate GitHub Actions workflow for CI/CD
+  fray stats                    Payload database statistics
+  fray doctor                   Check environment, auto-fix issues
+
+  🔑 AUTHENTICATION (works with any command)
+  ─────────────────────────────
+  --cookie "session=abc"        Cookie header
+  --bearer "eyJ..."             Bearer token
+  -H "X-Api-Key: secret"       Custom header (repeatable)
+  --login-flow "url,user=x,pass=y"   Auto-login and capture session
+
+  📖 Docs: https://github.com/dalisecurity/fray
+  ⚠️  Only test systems you own or have written permission to test.
+""")
+
+
 def cmd_update(args):
     """Update payloads from GitHub"""
     from fray.update import run_update
@@ -1461,10 +1530,15 @@ Documentation: https://github.com/dalisecurity/fray
                          help="Target URL (default: http://testphp.vulnweb.com)")
     p_demo.set_defaults(func=cmd_demo)
 
+    # help
+    p_help = subparsers.add_parser("help",
+        help="Show friendly guide to all fray commands")
+    p_help.set_defaults(func=cmd_help)
+
     args = parser.parse_args()
 
     if not args.command:
-        parser.print_help()
+        cmd_help(None)
         sys.exit(0)
 
     # Load .fray.toml and apply defaults for the active subcommand
