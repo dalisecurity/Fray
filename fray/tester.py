@@ -514,7 +514,20 @@ class WAFTester:
         }
     
     def load_payloads(self, filepath: str) -> List[Dict]:
-        """Load payloads from JSON file"""
+        """Load payloads from JSON or plain-text file.
+
+        JSON: expects {"payloads": [...]} or a bare list.
+        TXT:  one payload per line (blank lines and #comments are skipped).
+        """
+        if filepath.endswith('.txt'):
+            payloads = []
+            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    stripped = line.strip()
+                    if stripped and not stripped.startswith('#'):
+                        payloads.append({'payload': stripped, 'category': 'custom'})
+            return payloads
+
         with open(filepath, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
