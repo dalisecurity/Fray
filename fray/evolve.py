@@ -353,10 +353,13 @@ class PayloadMutator:
     - Case mixing and null byte injection
     - Comment insertion to break pattern matching
     - Double encoding
+    - SQL-specific: inline comments, CHAR() encoding, keyword case mixing,
+      whitespace substitution, operator synonyms
     """
 
-    def __init__(self, profile: WAFProfile):
+    def __init__(self, profile: WAFProfile, category: str = "xss"):
         self.profile = profile
+        self.category = category.lower() if category else "xss"
 
     def mutate(self, payload: str, max_mutations: int = 5) -> List[Dict]:
         """Generate mutations of a payload based on WAF profile.
@@ -473,6 +476,44 @@ class PayloadMutator:
                  strat_map["null_byte_insert"]],
             ))
 
+        # ── SQL-specific chains ────────────────────────────────────────
+
+        # Chain S1: inline comment + case mix
+        if "sql_inline_comment" in strat_map and "sql_case_mix" in strat_map:
+            chains.append((
+                "sql_comment+case",
+                [strat_map["sql_inline_comment"], strat_map["sql_case_mix"]],
+            ))
+
+        # Chain S2: case mix + whitespace substitution
+        if "sql_case_mix" in strat_map and "sql_whitespace_sub" in strat_map:
+            chains.append((
+                "sql_case+ws",
+                [strat_map["sql_case_mix"], strat_map["sql_whitespace_sub"]],
+            ))
+
+        # Chain S3: inline comment + CHAR() encode
+        if "sql_inline_comment" in strat_map and "sql_char_encode" in strat_map:
+            chains.append((
+                "sql_comment+char",
+                [strat_map["sql_inline_comment"], strat_map["sql_char_encode"]],
+            ))
+
+        # Chain S4: triple — comment + case + whitespace
+        if all(s in strat_map for s in ("sql_inline_comment", "sql_case_mix", "sql_whitespace_sub")):
+            chains.append((
+                "sql_comment+case+ws",
+                [strat_map["sql_inline_comment"], strat_map["sql_case_mix"],
+                 strat_map["sql_whitespace_sub"]],
+            ))
+
+        # Chain S5: synonym + double URL encode (cross-category)
+        if "sql_keyword_synonym" in strat_map and "double_url_encode" in strat_map:
+            chains.append((
+                "sql_synonym+dblenc",
+                [strat_map["sql_keyword_synonym"], strat_map["double_url_encode"]],
+            ))
+
         return chains
 
     def _pick_strategies(self) -> list:
@@ -507,6 +548,16 @@ class PayloadMutator:
         # If some events allowed → event swap
         if p.allowed_events:
             strategies.append(("event_swap", self._event_swap))
+
+        # ── SQL-specific strategies ────────────────────────────────────
+        if self.category in ("sqli", "sql", "sql-injection"):
+            strategies.extend([
+                ("sql_inline_comment", self._sql_inline_comment),
+                ("sql_case_mix", self._sql_case_mix),
+                ("sql_char_encode", self._sql_char_encode),
+                ("sql_whitespace_sub", self._sql_whitespace_sub),
+                ("sql_keyword_synonym", self._sql_keyword_synonym),
+            ])
 
         return strategies
 
@@ -619,6 +670,101 @@ class PayloadMutator:
                 replacement = random.choice(allowed)
                 return re.sub(blocked_event, replacement, payload, flags=re.IGNORECASE)
         return payload
+
+    # ── SQL-specific mutation implementations ──────────────────────────
+
+    _SQL_KEYWORDS = re.compile(
+        r'\b(SELECT|INSERT|UPDATE|DELETE|UNION|FROM|WHERE|AND|OR|ORDER|GROUP|'
+        r'HAVING|LIMIT|DROP|ALTER|CREATE|EXEC|EXECUTE|INTO|VALUES|SET|JOIN|'
+        r'LEFT|RIGHT|INNER|OUTER|LIKE|BETWEEN|IN|NOT|NULL|IS|AS|ON|CASE|'
+        r'WHEN|THEN|ELSE|END|CONCAT|SUBSTR|SUBSTRING|ASCII|CHAR|SLEEP|'
+        r'BENCHMARK|WAITFOR|DELAY|IF|EXISTS|ALL|ANY|TABLE|DATABASE|SCHEMA)\b',
+        re.IGNORECASE,
+    )
+
+    def _sql_inline_comment(self, payload: str) -> str:
+        """Insert inline SQL comments to break keyword pattern matching.
+
+        UNION SELECT → UNI/**/ON SEL/**/ECT
+        """
+        def _split_keyword(m: re.Match) -> str:
+            word = m.group(0)
+            if len(word) <= 2:
+                return word
+            mid = len(word) // 2
+            return word[:mid] + '/**/' + word[mid:]
+
+        result = self._SQL_KEYWORDS.sub(_split_keyword, payload)
+        return result if result != payload else payload
+
+    def _sql_case_mix(self, payload: str) -> str:
+        """Randomize case of SQL keywords.
+
+        SELECT → SeLeCt, UNION → uNiOn
+        """
+        def _mix_case(m: re.Match) -> str:
+            word = m.group(0)
+            return ''.join(
+                c.upper() if random.random() > 0.5 else c.lower()
+                for c in word
+            )
+
+        return self._SQL_KEYWORDS.sub(_mix_case, payload)
+
+    def _sql_char_encode(self, payload: str) -> str:
+        """Encode string literals using CHAR() function.
+
+        'admin' → CHAR(97,100,109,105,110)
+        """
+        def _encode_string(m: re.Match) -> str:
+            s = m.group(1)
+            if not s:
+                return m.group(0)
+            char_vals = ','.join(str(ord(c)) for c in s)
+            return f'CHAR({char_vals})'
+
+        # Match single-quoted string literals
+        result = re.sub(r"'([^']{1,50})'", _encode_string, payload)
+        return result if result != payload else payload
+
+    def _sql_whitespace_sub(self, payload: str) -> str:
+        """Replace spaces with alternative whitespace that WAFs may not normalize.
+
+        Spaces → /**/, %09 (tab), %0a (newline), %0d (CR), +
+        """
+        alternatives = ['/**/', '%09', '%0a', '%0d', '+']
+        result = payload
+        # Replace up to 3 spaces (not all, to keep payload functional)
+        count = 0
+        parts = []
+        for char in result:
+            if char == ' ' and count < 3:
+                parts.append(random.choice(alternatives))
+                count += 1
+            else:
+                parts.append(char)
+        return ''.join(parts)
+
+    def _sql_keyword_synonym(self, payload: str) -> str:
+        """Replace SQL operators and functions with synonyms.
+
+        OR → ||, AND → &&, = → LIKE, CONCAT() → ||, spaces around operators
+        """
+        result = payload
+        # Operator synonyms (applied one at a time to avoid over-mutation)
+        synonyms = [
+            (r'\bOR\b', '||'),
+            (r'\bAND\b', '&&'),
+            (r'\bUNION\s+SELECT\b', 'UNION ALL SELECT'),
+            (r'\bSLEEP\s*\(', 'BENCHMARK(10000000,SHA1('),
+            (r'\bSUBSTRING\s*\(', 'MID('),
+            (r'\bCONCAT\s*\(', 'CONCAT_WS(\'\','),
+        ]
+        for pattern, replacement in synonyms:
+            new_result = re.sub(pattern, replacement, result, count=1, flags=re.IGNORECASE)
+            if new_result != result:
+                return new_result
+        return result
 
 
 # ── Adaptive Test Runner ─────────────────────────────────────────────────────

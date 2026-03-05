@@ -595,6 +595,7 @@ def cmd_bypass(args):
         verbose=True,
         output_file=output_file,
         json_output=getattr(args, 'json', False),
+        category=getattr(args, 'category', 'xss') or 'xss',
     )
 
 

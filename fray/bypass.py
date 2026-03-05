@@ -366,6 +366,7 @@ def run_bypass(
     verbose: bool = True,
     output_file: Optional[str] = None,
     json_output: bool = False,
+    category: str = "xss",
 ) -> BypassScorecard:
     """Run the full bypass assessment.
 
@@ -494,7 +495,7 @@ def run_bypass(
     #
     mutation_count = 0
     mutation_bypasses: List[BypassResult] = []
-    mutator = PayloadMutator(profile)
+    mutator = PayloadMutator(profile, category=category)
     mut_remaining = mutation_budget
     max_retry_depth = 2  # How many times to re-mutate a blocked mutation
     seen_payloads: set = set()  # Dedup: skip mutations we've already tested
