@@ -6,7 +6,7 @@
 
 [![Total Payloads](https://img.shields.io/badge/Payloads-5500+-brightgreen.svg?style=for-the-badge)](https://github.com/dalisecurity/fray)
 [![WAF Detection](https://img.shields.io/badge/WAF_Vendors-25+-blue.svg?style=for-the-badge&logo=cloudflare)](https://github.com/dalisecurity/fray)
-[![Recon Checks](https://img.shields.io/badge/Recon_Checks-17-orange.svg?style=for-the-badge)](https://github.com/dalisecurity/fray)
+[![Recon Checks](https://img.shields.io/badge/Recon_Checks-18-orange.svg?style=for-the-badge)](https://github.com/dalisecurity/fray)
 [![OWASP Coverage](https://img.shields.io/badge/OWASP-100%25-success.svg?style=for-the-badge&logo=owasp)](https://github.com/dalisecurity/fray)
 
 [![PyPI](https://img.shields.io/pypi/v/fray.svg)](https://pypi.org/project/fray/)
@@ -23,9 +23,9 @@
 Most payload collections are static text files. Fray is a **complete workflow**:
 
 - **`fray scan`** — Auto crawl → param discovery → payload injection (new)
-- **`fray recon`** — 17 automated checks (TLS, headers, DNS, CORS, params, JS endpoints, historical URLs)
+- **`fray recon`** — 18 automated checks (TLS, headers, DNS, CORS, params, JS endpoints, historical URLs, GraphQL)
 - **`fray detect`** — Fingerprint 25 WAF vendors
-- **`fray test`** — 5,500+ payloads across 22 OWASP categories
+- **`fray test`** — 5,500+ payloads across 23 OWASP categories (incl. prototype pollution)
 - **`fray report`** — HTML & Markdown reports
 - **Zero dependencies** — pure Python stdlib, `pip install fray` and go
 
@@ -115,7 +115,7 @@ fray scan https://target.com --json -o results.json
 
 ---
 
-## `fray recon` — 17 Automated Checks
+## `fray recon` — 18 Automated Checks
 
 ```bash
 fray recon https://example.com
@@ -130,6 +130,7 @@ fray recon https://example.com --params   # Parameter brute-force mining
 | **Parameter Mining** | Brute-force 136 common param names, detect hidden `?id=`, `?file=`, `?redirect=` |
 | **JS Endpoint Extraction** | Hidden APIs, admin routes, GraphQL, auth endpoints from `.js` files |
 | **Historical URLs** | Old endpoints via Wayback Machine, sitemap.xml, robots.txt |
+| **GraphQL Introspection** | Probe 10 common endpoints, detect exposed schema (types, fields, mutations) |
 | **TLS** | Version, cipher, cert expiry |
 | **Security Headers** | HSTS, CSP, X-Frame-Options (scored) |
 | **Cookies** | HttpOnly, Secure, SameSite flags |
@@ -144,6 +145,8 @@ Plus: 28 exposed file probes (`.env`, `.git`, phpinfo, actuator) · subdomains v
 `--history` queries Wayback Machine CDX API, sitemap.xml, and robots.txt Disallow paths. Old endpoints often have weaker WAF rules.
 
 `--params` brute-forces 136 common parameter names against discovered endpoints. Detects hidden params by response diff (status, size, reflection). Risk-rated: HIGH (SSRF/LFI/injection), MEDIUM (XSS/IDOR).
+
+GraphQL introspection runs automatically during full recon. Probes `/graphql`, `/api/graphql`, `/v1/graphql`, `/graphiql`, `/playground`, etc.
 
 [Recon guide →](docs/quickstart.md)
 

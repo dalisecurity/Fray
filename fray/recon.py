@@ -44,7 +44,8 @@ _TECH_PAYLOAD_MAP: Dict[str, List[str]] = {
     "drupal": ["sqli", "ssti", "xss", "command_injection"],
     "joomla": ["sqli", "xss", "path_traversal", "command_injection"],
     "php": ["command_injection", "ssti", "path_traversal", "sqli", "xss"],
-    "node.js": ["ssti", "ssrf", "xss", "command_injection"],
+    "node.js": ["ssti", "ssrf", "xss", "command_injection", "prototype_pollution"],
+    "express": ["prototype_pollution", "ssti", "ssrf", "xss", "command_injection"],
     "python": ["ssti", "ssrf", "command_injection", "sqli"],
     "java": ["sqli", "xxe", "ssti", "ssrf", "command_injection"],
     ".net": ["sqli", "xss", "path_traversal", "xxe"],
@@ -52,7 +53,7 @@ _TECH_PAYLOAD_MAP: Dict[str, List[str]] = {
     "nginx": ["path_traversal", "ssrf"],
     "apache": ["path_traversal", "ssrf"],
     "iis": ["path_traversal", "xss", "sqli"],
-    "api_json": ["sqli", "ssrf", "command_injection", "ssti"],
+    "api_json": ["sqli", "ssrf", "command_injection", "ssti", "prototype_pollution"],
     "react": ["xss"],
     "angular": ["xss", "ssti"],
     "vue": ["xss"],
@@ -64,7 +65,7 @@ _HEADER_FINGERPRINTS: Dict[str, Dict[str, str]] = {
     # header_name_lower -> {pattern: tech_name}
     "x-powered-by": {
         r"PHP": "php",
-        r"Express": "node.js",
+        r"Express": "express",
         r"ASP\.NET": ".net",
         r"Servlet": "java",
         r"Django": "python",
@@ -1067,6 +1068,159 @@ def check_error_page(host: str, port: int, use_ssl: bool,
     return result
 
 
+# ── GraphQL Introspection Probe ──────────────────────────────────────────
+
+_GRAPHQL_PATHS = [
+    "/graphql",
+    "/api/graphql",
+    "/v1/graphql",
+    "/v2/graphql",
+    "/graphql/v1",
+    "/query",
+    "/api/query",
+    "/graphiql",
+    "/altair",
+    "/playground",
+]
+
+_INTROSPECTION_QUERY = '{"query":"{ __schema { types { name fields { name type { name kind } } } } }"}'
+
+
+def _post_json(url: str, body: str, timeout: int = 6,
+               verify_ssl: bool = True,
+               headers: Optional[Dict[str, str]] = None) -> tuple:
+    """HTTP POST with JSON body — stdlib only, SSL fallback."""
+    parsed = urllib.parse.urlparse(url)
+    host = parsed.hostname or ""
+    port = parsed.port
+    path = parsed.path or "/"
+    if parsed.query:
+        path += "?" + parsed.query
+
+    req_headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    }
+    if headers:
+        req_headers.update(headers)
+
+    encoded = body.encode("utf-8")
+
+    if parsed.scheme == "https":
+        port = port or 443
+        # Try verified first, fall back to unverified
+        for do_verify in ([True, False] if verify_ssl else [False]):
+            try:
+                ctx = ssl.create_default_context()
+                if not do_verify:
+                    ctx.check_hostname = False
+                    ctx.verify_mode = ssl.CERT_NONE
+                conn = http.client.HTTPSConnection(host, port, timeout=timeout, context=ctx)
+                conn.request("POST", path, body=encoded, headers=req_headers)
+                resp = conn.getresponse()
+                resp_body = resp.read(500_000).decode("utf-8", errors="replace")
+                conn.close()
+                return resp.status, resp_body
+            except ssl.SSLError:
+                continue
+            except Exception:
+                return 0, ""
+        return 0, ""
+    else:
+        port = port or 80
+        conn = http.client.HTTPConnection(host, port, timeout=timeout)
+        try:
+            conn.request("POST", path, body=encoded, headers=req_headers)
+            resp = conn.getresponse()
+            resp_body = resp.read(500_000).decode("utf-8", errors="replace")
+            return resp.status, resp_body
+        except Exception:
+            return 0, ""
+        finally:
+            conn.close()
+
+
+def check_graphql_introspection(host: str, port: int, use_ssl: bool,
+                                 timeout: int = 6,
+                                 extra_headers: Optional[Dict[str, str]] = None,
+                                 ) -> Dict[str, Any]:
+    """Probe common GraphQL endpoints for introspection enabled.
+
+    Exposed introspection reveals the entire API schema — high-value recon.
+    """
+    scheme = "https" if use_ssl else "http"
+    port_str = "" if (use_ssl and port == 443) or (not use_ssl and port == 80) else f":{port}"
+    base = f"{scheme}://{host}{port_str}"
+
+    result: Dict[str, Any] = {
+        "endpoints_found": [],
+        "introspection_enabled": [],
+        "types_found": [],
+        "total_types": 0,
+        "total_fields": 0,
+    }
+
+    for gql_path in _GRAPHQL_PATHS:
+        url = f"{base}{gql_path}"
+
+        # Directly POST introspection query — most reliable detection
+        post_status, post_body = _post_json(url, _INTROSPECTION_QUERY,
+                                             timeout=timeout,
+                                             verify_ssl=True,
+                                             headers=extra_headers)
+
+        if post_status == 0:
+            continue
+
+        # Any meaningful response to a GraphQL query means endpoint exists
+        is_graphql = False
+        if post_body:
+            lower = post_body.lower()
+            if any(kw in lower for kw in ('"data"', '"errors"', '__schema',
+                                           'graphql', 'must provide',
+                                           '"message"')):
+                is_graphql = True
+
+        if not is_graphql:
+            continue
+
+        result["endpoints_found"].append(gql_path)
+
+        if post_status == 200 and "__schema" in post_body:
+            result["introspection_enabled"].append(gql_path)
+
+            # Parse types from response
+            try:
+                data = json.loads(post_body)
+                types = data.get("data", {}).get("__schema", {}).get("types", [])
+                user_types = []
+                total_fields = 0
+                for t in types:
+                    name = t.get("name", "")
+                    # Skip built-in GraphQL types
+                    if name.startswith("__") or name in ("String", "Int", "Float",
+                                                          "Boolean", "ID", "DateTime"):
+                        continue
+                    fields = t.get("fields") or []
+                    field_names = [f.get("name", "") for f in fields]
+                    total_fields += len(field_names)
+                    user_types.append({
+                        "name": name,
+                        "fields": field_names[:10],  # cap for display
+                        "field_count": len(field_names),
+                    })
+                result["types_found"] = user_types[:20]
+                result["total_types"] = len(user_types)
+                result["total_fields"] = total_fields
+            except (json.JSONDecodeError, AttributeError, KeyError):
+                pass
+
+            break  # Found introspection on one endpoint, no need to check others
+
+    return result
+
+
 # ── Historical URL Discovery ─────────────────────────────────────────────
 
 # Path patterns interesting for WAF testing — old/dev/debug endpoints
@@ -2033,6 +2187,16 @@ def run_recon(url: str, timeout: int = 8,
                                                          verify_ssl=verify,
                                                          extra_headers=headers)
 
+    # 18. GraphQL introspection probe
+    result["graphql"] = check_graphql_introspection(host, port, use_ssl,
+                                                     timeout=timeout,
+                                                     extra_headers=headers)
+    # Add prototype_pollution to recommendations if Node.js detected
+    fp_techs = result.get("fingerprint", {}).get("technologies", {})
+    if any(t in fp_techs for t in ("node.js", "express")):
+        if "prototype_pollution" not in result["recommended_categories"]:
+            result["recommended_categories"].append("prototype_pollution")
+
     return result
 
 
@@ -2353,6 +2517,30 @@ def print_recon(result: Dict[str, Any]) -> None:
     elif hist:
         console.print("  [bold]Historical URLs[/bold]")
         console.print("    [dim]No historical URLs found[/dim]")
+        console.print()
+
+    # ── GraphQL Introspection ──
+    gql = result.get("graphql", {})
+    gql_endpoints = gql.get("endpoints_found", [])
+    gql_introspection = gql.get("introspection_enabled", [])
+    if gql_endpoints:
+        if gql_introspection:
+            console.print(f"  [bold red]GraphQL Introspection[/bold red] — [red]ENABLED[/red] ⚠")
+            for ep in gql_introspection:
+                console.print(f"    [red]⚠ {ep} — full schema exposed[/red]")
+            total_t = gql.get("total_types", 0)
+            total_f = gql.get("total_fields", 0)
+            if total_t:
+                console.print(f"    Schema: [cyan]{total_t} types[/cyan], [cyan]{total_f} fields[/cyan]")
+                for t in gql.get("types_found", [])[:8]:
+                    fields_str = ", ".join(t["fields"][:5])
+                    if t["field_count"] > 5:
+                        fields_str += f" (+{t['field_count'] - 5} more)"
+                    console.print(f"    [yellow]{t['name']}[/yellow]: {fields_str}")
+        else:
+            console.print(f"  [bold]GraphQL[/bold] — endpoints found, introspection disabled")
+            for ep in gql_endpoints:
+                console.print(f"    [green]✓[/green] {ep} (introspection blocked)")
         console.print()
 
     # ── Recommended Categories ──
