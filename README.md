@@ -68,37 +68,26 @@ fray scan https://example.com -c xss -m 3 -w 4
 ──────────────────── Crawling https://example.com ────────────────────
   [  1] https://example.com
   [  2] https://example.com/search
-  [  3] https://example.com/login
-  [  4] https://example.com/guestbook.php
-
+  [  3] https://example.com/guestbook.php
   ✓ Crawled 10 pages, found 7 injection points (3 forms, 1 JS endpoints)
 
 ──────────────────────── Payload Injection ───────────────────────────
-  Testing 7 injection points × 3 xss payloads
-
-  [1/7] POST https://example.com/guestbook.php ?name= (form)
+  [1/7] POST /guestbook.php ?name= (form)
       BLOCKED   403 │ <script>alert(1)</script>
-      PASSED    200 │ <img src=x onerror=alert(1)>               ↩ REFLECTED
-  [2/7] GET  https://example.com/search ?q= (form)
+      PASSED    200 │ <img src=x onerror=alert(1)>    ↩ REFLECTED
+  [2/7] GET  /search ?q= (form)
       BLOCKED   403 │ <script>alert(1)</script>
-      PASSED    200 │ <img src=x onerror=alert(1)>               ↩ REFLECTED
+      PASSED    200 │ <img src=x onerror=alert(1)>    ↩ REFLECTED
 
 ╭──────────── Scan Summary ────────────╮
-│ Duration          14s                │
 │ Total Tested      21                 │
-│ Blocked           15                 │
-│ Passed            6                  │
-│ Reflected         4                  │
-│ Block Rate        71.4%              │
+│ Blocked           15  (71.4%)        │
+│ Passed             6                 │
+│ Reflected          4  ← confirmed    │
 ╰──────────────────────────────────────╯
-
-╭──────── ↩ Reflected (Confirmed Injection) ────────╮
-│  URL                  Param  Payload               │
-│  /guestbook.php       name   <img src=x onerror..  │
-│  /guestbook.php       text   <img src=x onerror..  │
-│  /search              q      <img src=x onerror..  │
-╰───────────────────────────────────────────────────╯
 ```
+
+Reflected payloads are highlighted with `↩ REFLECTED` — confirmed injection where the payload appears verbatim in the response body.
 
 **What it does:**
 1. **Crawls** — BFS spider, follows same-origin links, seeds from `robots.txt` + `sitemap.xml`
@@ -139,8 +128,8 @@ fray recon https://example.com
 | **Fingerprinting** | WordPress, PHP, Node.js, nginx, Apache, Java, .NET |
 | **DNS** | A/CNAME/MX/TXT, CDN detection, SPF/DMARC |
 | **CORS** | Wildcard, reflected origin, credentials misconfig |
-| **Exposed Files** | `.env`, `.git`, phpinfo, actuator, SQL dumps |
-| **Subdomains** | crt.sh certificate transparency |
+
+Plus: 28 exposed file probes (`.env`, `.git`, phpinfo, actuator) · subdomains via crt.sh
 
 [Recon guide →](docs/quickstart.md)
 
@@ -183,64 +172,15 @@ Cloudflare, AWS WAF, Akamai, Imperva, F5 BIG-IP, Fastly, Azure WAF, Google Cloud
 
 ## Key Features
 
-### Scope Enforcement
+| Feature | How | Example |
+|---------|-----|---------|
+| **Scope Enforcement** | Restrict to permitted domains/IPs/CIDRs | `--scope scope.txt` |
+| **Concurrent Scanning** | Parallelize crawl + injection (~3x faster) | `-w 4` |
+| **Stealth Mode** | Randomized UA, jitter, throttle — one flag | `--stealth` |
+| **Authenticated Scanning** | Cookie, Bearer, custom headers | `--cookie "session=abc"` |
+| **CI/CD** | GitHub Actions with PR comments + fail-on-bypass | `fray ci init` |
 
-Restrict scanning to permitted domains — essential for bug bounty:
-
-```bash
-# scope.txt
-example.com
-*.example.com
-192.168.1.0/24
-```
-
-```bash
-fray scan https://target.com --scope scope.txt
-fray test https://target.com --smart --scope scope.txt
-```
-
-### Concurrent Scanning
-
-Parallelize crawl and injection with `--workers`:
-
-```bash
-fray scan https://target.com -w 4    # ~3x faster
-```
-
-### Stealth Mode
-
-One flag for full evasion — randomized UA, jitter, throttle:
-
-```bash
-fray scan https://target.com --stealth
-```
-
-### Authenticated Scanning
-
-```bash
-fray scan https://app.example.com --cookie "session=abc123"
-fray scan https://api.example.com --bearer "eyJhbG..."
-```
-
-[Auth guide →](docs/authentication-guide.md) · [Stealth guide →](docs/scanning-guide.md#concurrent-workers)
-
----
-
-## CI/CD — GitHub Actions
-
-```yaml
-- uses: dalisecurity/fray@v1
-  with:
-    target: ${{ secrets.FRAY_TARGET_URL }}
-    mode: smart
-    fail-on-bypass: 'true'
-```
-
-```bash
-fray ci init    # Generate workflow file
-```
-
-[CI guide →](docs/quickstart.md)
+[Auth guide →](docs/authentication-guide.md) · [Scan options →](docs/scanning-guide.md) · [CI guide →](docs/quickstart.md)
 
 ---
 

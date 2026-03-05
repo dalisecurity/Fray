@@ -68,37 +68,26 @@ fray scan https://example.com -c xss -m 3 -w 4
 ──────────────────── Crawling https://example.com ────────────────────
   [  1] https://example.com
   [  2] https://example.com/search
-  [  3] https://example.com/login
-  [  4] https://example.com/guestbook.php
-
+  [  3] https://example.com/guestbook.php
   ✓ Crawled 10 pages, found 7 injection points (3 forms, 1 JS endpoints)
 
 ──────────────────────── Payload Injection ───────────────────────────
-  Testing 7 injection points × 3 xss payloads
-
-  [1/7] POST https://example.com/guestbook.php ?name= (form)
+  [1/7] POST /guestbook.php ?name= (form)
       BLOCKED   403 │ <script>alert(1)</script>
-      PASSED    200 │ <img src=x onerror=alert(1)>               ↩ REFLECTED
-  [2/7] GET  https://example.com/search ?q= (form)
+      PASSED    200 │ <img src=x onerror=alert(1)>    ↩ REFLECTED
+  [2/7] GET  /search ?q= (form)
       BLOCKED   403 │ <script>alert(1)</script>
-      PASSED    200 │ <img src=x onerror=alert(1)>               ↩ REFLECTED
+      PASSED    200 │ <img src=x onerror=alert(1)>    ↩ REFLECTED
 
 ╭──────────── Scan Summary ────────────╮
-│ Duration          14s                │
 │ Total Tested      21                 │
-│ Blocked           15                 │
-│ Passed            6                  │
-│ Reflected         4                  │
-│ Block Rate        71.4%              │
+│ Blocked           15  (71.4%)        │
+│ Passed             6                 │
+│ Reflected          4  ← confirmed    │
 ╰──────────────────────────────────────╯
-
-╭──────── ↩ Reflected (Confirmed Injection) ────────╮
-│  URL                  Param  Payload               │
-│  /guestbook.php       name   <img src=x onerror..  │
-│  /guestbook.php       text   <img src=x onerror..  │
-│  /search              q      <img src=x onerror..  │
-╰───────────────────────────────────────────────────╯
 ```
+
+反射型ペイロードは `↩ REFLECTED` でハイライト — ペイロードがレスポンス本文にそのまま含まれることで注入が確認されます。
 
 **処理の流れ：**
 1. **クロール** — BFS探索、同一オリジンリンクを追跡、`robots.txt` + `sitemap.xml`からシード
@@ -132,15 +121,15 @@ fray recon https://example.com
 ```
 
 | チェック項目 | 検出内容 |
-|------------|---------|
+|------------|--------|
 | **TLS** | バージョン、暗号スイート、証明書有効期限 |
 | **セキュリティヘッダー** | HSTS、CSP、X-Frame-Options（スコア付き） |
 | **Cookie** | HttpOnly、Secure、SameSiteフラグ |
 | **フィンガープリント** | WordPress、PHP、Node.js、nginx、Apache、Java、.NET |
 | **DNS** | A/CNAME/MX/TXT、CDN検出、SPF/DMARC |
 | **CORS** | ワイルドカード、反射型オリジン、認証情報の設定不備 |
-| **公開ファイル** | `.env`、`.git`、phpinfo、actuator、SQLダンプ |
-| **サブドメイン** | crt.sh証明書透明性ログ |
+
+その他：28件の公開ファイルプローブ（`.env`、`.git`、phpinfo、actuator）· crt.sh経由のサブドメイン列挙
 
 [情報収集ガイド →](docs/quickstart.md)
 
@@ -183,64 +172,15 @@ Cloudflare、AWS WAF、Akamai、Imperva、F5 BIG-IP、Fastly、Azure WAF、Googl
 
 ## 主要機能
 
-### スコープ制限
+| 機能 | 説明 | 例 |
+|------|------|-----|
+| **スコープ制限** | 許可されたドメイン/IP/CIDRのみに制限 | `--scope scope.txt` |
+| **並行スキャン** | クロール + 注入を並列化（約3倍高速） | `-w 4` |
+| **ステルスモード** | UA回転、ジッター、スロットル — 1フラグ | `--stealth` |
+| **認証付きスキャン** | Cookie、Bearer、カスタムヘッダー | `--cookie "session=abc"` |
+| **CI/CD** | GitHub Actions、PRコメント + バイパス時失敗 | `fray ci init` |
 
-許可されたドメインのみにスキャンを制限 — バグバウンティに必須：
-
-```bash
-# scope.txt
-example.com
-*.example.com
-192.168.1.0/24
-```
-
-```bash
-fray scan https://target.com --scope scope.txt
-fray test https://target.com --smart --scope scope.txt
-```
-
-### 並行スキャン
-
-`--workers`でクロールと注入を並列化：
-
-```bash
-fray scan https://target.com -w 4    # 約3倍高速
-```
-
-### ステルスモード
-
-1つのフラグで完全回避 — UA回転、ジッター、スロットル：
-
-```bash
-fray scan https://target.com --stealth
-```
-
-### 認証付きスキャン
-
-```bash
-fray scan https://app.example.com --cookie "session=abc123"
-fray scan https://api.example.com --bearer "eyJhbG..."
-```
-
-[認証ガイド →](docs/authentication-guide.md) · [スキャンガイド →](docs/scanning-guide.md)
-
----
-
-## CI/CD — GitHub Actions
-
-```yaml
-- uses: dalisecurity/fray@v1
-  with:
-    target: ${{ secrets.FRAY_TARGET_URL }}
-    mode: smart
-    fail-on-bypass: 'true'
-```
-
-```bash
-fray ci init    # ワークフローファイルを生成
-```
-
-[CIガイド →](docs/quickstart.md)
+[認証ガイド →](docs/authentication-guide.md) · [スキャンオプション →](docs/scanning-guide.md) · [CIガイド →](docs/quickstart.md)
 
 ---
 
