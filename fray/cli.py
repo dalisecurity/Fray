@@ -15,6 +15,7 @@ Usage:
     fray ci init                 Generate GitHub Actions WAF test workflow
     fray learn xss               Interactive CTF-style security tutorial
     fray bypass <url> --waf cloudflare -c xss   WAF bypass scoring with evasion scorecard
+    fray diff before.json after.json              Compare scans — surface regressions
     fray validate <url>          Blue team WAF config validation report
     fray bounty --platform h1    Bug bounty scope auto-fetch + batch test
     fray explain <CVE-ID>       Explain a CVE — payloads, severity, what to test
@@ -514,6 +515,29 @@ def cmd_recon(args):
         print(f"  Recon saved to {args.output}")
 
 
+def cmd_diff(args):
+    """Compare two scan results and surface regressions."""
+    from fray.diff import run_diff, print_diff
+    from dataclasses import asdict
+
+    diff = run_diff(args.before, args.after)
+
+    if getattr(args, 'json', False):
+        print(json.dumps(asdict(diff), indent=2, ensure_ascii=False))
+    else:
+        print_diff(diff)
+
+    if getattr(args, 'output', None):
+        _validate_output_path(args.output)
+        with open(args.output, "w", encoding="utf-8") as f:
+            json.dump(asdict(diff), f, indent=2, ensure_ascii=False)
+        print(f"\n  Diff saved to {args.output}")
+
+    # Exit code: 1 if regressions found (useful for CI)
+    if diff.verdict == "REGRESSED":
+        sys.exit(1)
+
+
 def cmd_bypass(args):
     """WAF bypass scoring — evasion-optimized testing"""
     from fray.tester import WAFTester
@@ -962,6 +986,15 @@ Documentation: https://github.com/dalisecurity/fray
     p_bypass.add_argument("--rate-limit", type=float, default=0.0,
                           help="Max requests per second")
     p_bypass.set_defaults(func=cmd_bypass)
+
+    # diff
+    p_diff = subparsers.add_parser("diff",
+        help="Compare two scan results — surface regressions and improvements")
+    p_diff.add_argument("before", help="Baseline scan results JSON (before WAF change)")
+    p_diff.add_argument("after", help="New scan results JSON (after WAF change)")
+    p_diff.add_argument("-o", "--output", default=None, help="Save diff report JSON to file")
+    p_diff.add_argument("--json", action="store_true", help="Output diff as JSON to stdout")
+    p_diff.set_defaults(func=cmd_diff)
 
     # report
     p_report = subparsers.add_parser("report", help="Generate HTML security report")
