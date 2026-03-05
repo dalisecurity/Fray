@@ -2999,7 +2999,13 @@ def check_differential_responses(host: str, port: int, use_ssl: bool,
     def _is_blocked(s: int, b: str, sigs: tuple) -> bool:
         """Determine if a response indicates a WAF block vs normal page."""
         # Hard block: unambiguous status codes
-        if s in (403, 406, 429, 500, 503):
+        if s in (400, 403, 406, 429, 500, 503):
+            return True
+        # Empty body with different status = likely WAF drop/reset
+        if s != avg_benign_status and (not b or len(b) == 0):
+            return True
+        # Dramatic body size change (>80% smaller) = block page replaced content
+        if s != 0 and avg_benign_len > 100 and len(b) < avg_benign_len * 0.2:
             return True
         # Soft block: body must contain WAF signature AND differ
         # significantly from baseline (>20% body length delta)
