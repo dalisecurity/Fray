@@ -1349,6 +1349,229 @@ def print_historical_urls(target: str, result: Dict[str, Any]) -> None:
     console.print()
 
 
+# ── Parameter Mining (brute-force) ───────────────────────────────────────
+
+# Curated wordlist — common hidden/undocumented parameters across web apps
+_PARAM_WORDLIST = [
+    # Auth & session
+    "id", "user", "username", "login", "password", "pass", "email", "token",
+    "session", "auth", "key", "api_key", "apikey", "secret", "access_token",
+    # Routing & redirects
+    "url", "redirect", "redirect_url", "redirect_uri", "return", "return_url",
+    "next", "goto", "dest", "destination", "continue", "callback", "ref",
+    # File & path
+    "file", "filename", "path", "dir", "folder", "doc", "document", "template",
+    "page", "include", "src", "source", "load", "read", "fetch", "download",
+    # Data / CRUD
+    "name", "value", "data", "content", "text", "body", "message", "comment",
+    "title", "description", "type", "category", "status", "action", "cmd",
+    "command", "exec", "query", "q", "search", "filter", "sort", "order",
+    "limit", "offset", "count", "size", "from", "to", "start", "end",
+    # ID variants
+    "uid", "pid", "cid", "oid", "item", "item_id", "product", "product_id",
+    "order_id", "account", "account_id", "customer_id", "invoice",
+    # Debug & internal
+    "debug", "test", "admin", "mode", "env", "verbose", "trace", "log",
+    "config", "setting", "format", "output", "render", "view", "preview",
+    "version", "v", "lang", "locale", "language",
+    # SSRF / injection targets
+    "host", "ip", "port", "domain", "proxy", "target", "site",
+    # Upload & media
+    "upload", "image", "img", "avatar", "photo", "attachment", "media",
+    # Misc
+    "callback", "jsonp", "method", "_method", "csrf", "nonce", "timestamp",
+    "sign", "signature", "hash", "checksum", "role", "group", "permission",
+]
+
+
+def mine_params(url: str, timeout: int = 4, verify_ssl: bool = True,
+                extra_headers: Optional[Dict[str, str]] = None,
+                wordlist: Optional[List[str]] = None,
+                quiet: bool = False,
+                ) -> Dict[str, Any]:
+    """Parameter brute-force mining.
+
+    Probes each param name against the target URL and detects hidden parameters
+    by comparing response differences (status, content-length, reflection).
+
+    This is NOT directory fuzzing — it's parameter fuzzing.
+    """
+    import sys
+    params_to_try = wordlist or _PARAM_WORDLIST
+
+    parsed = urllib.parse.urlparse(url)
+    from fray.scanner import _fetch, extract_links, _same_origin
+
+    # Quick crawl to find testable endpoints (pages that accept input)
+    endpoints = set()
+    endpoints.add(url)
+
+    status, body, resp_headers = _fetch(url, timeout=timeout,
+                                        verify_ssl=verify_ssl,
+                                        headers=extra_headers)
+    if status and body:
+        content_type = resp_headers.get("content-type", "")
+        if "text/html" in content_type:
+            for link in extract_links(url, body):
+                if _same_origin(url, link):
+                    endpoints.add(link.split("?")[0].split("#")[0])
+
+    # Limit endpoints — 3 max keeps total requests under ~320
+    test_endpoints = sorted(endpoints)[:3]
+
+    found_params = []
+    seen = set()
+    total_probed = 0
+    total_work = len(test_endpoints) * len(params_to_try)
+
+    for ep_idx, ep_url in enumerate(test_endpoints):
+        ep_path = urllib.parse.urlparse(ep_url).path or "/"
+        if not quiet:
+            sys.stderr.write(f"\r  Mining {ep_path} ... ({ep_idx+1}/{len(test_endpoints)})")
+            sys.stderr.flush()
+
+        # Baseline: request without any extra params
+        base_status, base_body, _ = _fetch_url(ep_url, timeout=timeout,
+                                                verify_ssl=verify_ssl,
+                                                headers=extra_headers)
+        if base_status == 0:
+            continue
+        base_len = len(base_body)
+
+        for param in params_to_try:
+            key = (ep_url.split("?")[0], param)
+            if key in seen:
+                continue
+
+            test_value = "fray_test_1337"
+            sep = "&" if "?" in ep_url else "?"
+            probe_url = f"{ep_url}{sep}{param}={test_value}"
+            total_probed += 1
+
+            probe_status, probe_body, _ = _fetch_url(probe_url, timeout=timeout,
+                                                      verify_ssl=verify_ssl,
+                                                      headers=extra_headers)
+            if probe_status == 0:
+                continue
+
+            # Detection: compare against baseline
+            probe_len = len(probe_body)
+            reflected = test_value in probe_body
+            status_diff = probe_status != base_status
+            # Significant size difference (>50 bytes and >5% change)
+            size_diff = abs(probe_len - base_len) > 50 and abs(probe_len - base_len) / max(base_len, 1) > 0.05
+
+            if reflected or status_diff or size_diff:
+                seen.add(key)
+                evidence = []
+                if reflected:
+                    evidence.append("reflected")
+                if status_diff:
+                    evidence.append(f"status {base_status}→{probe_status}")
+                if size_diff:
+                    diff = probe_len - base_len
+                    evidence.append(f"size {'+' if diff > 0 else ''}{diff}b")
+
+                # Classify risk
+                risk = "info"
+                if param in ("redirect", "redirect_url", "redirect_uri", "url",
+                             "return", "return_url", "next", "goto", "dest",
+                             "destination", "callback", "continue"):
+                    risk = "high"  # Open redirect / SSRF
+                elif param in ("file", "path", "dir", "include", "template",
+                               "load", "read", "fetch", "doc", "source", "src"):
+                    risk = "high"  # LFI / path traversal
+                elif param in ("cmd", "command", "exec", "query", "action"):
+                    risk = "high"  # Command injection / SQLi
+                elif param in ("id", "uid", "user", "account", "account_id",
+                               "customer_id", "order_id", "item_id"):
+                    risk = "medium"  # IDOR
+                elif param in ("debug", "test", "admin", "verbose", "trace",
+                               "config", "env", "mode"):
+                    risk = "medium"  # Debug/info disclosure
+                elif reflected:
+                    risk = "medium"  # XSS candidate
+
+                ep_path = urllib.parse.urlparse(ep_url).path or "/"
+                found_params.append({
+                    "endpoint": ep_path,
+                    "param": param,
+                    "method": "GET",
+                    "evidence": evidence,
+                    "risk": risk,
+                })
+
+    if not quiet:
+        sys.stderr.write("\r" + " " * 60 + "\r")
+        sys.stderr.flush()
+
+    # Sort by risk (high first)
+    risk_order = {"high": 0, "medium": 1, "info": 2}
+    found_params.sort(key=lambda x: (risk_order.get(x["risk"], 3), x["endpoint"], x["param"]))
+
+    return {
+        "params": found_params,
+        "total_found": len(found_params),
+        "total_probed": total_probed,
+        "endpoints_tested": len(test_endpoints),
+        "wordlist_size": len(params_to_try),
+    }
+
+
+def print_mined_params(target: str, result: Dict[str, Any]) -> None:
+    """Pretty-print parameter mining results."""
+    from fray.output import console, print_header
+
+    print_header("Fray Recon — Parameter Mining", target=target)
+
+    total = result.get("total_found", 0)
+    probed = result.get("total_probed", 0)
+    eps = result.get("endpoints_tested", 0)
+
+    console.print(f"  Parameters found: [cyan]{total}[/cyan]")
+    console.print(f"  Probed: {probed} combinations ({eps} endpoints × {result.get('wordlist_size', 0)} params)")
+    console.print()
+
+    params = result.get("params", [])
+    if params:
+        from rich.table import Table
+        table = Table(show_header=True, box=None, pad_edge=False, padding=(0, 1))
+        table.add_column("#", width=4, style="dim")
+        table.add_column("Endpoint", min_width=25)
+        table.add_column("Param", min_width=15, style="cyan")
+        table.add_column("Risk", width=8)
+        table.add_column("Evidence", min_width=20, style="dim")
+
+        risk_styles = {
+            "high": "[red]HIGH[/red]",
+            "medium": "[yellow]MED[/yellow]",
+            "info": "[dim]info[/dim]",
+        }
+
+        for i, p in enumerate(params[:30], 1):
+            risk_display = risk_styles.get(p["risk"], p["risk"])
+            evidence = ", ".join(p["evidence"])
+            table.add_row(str(i), p["endpoint"], p["param"], risk_display, evidence)
+
+        console.print(table)
+        if len(params) > 30:
+            console.print(f"    [dim]... and {len(params) - 30} more[/dim]")
+        console.print()
+
+        # Summary by risk
+        high = sum(1 for p in params if p["risk"] == "high")
+        med = sum(1 for p in params if p["risk"] == "medium")
+        if high:
+            console.print(f"  [red]⚠ {high} HIGH risk params[/red] — test for SSRF, LFI, injection")
+        if med:
+            console.print(f"  [yellow]⚠ {med} MEDIUM risk params[/yellow] — test for XSS, IDOR, debug disclosure")
+        console.print()
+        console.print(f"  [dim]Test: fray scan {target} -c xss -m 3[/dim]")
+    else:
+        console.print("  [dim]No hidden parameters found[/dim]")
+    console.print()
+
+
 # ── JS Endpoint Extraction ───────────────────────────────────────────────
 
 # Comprehensive regex patterns for JS endpoint discovery

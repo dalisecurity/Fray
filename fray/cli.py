@@ -591,6 +591,22 @@ def cmd_recon(args):
     """Run target reconnaissance and fingerprinting"""
     auth_headers = build_auth_headers(args) or None
 
+    # --params mode: standalone parameter mining (brute-force)
+    if getattr(args, 'params', False):
+        from fray.recon import mine_params, print_mined_params
+        result = mine_params(args.target, timeout=getattr(args, 'timeout', 8),
+                             extra_headers=auth_headers)
+        if getattr(args, 'json', False):
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+        else:
+            print_mined_params(args.target, result)
+        if getattr(args, 'output', None):
+            _validate_output_path(args.output)
+            with open(args.output, "w", encoding="utf-8") as f:
+                json.dump(result, f, indent=2, ensure_ascii=False)
+            print(f"\n  Results saved to {args.output}")
+        return
+
     # --history mode: standalone historical URL discovery
     if getattr(args, 'history', False):
         from fray.recon import discover_historical_urls, print_historical_urls
@@ -1169,6 +1185,8 @@ Documentation: https://github.com/dalisecurity/fray
                           help="JS endpoint extraction: find hidden API routes in JavaScript files")
     p_recon.add_argument("--history", action="store_true",
                           help="Historical URL discovery: Wayback Machine, sitemap.xml, robots.txt")
+    p_recon.add_argument("--params", action="store_true",
+                          help="Parameter mining: brute-force hidden URL parameters (not dir fuzzing)")
     p_recon.set_defaults(func=cmd_recon)
 
     # detect

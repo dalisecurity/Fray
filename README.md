@@ -121,11 +121,13 @@ fray scan https://target.com --json -o results.json
 fray recon https://example.com
 fray recon https://example.com --js       # JS endpoint extraction
 fray recon https://example.com --history  # Historical URL discovery
+fray recon https://example.com --params   # Parameter brute-force mining
 ```
 
 | Check | What It Finds |
 |-------|---------------|
 | **Parameter Discovery** | Query strings, form inputs, JS API endpoints |
+| **Parameter Mining** | Brute-force 136 common param names, detect hidden `?id=`, `?file=`, `?redirect=` |
 | **JS Endpoint Extraction** | Hidden APIs, admin routes, GraphQL, auth endpoints from `.js` files |
 | **Historical URLs** | Old endpoints via Wayback Machine, sitemap.xml, robots.txt |
 | **TLS** | Version, cipher, cert expiry |
@@ -140,6 +142,8 @@ Plus: 28 exposed file probes (`.env`, `.git`, phpinfo, actuator) · subdomains v
 `--js` parses inline and external JavaScript files for `fetch()`, `axios`, `XMLHttpRequest`, `/api/`, `/graphql`, `/admin/`, `/internal/` paths.
 
 `--history` queries Wayback Machine CDX API, sitemap.xml, and robots.txt Disallow paths. Old endpoints often have weaker WAF rules.
+
+`--params` brute-forces 136 common parameter names against discovered endpoints. Detects hidden params by response diff (status, size, reflection). Risk-rated: HIGH (SSRF/LFI/injection), MEDIUM (XSS/IDOR).
 
 [Recon guide →](docs/quickstart.md)
 

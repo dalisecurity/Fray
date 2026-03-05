@@ -121,11 +121,13 @@ fray scan https://target.com --json -o results.json
 fray recon https://example.com
 fray recon https://example.com --js       # JSエンドポイント抽出
 fray recon https://example.com --history  # 過去URL発見
+fray recon https://example.com --params   # パラメータブルートフォース
 ```
 
 | チェック項目 | 検出内容 |
 |------------|--------|
 | **パラメータ発見** | クエリ文字列、フォーム入力、JS APIエンドポイント |
+| **パラメータマイニング** | 136個の一般的なパラメータ名をブルートフォース、隠れた`?id=`、`?file=`、`?redirect=`を検出 |
 | **JSエンドポイント抽出** | 隠しAPI、管理画面ルート、GraphQL、認証エンドポイントを`.js`ファイルから発見 |
 | **過去URL発見** | Wayback Machine、sitemap.xml、robots.txtから古いエンドポイントを取得 |
 | **TLS** | バージョン、暗号スイート、証明書有効期限 |
@@ -140,6 +142,8 @@ fray recon https://example.com --history  # 過去URL発見
 `--js` はインラインおよび外部JavaScriptファイルから `fetch()`、`axios`、`XMLHttpRequest`、`/api/`、`/graphql`、`/admin/`、`/internal/` パスを解析します。
 
 `--history` はWayback Machine CDX API、sitemap.xml、robots.txt Disallowパスを検索。古いエンドポイントはWAFルールが弱いことが多いです。
+
+`--params` は136個の一般的なパラメータ名をブルートフォース。レスポンス差分（ステータス、サイズ、反射）で隠れたパラメータを検出。リスク評価：HIGH（SSRF/LFI/インジェクション）、MEDIUM（XSS/IDOR）。
 
 [情報収集ガイド →](docs/quickstart.md)
 
