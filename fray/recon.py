@@ -1067,6 +1067,239 @@ def check_error_page(host: str, port: int, use_ssl: bool,
     return result
 
 
+# ── JS Endpoint Extraction ───────────────────────────────────────────────
+
+# Comprehensive regex patterns for JS endpoint discovery
+_JS_ENDPOINT_PATTERNS = [
+    # fetch / axios / xhr
+    re.compile(r"""fetch\s*\(\s*['"`]([^'"`\s]+)['"`]""", re.IGNORECASE),
+    re.compile(r"""axios\.[a-z]+\s*\(\s*['"`]([^'"`\s]+)['"`]""", re.IGNORECASE),
+    re.compile(r"""\.open\s*\(\s*['"][A-Z]+['"]\s*,\s*['"`]([^'"`\s]+)['"`]""", re.IGNORECASE),
+    # String literals that look like API paths
+    re.compile(r"""['"`](/api/[^'"`\s]{2,})['"`]"""),
+    re.compile(r"""['"`](/v[1-9]\d*/[^'"`\s]{2,})['"`]"""),
+    re.compile(r"""['"`](/graphql[^'"`\s]*)['"`]""", re.IGNORECASE),
+    re.compile(r"""['"`](/rest/[^'"`\s]{2,})['"`]""", re.IGNORECASE),
+    re.compile(r"""['"`](/internal/[^'"`\s]{2,})['"`]""", re.IGNORECASE),
+    re.compile(r"""['"`](/admin/[^'"`\s]{2,})['"`]""", re.IGNORECASE),
+    re.compile(r"""['"`](/auth/[^'"`\s]{2,})['"`]""", re.IGNORECASE),
+    re.compile(r"""['"`](/oauth/[^'"`\s]{2,})['"`]""", re.IGNORECASE),
+    re.compile(r"""['"`](/webhook[s]?/[^'"`\s]{2,})['"`]""", re.IGNORECASE),
+    re.compile(r"""['"`](/upload[s]?[^'"`\s]*)['"`]""", re.IGNORECASE),
+    re.compile(r"""['"`](/download[s]?[^'"`\s]*)['"`]""", re.IGNORECASE),
+    re.compile(r"""['"`](/socket[^'"`\s]*)['"`]""", re.IGNORECASE),
+    re.compile(r"""['"`](/ws/[^'"`\s]{2,})['"`]""", re.IGNORECASE),
+    # Template literal URLs: `${baseUrl}/endpoint`
+    re.compile(r"""\$\{[^}]+\}(/[a-zA-Z0-9_/\-]+)"""),
+    # URL concatenation: baseUrl + "/endpoint"
+    re.compile(r"""\+\s*['"`](/[a-zA-Z0-9_/\-]{3,})['"`]"""),
+]
+
+# Patterns to extract <script src="..."> tags
+_SCRIPT_SRC_RE = re.compile(r'<script[^>]+src\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE)
+
+
+def discover_js_endpoints(url: str, max_depth: int = 2, max_pages: int = 10,
+                          timeout: int = 8, verify_ssl: bool = True,
+                          extra_headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    """Deep JS endpoint extraction.
+
+    Crawls HTML pages, finds all <script src="..."> tags, fetches external
+    JS files, and extracts API endpoints using comprehensive regex patterns.
+
+    Finds hidden API routes, admin endpoints, GraphQL, internal paths.
+    """
+    from fray.scanner import _fetch, extract_links, _same_origin, _normalize_url
+
+    visited_pages = set()
+    visited_js = set()
+    queue = [(url, 0)]
+    endpoints = []   # list of dicts
+    seen_paths = set()
+
+    while queue and len(visited_pages) < max_pages:
+        current_url, depth = queue.pop(0)
+        canonical = current_url.split("?")[0].split("#")[0]
+        if canonical in visited_pages:
+            continue
+        visited_pages.add(canonical)
+
+        # Skip non-HTML resources
+        lower = canonical.lower()
+        if any(lower.endswith(ext) for ext in (
+            ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg",
+            ".ico", ".woff", ".woff2", ".ttf", ".eot", ".pdf", ".zip",
+        )):
+            continue
+
+        status, body, resp_headers = _fetch(current_url, timeout=timeout,
+                                            verify_ssl=verify_ssl,
+                                            headers=extra_headers)
+        if status == 0 or not body:
+            continue
+
+        # Follow redirects
+        if status in (301, 302, 307, 308):
+            loc = resp_headers.get("location", "")
+            if loc:
+                redir_url = urllib.parse.urljoin(current_url, loc)
+                if _same_origin(url, redir_url) and redir_url.split("?")[0] not in visited_pages:
+                    queue.append((redir_url, depth))
+            continue
+
+        content_type = resp_headers.get("content-type", "")
+
+        # Extract endpoints from inline JS in HTML pages
+        if "text/html" in content_type or "application/xhtml" in content_type:
+            _extract_endpoints_from_js(body, current_url, endpoints, seen_paths)
+
+            # Find and fetch external JS files
+            for m in _SCRIPT_SRC_RE.finditer(body):
+                js_src = m.group(1).strip()
+                js_url = _normalize_url(current_url, js_src)
+                if not js_url or js_url in visited_js:
+                    continue
+                visited_js.add(js_url)
+
+                js_status, js_body, _ = _fetch(js_url, timeout=timeout,
+                                               verify_ssl=verify_ssl,
+                                               headers=extra_headers)
+                if js_status == 200 and js_body:
+                    _extract_endpoints_from_js(js_body, js_url, endpoints, seen_paths)
+
+            # Follow links
+            if depth < max_depth:
+                for link in extract_links(current_url, body):
+                    link_canon = link.split("?")[0].split("#")[0]
+                    if link_canon not in visited_pages and _same_origin(url, link):
+                        queue.append((link, depth + 1))
+
+    # Sort: /api first, then /admin, then rest
+    def _sort_key(ep):
+        p = ep["path"]
+        if "/api/" in p or "/graphql" in p: return (0, p)
+        if "/admin/" in p or "/internal/" in p: return (1, p)
+        if "/auth/" in p or "/oauth/" in p: return (2, p)
+        return (3, p)
+    endpoints.sort(key=_sort_key)
+
+    return {
+        "endpoints": endpoints,
+        "total": len(endpoints),
+        "pages_crawled": len(visited_pages),
+        "js_files_parsed": len(visited_js),
+        "categories": {
+            "api": sum(1 for e in endpoints if "/api/" in e["path"] or "/v" in e["path"]),
+            "graphql": sum(1 for e in endpoints if "graphql" in e["path"].lower()),
+            "admin": sum(1 for e in endpoints if "/admin/" in e["path"] or "/internal/" in e["path"]),
+            "auth": sum(1 for e in endpoints if "/auth/" in e["path"] or "/oauth/" in e["path"]),
+            "other": sum(1 for e in endpoints if not any(
+                x in e["path"].lower() for x in ("/api/", "/v1/", "/v2/", "/graphql", "/admin/", "/internal/", "/auth/", "/oauth/")
+            )),
+        },
+    }
+
+
+def _extract_endpoints_from_js(js_content: str, source_url: str,
+                                endpoints: List[Dict], seen_paths: set) -> None:
+    """Extract API endpoints from JS content and append to endpoints list."""
+    for pattern in _JS_ENDPOINT_PATTERNS:
+        for m in pattern.finditer(js_content):
+            path = m.group(1).strip()
+            # Filter noise
+            if len(path) < 3 or len(path) > 200:
+                continue
+            if not path.startswith("/"):
+                continue
+            # Skip obvious non-endpoints
+            if any(path.endswith(ext) for ext in (
+                ".js", ".css", ".png", ".jpg", ".gif", ".svg", ".ico",
+                ".woff", ".woff2", ".ttf", ".map", ".html", ".htm",
+            )):
+                continue
+            # Normalize: strip trailing slashes, query strings for dedup
+            clean = path.split("?")[0].split("#")[0].rstrip("/")
+            if not clean or clean in seen_paths:
+                continue
+            seen_paths.add(clean)
+
+            # Classify
+            lower = clean.lower()
+            if "/admin" in lower or "/internal" in lower:
+                category = "admin"
+            elif "/graphql" in lower:
+                category = "graphql"
+            elif "/api/" in lower or re.match(r"/v\d+/", lower):
+                category = "api"
+            elif "/auth" in lower or "/oauth" in lower:
+                category = "auth"
+            elif "/upload" in lower or "/download" in lower:
+                category = "upload"
+            elif "/ws/" in lower or "/socket" in lower:
+                category = "websocket"
+            else:
+                category = "other"
+
+            endpoints.append({
+                "path": clean,
+                "source": urllib.parse.urlparse(source_url).path or source_url,
+                "category": category,
+            })
+
+
+def print_js_endpoints(target: str, result: Dict[str, Any]) -> None:
+    """Pretty-print JS endpoint extraction results."""
+    from fray.output import console, print_header
+
+    print_header("Fray Recon — JS Endpoint Extraction", target=target)
+
+    eps = result.get("endpoints", [])
+    cats = result.get("categories", {})
+    console.print(f"  Pages crawled: {result.get('pages_crawled', 0)}")
+    console.print(f"  JS files parsed: {result.get('js_files_parsed', 0)}")
+    console.print(f"  Endpoints found: [cyan]{len(eps)}[/cyan]")
+    console.print()
+
+    if cats:
+        parts = []
+        for label, key in [("API", "api"), ("GraphQL", "graphql"), ("Admin", "admin"),
+                           ("Auth", "auth"), ("Other", "other")]:
+            count = cats.get(key, 0)
+            if count:
+                parts.append(f"{label}: {count}")
+        if parts:
+            console.print(f"  Categories: {' · '.join(parts)}")
+            console.print()
+
+    if eps:
+        from rich.table import Table
+        table = Table(show_header=True, box=None, pad_edge=False, padding=(0, 1))
+        table.add_column("#", width=4, style="dim")
+        table.add_column("Endpoint", min_width=35, style="cyan")
+        table.add_column("Category", width=10)
+        table.add_column("Found in", min_width=20, style="dim")
+
+        cat_styles = {
+            "api": "[green]api[/green]", "graphql": "[magenta]graphql[/magenta]",
+            "admin": "[red]admin[/red]", "auth": "[yellow]auth[/yellow]",
+            "upload": "[yellow]upload[/yellow]", "websocket": "[blue]ws[/blue]",
+            "other": "[dim]other[/dim]",
+        }
+
+        for i, ep in enumerate(eps[:30], 1):
+            cat_display = cat_styles.get(ep["category"], ep["category"])
+            table.add_row(str(i), ep["path"], cat_display, ep["source"])
+
+        console.print(table)
+        if len(eps) > 30:
+            console.print(f"    [dim]... and {len(eps) - 30} more[/dim]")
+        console.print()
+        console.print(f"  [dim]Test these: fray scan {target} -c xss -m 3[/dim]")
+    else:
+        console.print("  [dim]No JS endpoints found[/dim]")
+    console.print()
+
+
 # ── Parameter Discovery ──────────────────────────────────────────────────
 
 def discover_params(url: str, max_depth: int = 2, max_pages: int = 10,

@@ -119,11 +119,13 @@ fray scan https://target.com --json -o results.json
 
 ```bash
 fray recon https://example.com
+fray recon https://example.com --js    # JS endpoint extraction
 ```
 
 | Check | What It Finds |
 |-------|---------------|
 | **Parameter Discovery** | Query strings, form inputs, JS API endpoints |
+| **JS Endpoint Extraction** | Hidden APIs, admin routes, GraphQL, auth endpoints from `.js` files |
 | **TLS** | Version, cipher, cert expiry |
 | **Security Headers** | HSTS, CSP, X-Frame-Options (scored) |
 | **Cookies** | HttpOnly, Secure, SameSite flags |
@@ -132,6 +134,8 @@ fray recon https://example.com
 | **CORS** | Wildcard, reflected origin, credentials misconfig |
 
 Plus: 28 exposed file probes (`.env`, `.git`, phpinfo, actuator) · subdomains via crt.sh
+
+`--js` parses inline and external JavaScript files for `fetch()`, `axios`, `XMLHttpRequest`, `/api/`, `/graphql`, `/admin/`, `/internal/` paths.
 
 [Recon guide →](docs/quickstart.md)
 

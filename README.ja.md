@@ -119,11 +119,13 @@ fray scan https://target.com --json -o results.json
 
 ```bash
 fray recon https://example.com
+fray recon https://example.com --js    # JSエンドポイント抽出
 ```
 
 | チェック項目 | 検出内容 |
 |------------|--------|
 | **パラメータ発見** | クエリ文字列、フォーム入力、JS APIエンドポイント |
+| **JSエンドポイント抽出** | 隠しAPI、管理画面ルート、GraphQL、認証エンドポイントを`.js`ファイルから発見 |
 | **TLS** | バージョン、暗号スイート、証明書有効期限 |
 | **セキュリティヘッダー** | HSTS、CSP、X-Frame-Options（スコア付き） |
 | **Cookie** | HttpOnly、Secure、SameSiteフラグ |
@@ -132,6 +134,8 @@ fray recon https://example.com
 | **CORS** | ワイルドカード、反射型オリジン、認証情報の設定不備 |
 
 その他：28件の公開ファイルプローブ（`.env`、`.git`、phpinfo、actuator）· crt.sh経由のサブドメイン列挙
+
+`--js` はインラインおよび外部JavaScriptファイルから `fetch()`、`axios`、`XMLHttpRequest`、`/api/`、`/graphql`、`/admin/`、`/internal/` パスを解析します。
 
 [情報収集ガイド →](docs/quickstart.md)
 
