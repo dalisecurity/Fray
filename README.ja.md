@@ -236,6 +236,19 @@ fray payloads             # 全カテゴリを一覧表示
 
 ---
 
+## AI対応出力 — `--ai` フラグ
+
+```bash
+fray scan target.com --ai           # LLM最適化JSON出力
+fray test target.com -c xss --ai    # AIワークフローにパイプ
+fray recon target.com --ai           # Claude、GPT等向け構造化recon
+
+# パイプライン例：
+fray scan target.com --ai | ai analyze
+```
+
+出力：技術スタック、脆弱性（CWEタグ付き、信頼度スコア）、セキュリティ体制、推奨アクション — LLM直接消費用の構造化JSON。
+
 ## MCPサーバー — AI連携
 
 ```bash

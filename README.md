@@ -236,6 +236,19 @@ fray payloads             # List all 24 payload categories
 
 ---
 
+## AI-Ready Output — `--ai` Flag
+
+```bash
+fray scan target.com --ai           # LLM-optimized JSON for AI agents
+fray test target.com -c xss --ai    # Pipe into any AI workflow
+fray recon target.com --ai           # Structured recon for Claude, GPT, etc.
+
+# Example pipeline:
+fray scan target.com --ai | ai analyze
+```
+
+Output: structured JSON with technologies, vulnerabilities (CWE-tagged, confidence-scored), security posture, and suggested next actions — ready for direct LLM consumption.
+
 ## MCP Server — AI Integration
 
 ```bash

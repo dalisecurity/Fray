@@ -35,6 +35,225 @@ from pathlib import Path
 from fray import __version__, PAYLOADS_DIR
 
 
+def _build_ai_output(target: str, results: list = None, recon: dict = None,
+                     scan_summary: dict = None, crawl: dict = None) -> dict:
+    """Build LLM-optimized JSON output for AI agent consumption.
+
+    Structured for direct piping into Claude, GPT, or any AI workflow:
+        fray scan target.com --ai | ai analyze
+    """
+    from datetime import datetime as _dt
+
+    out = {
+        "schema": "fray-ai/v1",
+        "target": target,
+        "timestamp": _dt.now().isoformat(),
+    }
+
+    # ── Technologies (from recon fingerprint) ──
+    technologies = []
+    if recon:
+        fp = recon.get("fingerprint", {})
+        for tech, conf in fp.get("technologies", {}).items():
+            technologies.append({"name": tech, "confidence": conf})
+        # WAF
+        waf = recon.get("waf_detected")
+        if waf:
+            out["waf"] = waf
+
+        # Security posture from recon
+        headers = recon.get("headers", {})
+        security_headers = recon.get("security_headers", {})
+        tls = recon.get("tls", {})
+        dns = recon.get("dns", {})
+        cors = recon.get("cors", {})
+        cookies = recon.get("cookies", {})
+        exposed = recon.get("exposed_files", {})
+        graphql = recon.get("graphql", {})
+        api_discovery = recon.get("api_discovery", {})
+        host_injection = recon.get("host_header_injection", {})
+        admin_panels = recon.get("admin_panels", {})
+
+        posture = {}
+        # Header score
+        if security_headers:
+            score = security_headers.get("score")
+            missing = security_headers.get("missing", [])
+            if score is not None:
+                posture["header_score"] = score
+            if missing:
+                posture["missing_headers"] = missing
+
+        # TLS
+        if tls and tls.get("version"):
+            posture["tls_version"] = tls["version"]
+            if tls.get("expires_days") is not None:
+                posture["cert_expires_days"] = tls["expires_days"]
+
+        # CORS
+        if cors and cors.get("misconfigured"):
+            posture["cors_misconfigured"] = True
+            posture["cors_issues"] = cors.get("issues", [])
+
+        # Exposed files
+        if exposed and exposed.get("found"):
+            posture["exposed_files"] = exposed["found"]
+
+        # Cookies
+        if cookies and cookies.get("issues"):
+            posture["cookie_issues"] = cookies["issues"]
+
+        # GraphQL
+        if graphql and graphql.get("introspection_enabled"):
+            posture["graphql_introspection_open"] = True
+            posture["graphql_endpoint"] = graphql.get("endpoint", "")
+
+        # API discovery
+        if api_discovery and api_discovery.get("endpoints_found"):
+            posture["api_endpoints_exposed"] = api_discovery["endpoints_found"]
+
+        # Host header injection
+        if host_injection and host_injection.get("vulnerable"):
+            posture["host_header_injectable"] = True
+            posture["host_injection_headers"] = host_injection.get("vulnerable_headers", [])
+
+        # Admin panels
+        if admin_panels and admin_panels.get("panels_found"):
+            panels = []
+            for p in admin_panels["panels_found"]:
+                entry = {"path": p["path"], "status": p["status"]}
+                if p.get("protected") is False:
+                    entry["open"] = True
+                panels.append(entry)
+            posture["admin_panels"] = panels
+
+        if posture:
+            out["security_posture"] = posture
+
+        # Recommended categories
+        recs = recon.get("recommended_categories", [])
+        if recs:
+            out["recommended_categories"] = recs
+
+    if technologies:
+        out["technologies"] = technologies
+
+    # ── Crawl summary (from scan) ──
+    if crawl:
+        out["crawl"] = {
+            "pages": crawl.get("pages_crawled", 0),
+            "endpoints": crawl.get("total_endpoints", 0),
+            "injection_points": crawl.get("total_injection_points", 0),
+        }
+
+    # ── Vulnerabilities (from test/scan results) ──
+    if results:
+        reflected = [r for r in results if r.get("reflected") and not r.get("blocked")]
+        bypassed = [r for r in results if not r.get("blocked") and not r.get("reflected")]
+        blocked_count = sum(1 for r in results if r.get("blocked"))
+
+        # CWE mapping
+        cwe_map = {
+            "xss": "CWE-79", "sqli": "CWE-89", "ssrf": "CWE-918",
+            "ssti": "CWE-1336", "command_injection": "CWE-78", "xxe": "CWE-611",
+            "path_traversal": "CWE-22", "open-redirect": "CWE-601",
+            "crlf_injection": "CWE-113", "prototype_pollution": "CWE-1321",
+            "host_header_injection": "CWE-644",
+        }
+
+        vulns = []
+        # Group reflected by category
+        by_cat = {}
+        for r in reflected:
+            cat = r.get("category", "unknown")
+            by_cat.setdefault(cat, []).append(r)
+        for cat, items in by_cat.items():
+            vuln = {
+                "type": cat,
+                "cwe": cwe_map.get(cat, "CWE-20"),
+                "confidence": "high",
+                "confirmed": True,
+                "count": len(items),
+                "endpoints": [],
+            }
+            seen = set()
+            for r in items:
+                ep = r.get("url", r.get("endpoint", target))
+                param = r.get("param", "")
+                key = f"{ep}|{param}"
+                if key not in seen:
+                    seen.add(key)
+                    entry = {"url": ep}
+                    if param:
+                        entry["parameter"] = param
+                    entry["payload_sample"] = r.get("payload", "")[:120]
+                    vuln["endpoints"].append(entry)
+            vulns.append(vuln)
+
+        # Group bypassed by category
+        by_cat_b = {}
+        for r in bypassed:
+            cat = r.get("category", "unknown")
+            by_cat_b.setdefault(cat, []).append(r)
+        for cat, items in by_cat_b.items():
+            vuln = {
+                "type": cat,
+                "cwe": cwe_map.get(cat, "CWE-20"),
+                "confidence": "medium",
+                "confirmed": False,
+                "count": len(items),
+                "endpoints": [],
+            }
+            seen = set()
+            for r in items[:5]:
+                ep = r.get("url", r.get("endpoint", target))
+                param = r.get("param", "")
+                key = f"{ep}|{param}"
+                if key not in seen:
+                    seen.add(key)
+                    entry = {"url": ep}
+                    if param:
+                        entry["parameter"] = param
+                    entry["payload_sample"] = r.get("payload", "")[:120]
+                    vuln["endpoints"].append(entry)
+            vulns.append(vuln)
+
+        out["vulnerabilities"] = vulns
+        out["summary"] = {
+            "total_tested": len(results),
+            "blocked": blocked_count,
+            "bypassed": len(bypassed),
+            "reflected": len(reflected),
+            "block_rate": f"{(blocked_count / len(results) * 100):.1f}%" if results else "0%",
+            "risk": "critical" if reflected else ("medium" if bypassed else "low"),
+        }
+
+    if scan_summary and "summary" not in out:
+        out["summary"] = scan_summary
+
+    # ── Suggested next actions ──
+    actions = []
+    if results:
+        reflected = [r for r in results if r.get("reflected") and not r.get("blocked")]
+        bypassed = [r for r in results if not r.get("blocked") and not r.get("reflected")]
+        if reflected:
+            actions.append({"action": "report", "reason": "Confirmed exploitable findings — generate report", "command": f"fray report -i results.json -o report.html"})
+        if bypassed:
+            cats = list({r.get("category", "xss") for r in bypassed})
+            actions.append({"action": "deep_test", "reason": "WAF bypasses found — test with smart mode", "command": f"fray test {target} -c {','.join(cats)} --smart --max 100"})
+        if not reflected and not bypassed:
+            actions.append({"action": "expand", "reason": "All blocked — try more categories", "command": f"fray test {target} -c sqli,ssrf,ssti,command_injection --smart"})
+    elif recon:
+        recs = recon.get("recommended_categories", [])
+        if recs:
+            cats = ",".join(r["category"] for r in recs[:5]) if isinstance(recs[0], dict) else ",".join(recs[:5])
+            actions.append({"action": "test", "reason": "Recon complete — test recommended categories", "command": f"fray test {target} -c {cats} --smart"})
+    if actions:
+        out["suggested_actions"] = actions
+
+    return out
+
+
 def _validate_output_path(output: str) -> None:
     """Ensure output path is within the current working directory subtree."""
     resolved = Path(output).resolve()
@@ -354,6 +573,20 @@ def cmd_test(args):
         'results': results,
     }
 
+    # AI-optimized output
+    ai_mode = getattr(args, 'ai', False)
+    if ai_mode:
+        from fray.recon import run_recon
+        recon = run_recon(args.target, timeout=args.timeout,
+                          headers=custom_headers or None)
+        ai_out = _build_ai_output(target=args.target, results=results, recon=recon)
+        print(json.dumps(ai_out, indent=2, ensure_ascii=False))
+        if args.output:
+            _validate_output_path(args.output)
+            with open(args.output, 'w', encoding='utf-8') as f:
+                json.dump(ai_out, f, indent=2, ensure_ascii=False)
+        return
+
     # JSON output to stdout
     if getattr(args, 'json', False):
         print(json.dumps(report, indent=2, ensure_ascii=False))
@@ -480,6 +713,27 @@ def cmd_scan(args):
         scope_file=getattr(args, 'scope', None),
         workers=getattr(args, 'workers', 1),
     )
+
+    ai_mode = getattr(args, 'ai', False)
+
+    if ai_mode:
+        # Run quick recon for technology fingerprinting
+        from fray.recon import run_recon
+        recon = run_recon(args.target, timeout=getattr(args, 'timeout', 8),
+                          headers=custom_headers or None)
+        scan_dict = scan.to_dict()
+        ai_out = _build_ai_output(
+            target=args.target,
+            results=scan_dict.get("test_results", []),
+            recon=recon,
+            crawl=scan_dict.get("crawl", {}),
+        )
+        print(json.dumps(ai_out, indent=2, ensure_ascii=False))
+        if getattr(args, 'output', None):
+            _validate_output_path(args.output)
+            with open(args.output, 'w', encoding='utf-8') as f:
+                json.dump(ai_out, f, indent=2, ensure_ascii=False)
+        return
 
     if json_mode:
         print(json.dumps(scan.to_dict(), indent=2, ensure_ascii=False))
@@ -643,6 +897,17 @@ def cmd_recon(args):
     from fray.recon import run_recon, print_recon
     result = run_recon(args.target, timeout=getattr(args, 'timeout', 8),
                        headers=auth_headers)
+
+    ai_mode = getattr(args, 'ai', False)
+    if ai_mode:
+        ai_out = _build_ai_output(target=args.target, recon=result)
+        print(json.dumps(ai_out, indent=2, ensure_ascii=False))
+        if getattr(args, 'output', None):
+            _validate_output_path(args.output)
+            with open(args.output, "w", encoding="utf-8") as f:
+                json.dump(ai_out, f, indent=2, ensure_ascii=False)
+        return
+
     if getattr(args, 'json', False):
         print(json.dumps(result, indent=2, ensure_ascii=False))
     else:
@@ -1471,6 +1736,7 @@ def cmd_help(args):
   fray recon <url> --js         Extract hidden API endpoints from JavaScript files
   fray recon <url> --history    Discover old URLs via Wayback Machine / sitemap / robots
   fray recon <url> --params     Brute-force 136 common parameter names (?id= ?file= ?redirect=)
+  fray recon <url> --ai         AI-ready JSON output for LLMs
 
   🛡️  DETECT — Identify the WAF
   ─────────────────────────────
@@ -1481,12 +1747,14 @@ def cmd_help(args):
   fray scan <url>               Auto crawl → param discovery → payload injection
   fray scan <url> -c sqli       Scan with specific payload category
   fray scan <url> --depth 5     Control crawl depth and scope
+  fray scan <url> --ai          AI-ready JSON output for LLMs (pipe to Claude, GPT, etc.)
 
   ⚡ TEST — Payload injection
   ─────────────────────────────
   fray test <url> -c xss        Test a specific payload category
   fray test <url> --all         Test ALL 24 payload categories
   fray test <url> --smart       Adaptive mode: probe WAF first, skip redundant payloads
+  fray test <url> --ai          AI-ready JSON output for LLMs
 
   🔓 BYPASS — WAF evasion scoring
   ─────────────────────────────
@@ -1622,6 +1890,7 @@ Documentation: https://github.com/dalisecurity/fray
     p_recon.add_argument("target", help="Target URL (e.g. https://example.com)")
     p_recon.add_argument("-t", "--timeout", type=int, default=8, help="Request timeout (default: 8)")
     p_recon.add_argument("--json", action="store_true", help="Output raw JSON instead of pretty-print")
+    p_recon.add_argument("--ai", action="store_true", help="AI-ready structured JSON output for LLM consumption")
     p_recon.add_argument("-o", "--output", default=None, help="Save recon JSON to file")
     p_recon.add_argument("--cookie", default=None, help="Cookie header for authenticated recon")
     p_recon.add_argument("--bearer", default=None, help="Bearer token for Authorization header")
@@ -1682,6 +1951,7 @@ Documentation: https://github.com/dalisecurity/fray
     p_test.add_argument("--rate-limit", type=float, default=0.0,
                          help="Max requests per second (e.g. --rate-limit 2 = max 2 req/s)")
     p_test.add_argument("--json", action="store_true", help="Output results as JSON to stdout")
+    p_test.add_argument("--ai", action="store_true", help="AI-ready structured JSON output for LLM consumption")
     p_test.set_defaults(func=cmd_test)
 
     # bypass
@@ -1773,6 +2043,8 @@ Documentation: https://github.com/dalisecurity/fray
                          help="Save scan results JSON to file")
     p_scan.add_argument("--json", action="store_true",
                          help="Output results as JSON to stdout")
+    p_scan.add_argument("--ai", action="store_true",
+                         help="AI-ready structured JSON output for LLM consumption")
     p_scan.add_argument("--insecure", action="store_true",
                          help="Skip SSL certificate verification")
     p_scan.add_argument("--cookie", default=None,
