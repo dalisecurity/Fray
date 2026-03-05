@@ -228,6 +228,7 @@ Cloudflare, AWS WAF, Akamai, Imperva, F5 BIG-IP, Fastly, Azure WAF, Google Cloud
 
 ```bash
 fray explain log4shell    # CVE intelligence with payloads
+fray explain results.json # Human-readable findings: impact, remediation, next steps
 fray payloads             # List all 24 payload categories
 ```
 

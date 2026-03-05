@@ -228,6 +228,7 @@ Cloudflare、AWS WAF、Akamai、Imperva、F5 BIG-IP、Fastly、Azure WAF、Googl
 
 ```bash
 fray explain log4shell    # CVEインテリジェンス（ペイロード付き）
+fray explain results.json # 検出結果の解説：影響度、修正方法、次のステップ
 fray payloads             # 全カテゴリを一覧表示
 ```
 

