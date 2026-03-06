@@ -89,17 +89,65 @@ def run_recon(url: str, timeout: int = 8,
         "recommended_categories": [],
     }
 
-    # 1. HTTP check
-    result["http"] = check_http(host, timeout=timeout)
+    # ── Phase 1: Parallel initial network I/O (steps 1-3, 8a, 8b, 9) ──
+    # These are independent network calls; running them concurrently saves ~12-15s.
+    import concurrent.futures
 
-    # 2. TLS audit (only if HTTPS target or port 443)
-    if use_ssl or port == 443:
-        result["tls"] = check_tls(host, port=port, timeout=timeout)
+    phase1_workers = 3 if stealth else 6
 
-    # 3. Fetch page for headers + body fingerprinting (with auth headers)
-    status, resp_headers, body = _http_get(host, port, path, use_ssl, timeout=timeout,
-                                           extra_headers=headers)
+    def _p1_http():
+        return check_http(host, timeout=timeout)
+
+    def _p1_tls():
+        if use_ssl or port == 443:
+            return check_tls(host, port=port, timeout=timeout)
+        return {}
+
+    def _p1_page():
+        return _http_get(host, port, path, use_ssl, timeout=timeout,
+                         extra_headers=headers)
+
+    def _p1_dns():
+        return check_dns(host, deep=is_deep)
+
+    def _p1_robots():
+        return check_robots_sitemap(host, port, use_ssl, timeout=timeout)
+
+    def _p1_cors():
+        return check_cors(host, port, use_ssl, timeout=timeout)
+
+    phase1_tasks = {
+        "http": _p1_http,
+        "tls": _p1_tls,
+        "page": _p1_page,
+        "dns": _p1_dns,
+        "robots": _p1_robots,
+        "cors": _p1_cors,
+    }
+
+    phase1_results = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=phase1_workers) as pool:
+        futures = {pool.submit(fn): key for key, fn in phase1_tasks.items()}
+        for future in concurrent.futures.as_completed(futures):
+            key = futures[future]
+            try:
+                phase1_results[key] = future.result()
+            except Exception:
+                phase1_results[key] = {} if key != "page" else (0, {}, "")
+
+    # Unpack phase 1 results
+    result["http"] = phase1_results.get("http", {})
+    result["tls"] = phase1_results.get("tls", {})
+
+    page_result = phase1_results.get("page", (0, {}, ""))
+    status, resp_headers, body = page_result if isinstance(page_result, tuple) else (0, {}, "")
     result["page_status"] = status
+
+    result["dns"] = phase1_results.get("dns", {})
+    result["robots"] = phase1_results.get("robots", {})
+    result["cors"] = phase1_results.get("cors", {})
+
+    # ── Phase 1b: CPU-only analysis derived from page fetch (no network) ──
 
     # 4. Security headers
     result["headers"] = check_security_headers(resp_headers)
@@ -127,19 +175,8 @@ def run_recon(url: str, timeout: int = 8,
     # 7b. Frontend library supply chain check (CPU-only, no network)
     result["frontend_libs"] = check_frontend_libs(body, retirejs=retirejs)
 
-    # 8. DNS records + CDN detection
-    result["dns"] = check_dns(host, deep=is_deep)
-
-    # 8. robots.txt + sitemap.xml
-    result["robots"] = check_robots_sitemap(host, port, use_ssl, timeout=timeout)
-
-    # 9. CORS check
-    result["cors"] = check_cors(host, port, use_ssl, timeout=timeout)
-
-    # ── Parallel execution of independent network checks (steps 10-22) ──
+    # ── Phase 2: Parallel network checks (steps 10-22) ──
     # These checks are independent and can safely run concurrently.
-    # Cuts total recon time from ~110s to ~35s on typical targets.
-    import concurrent.futures
 
     # Stealth mode: fewer workers + jitter to avoid WAF rate-limit triggers
     max_workers = 3 if stealth else 13
