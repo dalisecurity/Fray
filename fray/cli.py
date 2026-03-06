@@ -1251,6 +1251,12 @@ def cmd_recon(args):
 
     from fray.recon import run_recon, print_recon
 
+    # CI/CD mode: --fail-on implies --ci
+    ci_mode = getattr(args, 'ci', False) or getattr(args, 'fail_on', None) is not None
+    fail_on = getattr(args, 'fail_on', None)
+    _SEVERITY_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1}
+    fail_threshold = _SEVERITY_RANK.get(fail_on, 0) if fail_on else 0
+
     # Determine scan mode
     if getattr(args, 'fast', False):
         scan_mode = "fast"
@@ -1291,6 +1297,46 @@ def cmd_recon(args):
             print(json.dumps(summary, ensure_ascii=False))
             all_results.append(result)
             continue
+
+        # ── CI/CD mode: compact JSON, severity gate ──
+        if ci_mode:
+            atk = result.get("attack_surface", {})
+            findings = atk.get("findings", [])
+            ci_out = {
+                "target": target,
+                "risk_score": atk.get("risk_score", 0),
+                "risk_level": atk.get("risk_level", "?"),
+                "findings_count": len(findings),
+                "findings": findings,
+                "waf": atk.get("waf_vendor"),
+                "exit_code": 0,
+            }
+            # Check severity gate
+            if fail_threshold:
+                breaching = [f for f in findings
+                             if _SEVERITY_RANK.get(f.get("severity"), 0) >= fail_threshold]
+                if breaching:
+                    ci_out["exit_code"] = 1
+                    ci_out["gate_failed"] = True
+                    ci_out["gate_threshold"] = fail_on
+                    ci_out["breaching_findings"] = breaching
+
+            # Save output if requested
+            if getattr(args, 'output', None):
+                _validate_output_path(args.output)
+                out = args.output
+                if out.endswith('.html') or out.endswith('.htm'):
+                    from fray.reporter import SecurityReportGenerator
+                    gen = SecurityReportGenerator()
+                    gen.generate_recon_html_report(result, out)
+                    sys.stderr.write(f"  Recon HTML report saved to {out}\n")
+                else:
+                    with open(out, "w", encoding="utf-8") as f:
+                        json.dump(result, f, indent=2, ensure_ascii=False)
+                    sys.stderr.write(f"  Recon saved to {out}\n")
+
+            print(json.dumps(ci_out, ensure_ascii=False))
+            sys.exit(ci_out["exit_code"])
 
         # Single target: full output
         ai_mode = getattr(args, 'ai', False)
@@ -2349,6 +2395,11 @@ Documentation: https://github.com/dalisecurity/fray
                           help="Historical URL discovery: Wayback Machine, sitemap.xml, robots.txt")
     p_recon.add_argument("--params", action="store_true",
                           help="Parameter mining: brute-force hidden URL parameters (not dir fuzzing)")
+    p_recon.add_argument("--ci", action="store_true",
+                          help="CI/CD mode: minimal output, JSON to stdout, non-zero exit on findings")
+    p_recon.add_argument("--fail-on", dest="fail_on", default=None,
+                          choices=["critical", "high", "medium", "low"],
+                          help="Exit code 1 if any finding >= this severity (implies --ci)")
     p_recon.set_defaults(func=cmd_recon)
 
     # detect
