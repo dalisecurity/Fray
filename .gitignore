@@ -60,3 +60,4 @@ config.ini
 secrets.json
 .env
 targets.txt
+.mcpregistry_*

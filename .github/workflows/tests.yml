@@ -33,7 +33,7 @@ jobs:
 
     - name: Run test suite
       run: |
-        python -m pytest tests/test_package.py -v --tb=short
+        python -m pytest tests/test_package.py tests/test_recon.py -v --tb=short
 
     - name: Verify package import
       run: |

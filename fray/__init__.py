@@ -10,7 +10,11 @@ Usage:
     fray test https://example.com --category xss
 """
 
-__version__ = "3.2.0"
+try:
+    from importlib.metadata import version as _get_version
+    __version__ = _get_version("fray")
+except Exception:
+    __version__ = "0.0.0-dev"
 __author__ = "DALI Security"
 __license__ = "MIT"
 
