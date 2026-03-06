@@ -10,7 +10,7 @@ Usage:
     fray test https://example.com --category xss
 """
 
-__version__ = "3.0.1"
+__version__ = "3.2.0"
 __author__ = "DALI Security"
 __license__ = "MIT"
 
