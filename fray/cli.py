@@ -883,33 +883,45 @@ def cmd_test(args):
     if getattr(args, 'json', False):
         print(json.dumps(report, indent=2, ensure_ascii=False))
     else:
-        # Save results file + rich summary
-        output = args.output or "fray_results.json"
-        _validate_output_path(output)
-        tester.generate_report(results, output=output)
-        print(f"\nResults saved to {output}")
+        # Auto-detect HTML output
+        out = args.output or "fray_results.json"
+        _validate_output_path(out)
+        if out.endswith('.html') or out.endswith('.htm'):
+            from fray.reporter import SecurityReportGenerator
+            gen = SecurityReportGenerator()
+            gen.generate_html_report(report, out)
+            print(f"\n  HTML report saved to {out}")
+        else:
+            tester.generate_report(results, output=out)
+            print(f"\nResults saved to {out}")
 
     # Also save to file if -o given explicitly (even with --json)
     if getattr(args, 'json', False) and args.output:
         _validate_output_path(args.output)
-        with open(args.output, 'w', encoding='utf-8') as f:
-            json.dump(report, f, indent=2, ensure_ascii=False)
+        out = args.output
+        if out.endswith('.html') or out.endswith('.htm'):
+            from fray.reporter import SecurityReportGenerator
+            gen = SecurityReportGenerator()
+            gen.generate_html_report(report, out)
+            print(f"\n  HTML report saved to {out}")
+        else:
+            with open(out, 'w', encoding='utf-8') as f:
+                json.dump(report, f, indent=2, ensure_ascii=False)
 
-    # Auto-generate formatted report if requested
+    # Auto-generate formatted report if requested (legacy --report-format flag)
     report_fmt = getattr(args, 'report_format', None)
     if report_fmt:
         from fray.reporter import SecurityReportGenerator
         gen = SecurityReportGenerator()
-        # Build full result dict for the reporter
         report_data = {
             "target": args.target,
             "results": results,
         }
         if report_fmt == 'markdown':
-            report_file = output.replace('.json', '.md')
+            report_file = (args.output or "fray_results.json").replace('.json', '.md')
             gen.generate_markdown_report(report_data, report_file)
         else:
-            report_file = output.replace('.json', '.html')
+            report_file = (args.output or "fray_results.json").replace('.json', '.html')
             gen.generate_html_report(report_data, report_file)
         print(f"Report generated: {report_file}")
 
@@ -1052,10 +1064,23 @@ def cmd_scan(args):
 
     if getattr(args, 'output', None):
         _validate_output_path(args.output)
-        with open(args.output, 'w', encoding='utf-8') as f:
-            json.dump(scan.to_dict(), f, indent=2, ensure_ascii=False)
-        if not json_mode:
-            print(f"\n  Results saved to {args.output}")
+        out = args.output
+        if out.endswith('.html') or out.endswith('.htm'):
+            from fray.reporter import SecurityReportGenerator
+            gen = SecurityReportGenerator()
+            scan_dict = scan.to_dict()
+            report_data = {
+                "target": args.target,
+                "results": scan_dict.get("test_results", []),
+            }
+            gen.generate_html_report(report_data, out)
+            if not json_mode:
+                print(f"\n  HTML report saved to {out}")
+        else:
+            with open(out, 'w', encoding='utf-8') as f:
+                json.dump(scan.to_dict(), f, indent=2, ensure_ascii=False)
+            if not json_mode:
+                print(f"\n  Results saved to {out}")
 
 
 def cmd_stats(args):

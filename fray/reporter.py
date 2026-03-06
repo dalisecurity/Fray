@@ -805,42 +805,68 @@ class SecurityReportGenerator:
         return html
     
     def _render_detailed_results(self, test_results):
-        """Render detailed test results table"""
+        """Render detailed test results table with confidence and timing"""
         # Handle both dict and list formats
         if isinstance(test_results, dict):
             results = test_results.get('results', [])[:50]
         else:
             results = (test_results if isinstance(test_results, list) else [])[:50]
-        
+
+        # Detect if confidence data is available
+        has_confidence = any(r.get('bypass_confidence') is not None for r in results)
+
         html = '<table>'
-        html += '<thead><tr><th>#</th><th>Category</th><th>Payload</th><th>Status</th><th>Response Code</th></tr></thead>'
+        header = '<thead><tr><th>#</th><th>Category</th><th>Payload</th><th>Status</th><th>Code</th>'
+        if has_confidence:
+            header += '<th>Confidence</th><th>Time</th>'
+        header += '</tr></thead>'
+        html += header
         html += '<tbody>'
-        
+
         for i, result in enumerate(results, 1):
-            status = '✅ Blocked' if result.get('blocked', False) else '⚠️ Bypassed'
+            status = 'Blocked' if result.get('blocked', False) else 'Bypassed'
             status_class = 'success' if result.get('blocked', False) else 'danger'
-            
+            conf = result.get('bypass_confidence')
+            elapsed = result.get('elapsed_ms')
+
+            conf_cell = ''
+            if has_confidence:
+                if conf is not None:
+                    if conf >= 80:
+                        c_color = '#dc2626'
+                    elif conf >= 50:
+                        c_color = '#ea580c'
+                    elif conf >= 25:
+                        c_color = '#d97706'
+                    else:
+                        c_color = '#64748b'
+                    conf_cell = f'<td style="font-weight:700;color:{c_color};">{conf}%</td>'
+                else:
+                    conf_cell = '<td style="color:#94a3b8;">—</td>'
+                time_cell = f'<td>{elapsed:.0f}ms</td>' if elapsed is not None else '<td>—</td>'
+
             html += f'''
             <tr>
                 <td>{i}</td>
                 <td>{result.get("category", "N/A")}</td>
-                <td style="font-family: monospace; font-size: 0.9em;">{self._escape_html(result.get("payload", "N/A")[:100])}</td>
+                <td style="font-family:monospace;font-size:0.85em;max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{self._escape_html(result.get("payload", "N/A")[:120])}</td>
                 <td><span class="badge {status_class}">{status}</span></td>
                 <td>{result.get("status_code", "N/A")}</td>
+                {conf_cell}{time_cell if has_confidence else ""}
             </tr>
             '''
-        
+
         html += '</tbody></table>'
-        
+
         # Handle both dict and list formats for total count
         if isinstance(test_results, dict):
             total_results = len(test_results.get('results', []))
         else:
             total_results = len(test_results if isinstance(test_results, list) else [])
-        
+
         if total_results > 50:
             html += f'<p style="margin-top: 10px; color: #718096;">Showing first 50 of {total_results} results.</p>'
-        
+
         return html
     
     def generate_markdown_report(self, test_results, output_file='security_report.md', waf_detection=None):
