@@ -113,48 +113,164 @@ _SECURITY_HEADERS = {
         "name": "HSTS",
         "description": "HTTP Strict Transport Security",
         "severity": "high",
+        "fix": {
+            "nginx": 'add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;',
+            "apache": 'Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"',
+            "cloudflare_worker": 'response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");',
+            "nextjs": "{ key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains; preload' }",
+        },
     },
     "content-security-policy": {
         "name": "CSP",
         "description": "Content Security Policy",
         "severity": "high",
+        "fix": {
+            "nginx": "add_header Content-Security-Policy \"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none';\" always;",
+            "apache": "Header always set Content-Security-Policy \"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none';\"",
+            "cloudflare_worker": 'response.headers.set("Content-Security-Policy", "default-src \'self\'; script-src \'self\'; object-src \'none\'; base-uri \'self\'; frame-ancestors \'none\';");',
+            "nextjs": "{ key: 'Content-Security-Policy', value: \"default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none';\" }",
+        },
     },
     "x-frame-options": {
         "name": "X-Frame-Options",
         "description": "Clickjacking protection",
         "severity": "medium",
+        "fix": {
+            "nginx": 'add_header X-Frame-Options "DENY" always;',
+            "apache": 'Header always set X-Frame-Options "DENY"',
+            "cloudflare_worker": 'response.headers.set("X-Frame-Options", "DENY");',
+            "nextjs": "{ key: 'X-Frame-Options', value: 'DENY' }",
+        },
     },
     "x-content-type-options": {
         "name": "X-Content-Type-Options",
         "description": "MIME type sniffing prevention",
         "severity": "medium",
+        "fix": {
+            "nginx": 'add_header X-Content-Type-Options "nosniff" always;',
+            "apache": 'Header always set X-Content-Type-Options "nosniff"',
+            "cloudflare_worker": 'response.headers.set("X-Content-Type-Options", "nosniff");',
+            "nextjs": "{ key: 'X-Content-Type-Options', value: 'nosniff' }",
+        },
     },
     "x-xss-protection": {
         "name": "X-XSS-Protection",
         "description": "Browser XSS filter (legacy)",
         "severity": "low",
+        "fix": {
+            "nginx": 'add_header X-XSS-Protection "0" always;',
+            "apache": 'Header always set X-XSS-Protection "0"',
+            "cloudflare_worker": 'response.headers.set("X-XSS-Protection", "0");',
+            "nextjs": "{ key: 'X-XSS-Protection', value: '0' }",
+        },
     },
     "referrer-policy": {
         "name": "Referrer-Policy",
         "description": "Controls referrer information",
         "severity": "low",
+        "fix": {
+            "nginx": 'add_header Referrer-Policy "strict-origin-when-cross-origin" always;',
+            "apache": 'Header always set Referrer-Policy "strict-origin-when-cross-origin"',
+            "cloudflare_worker": 'response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");',
+            "nextjs": "{ key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' }",
+        },
     },
     "permissions-policy": {
         "name": "Permissions-Policy",
         "description": "Browser feature permissions",
         "severity": "low",
+        "fix": {
+            "nginx": 'add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()" always;',
+            "apache": 'Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()"',
+            "cloudflare_worker": 'response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");',
+            "nextjs": "{ key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' }",
+        },
     },
     "cross-origin-opener-policy": {
         "name": "COOP",
         "description": "Cross-Origin Opener Policy",
         "severity": "low",
+        "fix": {
+            "nginx": 'add_header Cross-Origin-Opener-Policy "same-origin" always;',
+            "apache": 'Header always set Cross-Origin-Opener-Policy "same-origin"',
+            "cloudflare_worker": 'response.headers.set("Cross-Origin-Opener-Policy", "same-origin");',
+            "nextjs": "{ key: 'Cross-Origin-Opener-Policy', value: 'same-origin' }",
+        },
     },
     "cross-origin-resource-policy": {
         "name": "CORP",
         "description": "Cross-Origin Resource Policy",
         "severity": "low",
+        "fix": {
+            "nginx": 'add_header Cross-Origin-Resource-Policy "same-origin" always;',
+            "apache": 'Header always set Cross-Origin-Resource-Policy "same-origin"',
+            "cloudflare_worker": 'response.headers.set("Cross-Origin-Resource-Policy", "same-origin");',
+            "nextjs": "{ key: 'Cross-Origin-Resource-Policy', value: 'same-origin' }",
+        },
     },
 }
+
+
+def generate_header_fix_snippets(missing_headers: Dict[str, Any]) -> Dict[str, str]:
+    """Generate copy-paste config snippets for all missing security headers.
+
+    Args:
+        missing_headers: Dict from check_security_headers()["missing"].
+
+    Returns:
+        Dict with keys 'nginx', 'apache', 'cloudflare_worker', 'nextjs' —
+        each containing a ready-to-paste config block.
+    """
+    snippets: Dict[str, list] = {
+        "nginx": [],
+        "apache": [],
+        "cloudflare_worker": [],
+        "nextjs": [],
+    }
+
+    # Map display names back to header keys
+    name_to_key = {info["name"]: key for key, info in _SECURITY_HEADERS.items()}
+
+    for display_name in missing_headers:
+        header_key = name_to_key.get(display_name)
+        if not header_key:
+            continue
+        fix = _SECURITY_HEADERS[header_key].get("fix", {})
+        for platform, snippet in fix.items():
+            if platform in snippets:
+                snippets[platform].append(snippet)
+
+    # Assemble into config blocks
+    result: Dict[str, str] = {}
+
+    if snippets["nginx"]:
+        result["nginx"] = "# nginx — add to server {} block\n" + "\n".join(snippets["nginx"])
+
+    if snippets["apache"]:
+        result["apache"] = "# Apache — add to .htaccess or <VirtualHost>\n" + "\n".join(snippets["apache"])
+
+    if snippets["cloudflare_worker"]:
+        lines = "\n  ".join(snippets["cloudflare_worker"])
+        result["cloudflare_worker"] = (
+            "// Cloudflare Worker — add to fetch handler\n"
+            f"  {lines}"
+        )
+
+    if snippets["nextjs"]:
+        entries = ",\n          ".join(snippets["nextjs"])
+        result["nextjs"] = (
+            "// next.config.js — headers()\n"
+            "async headers() {\n"
+            "  return [{\n"
+            "    source: '/(.*)',\n"
+            "    headers: [\n"
+            f"          {entries},\n"
+            "    ],\n"
+            "  }];\n"
+            "}"
+        )
+
+    return result
 
 
 # ── Functions ────────────────────────────────────────────────────────────
@@ -184,6 +300,8 @@ def check_security_headers(headers: Dict[str, str]) -> Dict[str, Any]:
             }
 
     results["score"] = round((found / total) * 100) if total > 0 else 0
+    if results["missing"]:
+        results["fix_snippets"] = generate_header_fix_snippets(results["missing"])
     return results
 
 

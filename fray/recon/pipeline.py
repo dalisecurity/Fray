@@ -706,6 +706,20 @@ def print_recon(result: Dict[str, Any]) -> None:
         hdr_table.add_row("[red]\u274c[/red]", name, f"[{severity_style(sev)}]({sev})[/{severity_style(sev)}]")
 
     console.print(hdr_table)
+
+    # Show fix snippets if any headers are missing
+    fix_snippets = hdr.get("fix_snippets", {})
+    if fix_snippets and hdr.get("missing"):
+        console.print()
+        console.print("    [bold dim]Quick Fix — copy-paste config:[/bold dim]")
+        # Show nginx by default (most common), hint at others
+        if "nginx" in fix_snippets:
+            for line in fix_snippets["nginx"].splitlines():
+                console.print(f"      [dim]{line}[/dim]")
+        platforms = [p for p in fix_snippets if p != "nginx"]
+        if platforms:
+            console.print(f"      [dim italic]Also available: {', '.join(platforms)} (in JSON output)[/dim italic]")
+
     console.print()
 
     # ── CSP Analysis ──
