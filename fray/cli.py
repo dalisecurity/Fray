@@ -506,17 +506,149 @@ def _do_login_flow(login_spec: str) -> str:
         return ""
 
 
+def _is_piped():
+    """True when stdin is a pipe (not a terminal)."""
+    return not sys.stdin.isatty()
+
+
+def _read_targets(args) -> list:
+    """Read target(s) from args.target or stdin (pipe-friendly).
+
+    Supports:
+        fray recon https://example.com           # single target
+        cat domains.txt | fray recon              # piped targets
+        echo https://example.com | fray detect    # single pipe
+    """
+    targets = []
+
+    # 1. Explicit CLI argument
+    if getattr(args, 'target', None):
+        targets.append(args.target)
+
+    # 2. Stdin (piped)
+    if _is_piped():
+        for line in sys.stdin:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            targets.append(line)
+
+    if not targets:
+        print("  Error: No target specified.")
+        print("  Usage: fray <command> <url>")
+        print("     or: cat domains.txt | fray <command>")
+        sys.exit(1)
+
+    # Normalize: ensure scheme
+    normalized = []
+    for t in targets:
+        t = t.strip()
+        if not t:
+            continue
+        if not t.startswith(('http://', 'https://')):
+            t = f'https://{t}'
+        normalized.append(t)
+
+    return normalized
+
+
 def cmd_detect(args):
     """Detect WAF vendor on target"""
     from fray.detector import WAFDetector
+    targets = _read_targets(args)
     detector = WAFDetector()
     verify = not getattr(args, 'insecure', False)
-    results = detector.detect_waf(args.target, verify_ssl=verify)
-    detector.print_results(results)
+    multi = len(targets) > 1
+
+    for target in targets:
+        results = detector.detect_waf(target, verify_ssl=verify)
+        if multi:
+            # Compact one-line output for pipe mode
+            waf = results.get('waf_vendor', 'none') if isinstance(results, dict) else 'none'
+            conf = results.get('confidence', 0) if isinstance(results, dict) else 0
+            waf = waf or 'none'
+            print(f"{target}\t{waf}\t{conf}%")
+        else:
+            detector.print_results(results)
+
+
+def _cmd_test_multi(args, targets):
+    """Pipe mode: run WAF test on each target, output one JSONL line per target."""
+    from fray.tester import WAFTester
+    custom_headers = build_auth_headers(args)
+    if getattr(args, 'no_follow_redirects', False):
+        max_redirects = 0
+    else:
+        max_redirects = getattr(args, 'redirect_limit', 5) or 5
+
+    for target in targets:
+        try:
+            tester = WAFTester(
+                target=target,
+                timeout=args.timeout,
+                delay=args.delay,
+                verify_ssl=not getattr(args, 'insecure', False),
+                custom_headers=custom_headers or None,
+                verbose=False,
+                max_redirects=max_redirects,
+                jitter=getattr(args, 'jitter', 0.0),
+                stealth=getattr(args, 'stealth', False),
+                rate_limit=getattr(args, 'rate_limit', 0.0),
+            )
+
+            all_payloads = []
+            if args.category:
+                cat_dir = PAYLOADS_DIR / args.category
+                if cat_dir.exists():
+                    for pf in sorted(cat_dir.glob("*.json")):
+                        all_payloads.extend(tester.load_payloads(str(pf)))
+            elif getattr(args, 'all', False):
+                for cat_dir in sorted(PAYLOADS_DIR.iterdir()):
+                    if cat_dir.is_dir():
+                        for pf in sorted(cat_dir.glob("*.json")):
+                            all_payloads.extend(tester.load_payloads(str(pf)))
+
+            if not all_payloads:
+                print(json.dumps({"target": target, "error": "no payloads loaded"}))
+                continue
+
+            max_payloads = getattr(args, 'max', None)
+            if max_payloads:
+                all_payloads = all_payloads[:max_payloads]
+
+            results = tester.test_payloads(all_payloads)
+            total = len(results)
+            bypassed = sum(1 for r in results if r.get("bypassed"))
+            blocked = sum(1 for r in results if r.get("blocked"))
+            errors = total - bypassed - blocked
+
+            print(json.dumps({
+                "target": target,
+                "total": total,
+                "bypassed": bypassed,
+                "blocked": blocked,
+                "errors": errors,
+                "bypass_rate": f"{bypassed/total*100:.1f}%" if total else "0%",
+            }, ensure_ascii=False))
+        except Exception as e:
+            print(json.dumps({"target": target, "error": str(e)}))
+
+    sys.stderr.write(f"\n  Fray test complete: {len(targets)} targets\n")
 
 
 def cmd_test(args):
     """Run WAF tests against target"""
+    targets = _read_targets(args)
+    multi = len(targets) > 1
+
+    if multi:
+        # Pipe mode: run each target sequentially, compact JSONL output
+        _cmd_test_multi(args, targets)
+        return
+
+    # Single target: set args.target for the rest of the function
+    args.target = targets[0]
+
     # Scope validation — block testing if target is out of scope
     scope_file = getattr(args, 'scope', None)
     if scope_file:
@@ -1062,18 +1194,21 @@ def cmd_ci(args):
 
 def cmd_recon(args):
     """Run target reconnaissance and fingerprinting"""
+    targets = _read_targets(args)
     auth_headers = build_auth_headers(args) or None
+    multi = len(targets) > 1
 
     # --params mode: standalone parameter mining (brute-force)
     if getattr(args, 'params', False):
         from fray.recon import mine_params, print_mined_params
-        result = mine_params(args.target, timeout=getattr(args, 'timeout', 8),
-                             extra_headers=auth_headers)
-        if getattr(args, 'json', False):
-            print(json.dumps(result, indent=2, ensure_ascii=False))
-        else:
-            print_mined_params(args.target, result)
-        if getattr(args, 'output', None):
+        for target in targets:
+            result = mine_params(target, timeout=getattr(args, 'timeout', 8),
+                                 extra_headers=auth_headers)
+            if multi or getattr(args, 'json', False):
+                print(json.dumps({"target": target, **result}, ensure_ascii=False))
+            else:
+                print_mined_params(target, result)
+        if not multi and getattr(args, 'output', None):
             _validate_output_path(args.output)
             with open(args.output, "w", encoding="utf-8") as f:
                 json.dump(result, f, indent=2, ensure_ascii=False)
@@ -1083,13 +1218,14 @@ def cmd_recon(args):
     # --history mode: standalone historical URL discovery
     if getattr(args, 'history', False):
         from fray.recon import discover_historical_urls, print_historical_urls
-        result = discover_historical_urls(args.target, timeout=getattr(args, 'timeout', 8),
-                                          extra_headers=auth_headers)
-        if getattr(args, 'json', False):
-            print(json.dumps(result, indent=2, ensure_ascii=False))
-        else:
-            print_historical_urls(args.target, result)
-        if getattr(args, 'output', None):
+        for target in targets:
+            result = discover_historical_urls(target, timeout=getattr(args, 'timeout', 8),
+                                              extra_headers=auth_headers)
+            if multi or getattr(args, 'json', False):
+                print(json.dumps({"target": target, **result}, ensure_ascii=False))
+            else:
+                print_historical_urls(target, result)
+        if not multi and getattr(args, 'output', None):
             _validate_output_path(args.output)
             with open(args.output, "w", encoding="utf-8") as f:
                 json.dump(result, f, indent=2, ensure_ascii=False)
@@ -1099,13 +1235,14 @@ def cmd_recon(args):
     # --js mode: standalone JS endpoint extraction
     if getattr(args, 'js', False):
         from fray.recon import discover_js_endpoints, print_js_endpoints
-        result = discover_js_endpoints(args.target, timeout=getattr(args, 'timeout', 8),
-                                       extra_headers=auth_headers)
-        if getattr(args, 'json', False):
-            print(json.dumps(result, indent=2, ensure_ascii=False))
-        else:
-            print_js_endpoints(args.target, result)
-        if getattr(args, 'output', None):
+        for target in targets:
+            result = discover_js_endpoints(target, timeout=getattr(args, 'timeout', 8),
+                                           extra_headers=auth_headers)
+            if multi or getattr(args, 'json', False):
+                print(json.dumps({"target": target, **result}, ensure_ascii=False))
+            else:
+                print_js_endpoints(target, result)
+        if not multi and getattr(args, 'output', None):
             _validate_output_path(args.output)
             with open(args.output, "w", encoding="utf-8") as f:
                 json.dump(result, f, indent=2, ensure_ascii=False)
@@ -1113,29 +1250,64 @@ def cmd_recon(args):
         return
 
     from fray.recon import run_recon, print_recon
-    result = run_recon(args.target, timeout=getattr(args, 'timeout', 8),
-                       headers=auth_headers)
 
-    ai_mode = getattr(args, 'ai', False)
-    if ai_mode:
-        ai_out = _build_ai_output(target=args.target, recon=result)
-        print(json.dumps(ai_out, indent=2, ensure_ascii=False))
+    all_results = []
+    for target in targets:
+        result = run_recon(target, timeout=getattr(args, 'timeout', 8),
+                           headers=auth_headers)
+
+        if multi:
+            # Pipe mode: compact one-line JSONL per target (attack surface summary)
+            atk = result.get("attack_surface", {})
+            summary = {
+                "target": target,
+                "risk_score": atk.get("risk_score", 0),
+                "risk_level": atk.get("risk_level", "?"),
+                "subdomains": atk.get("subdomains", 0),
+                "admin_panels": atk.get("admin_panels", 0),
+                "open_admin_panels": atk.get("open_admin_panels", 0),
+                "graphql_endpoints": atk.get("graphql_endpoints", 0),
+                "api_endpoints": atk.get("api_endpoints", 0),
+                "exposed_files": atk.get("exposed_files", 0),
+                "injectable_params": atk.get("injectable_params", 0),
+                "staging_envs": atk.get("staging_envs", []),
+                "waf": atk.get("waf_vendor"),
+                "cdn": atk.get("cdn"),
+                "technologies": atk.get("technologies", []),
+                "findings": len(atk.get("findings", [])),
+            }
+            print(json.dumps(summary, ensure_ascii=False))
+            all_results.append(result)
+            continue
+
+        # Single target: full output
+        ai_mode = getattr(args, 'ai', False)
+        if ai_mode:
+            ai_out = _build_ai_output(target=target, recon=result)
+            print(json.dumps(ai_out, indent=2, ensure_ascii=False))
+            if getattr(args, 'output', None):
+                _validate_output_path(args.output)
+                with open(args.output, "w", encoding="utf-8") as f:
+                    json.dump(ai_out, f, indent=2, ensure_ascii=False)
+            return
+
+        if getattr(args, 'json', False):
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+        else:
+            print_recon(result)
+        # Save output if requested
         if getattr(args, 'output', None):
             _validate_output_path(args.output)
             with open(args.output, "w", encoding="utf-8") as f:
-                json.dump(ai_out, f, indent=2, ensure_ascii=False)
-        return
+                json.dump(result, f, indent=2, ensure_ascii=False)
+            print(f"  Recon saved to {args.output}")
 
-    if getattr(args, 'json', False):
-        print(json.dumps(result, indent=2, ensure_ascii=False))
-    else:
-        print_recon(result)
-    # Save output if requested
-    if getattr(args, 'output', None):
-        _validate_output_path(args.output)
-        with open(args.output, "w", encoding="utf-8") as f:
-            json.dump(result, f, indent=2, ensure_ascii=False)
-        print(f"  Recon saved to {args.output}")
+    # Multi-target summary
+    if multi and all_results:
+        total = len(all_results)
+        crit = sum(1 for r in all_results if r.get("attack_surface", {}).get("risk_level") == "CRITICAL")
+        high = sum(1 for r in all_results if r.get("attack_surface", {}).get("risk_level") == "HIGH")
+        sys.stderr.write(f"\n  Fray recon complete: {total} targets — {crit} CRITICAL, {high} HIGH\n")
 
 
 def cmd_smuggle(args):
@@ -2019,6 +2191,14 @@ def cmd_help(args):
   -H "X-Api-Key: secret"       Custom header (repeatable)
   --login-flow "url,user=x,pass=y"   Auto-login and capture session
 
+  🔗 PIPE-FRIENDLY (like httpx)
+  ─────────────────────────────
+  cat domains.txt | fray detect                  WAF detect all targets (TSV output)
+  cat domains.txt | fray recon                   Attack surface JSONL per target
+  cat domains.txt | fray test -c xss -m 10       XSS test all targets (JSONL output)
+  subfinder -d example.com | fray detect         Chain with any tool
+  cat targets.txt | fray recon | jq '.risk_level'   Filter with jq
+
   📖 Docs: https://github.com/dalisecurity/fray
   ⚠️  Only test systems you own or have written permission to test.
 """)
@@ -2083,29 +2263,15 @@ Examples:
   fray detect https://example.com
   fray test https://example.com --category xss
   fray test https://example.com --category xss --smart
-  fray test https://example.com --all
-  fray test https://example.com --webhook https://hooks.slack.com/xxx
-  fray doctor
-  fray doctor --fix
-  fray submit-payload
-  fray submit-payload --payload '<svg/onload=alert(1)>' --category xss
-  fray submit-payload --file my_payloads.json
-  fray ci init
-  fray ci init --target https://example.com
-  fray ci show --minimal
-  fray learn
-  fray learn xss
-  fray learn sqli --level 3
-  fray validate https://example.com
-  fray validate https://example.com --waf cloudflare -v
-  fray bounty --platform hackerone --program github
-  fray bounty --urls targets.txt --categories xss,sqli
-  fray explain CVE-2021-44228
-  fray explain log4shell
-  fray explain react2shell --max 10
   fray recon https://example.com
-  fray payloads
-  fray report --output report.html
+
+Pipe-friendly (like httpx):
+  cat domains.txt | fray detect                    # WAF detect all targets
+  cat domains.txt | fray recon                     # JSONL attack surface per target
+  cat domains.txt | fray test -c xss -m 10         # XSS test all targets
+  echo example.com | fray recon --json             # single target via pipe
+  subfinder -d example.com | fray detect           # chain with subfinder
+  cat targets.txt | fray recon | jq '.risk_level'  # chain with jq
 
 Documentation: https://github.com/dalisecurity/fray
         """
@@ -2115,7 +2281,7 @@ Documentation: https://github.com/dalisecurity/fray
 
     # recon
     p_recon = subparsers.add_parser("recon", help="Reconnaissance: HTTP, TLS, headers, app fingerprinting")
-    p_recon.add_argument("target", help="Target URL (e.g. https://example.com)")
+    p_recon.add_argument("target", nargs="?", default=None, help="Target URL (or pipe: cat domains.txt | fray recon)")
     p_recon.add_argument("-t", "--timeout", type=int, default=8, help="Request timeout (default: 8)")
     p_recon.add_argument("--json", action="store_true", help="Output raw JSON instead of pretty-print")
     p_recon.add_argument("--ai", action="store_true", help="AI-ready structured JSON output for LLM consumption")
@@ -2135,7 +2301,7 @@ Documentation: https://github.com/dalisecurity/fray
 
     # detect
     p_detect = subparsers.add_parser("detect", help="Detect WAF vendor on target URL")
-    p_detect.add_argument("target", help="Target URL (e.g. https://example.com)")
+    p_detect.add_argument("target", nargs="?", default=None, help="Target URL (or pipe: cat domains.txt | fray detect)")
     p_detect.add_argument("--insecure", action="store_true", help="Disable TLS certificate verification")
     p_detect.add_argument("--cookie", default=None, help="Cookie header for authenticated detection")
     p_detect.add_argument("--bearer", default=None, help="Bearer token for Authorization header")
@@ -2146,7 +2312,7 @@ Documentation: https://github.com/dalisecurity/fray
 
     # test
     p_test = subparsers.add_parser("test", help="Test WAF with attack payloads")
-    p_test.add_argument("target", help="Target URL")
+    p_test.add_argument("target", nargs="?", default=None, help="Target URL (or pipe: cat domains.txt | fray test -c xss)")
     p_test.add_argument("-c", "--category", help="Payload category (e.g. xss, sqli, ssrf)")
     p_test.add_argument("-p", "--payload-file", help="Specific payload file to use")
     p_test.add_argument("-t", "--timeout", type=int, default=8, help="Request timeout in seconds (default: 8)")
