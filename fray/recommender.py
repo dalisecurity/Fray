@@ -244,9 +244,93 @@ class WAFRecommendationEngine:
                 '   • Verify WAF rules are up to date',
                 ''
             ])
-        
+
+        # ── Vendor-specific intel from waf_intel.json ──
+        try:
+            from fray import load_waf_intel
+            intel = load_waf_intel()
+            vendors_db = intel.get("vendors", {})
+            technique_matrix = intel.get("technique_matrix", {})
+
+            # Resolve vendor key
+            vendor_key = None
+            vendor_lower = vendor.lower()
+            for key in vendors_db:
+                if key.replace("_", " ") in vendor_lower or vendor_lower in key.replace("_", " "):
+                    vendor_key = key
+                    break
+            if not vendor_key:
+                for key, data in vendors_db.items():
+                    if vendor_lower in data.get("display_name", "").lower():
+                        vendor_key = key
+                        break
+
+            if vendor_key and vendor_key in vendors_db:
+                vdata = vendors_db[vendor_key]
+                mode = vdata.get("detection_mode", "unknown")
+                recs.append(f'🔍 WAF Intelligence ({vdata.get("display_name", vendor)}):')
+                recs.append(f'   • Detection mode: {mode}')
+                recs.append('')
+
+                # Known bypass techniques the WAF is vulnerable to
+                effective = vdata.get("bypass_techniques", {}).get("effective", [])
+                if effective:
+                    recs.append('⚠️ Known Bypass Techniques (address these):')
+                    for t in effective:
+                        conf = t.get("confidence", "?")
+                        recs.append(f'   • [{conf}] {t["technique"]}: {t["description"]}')
+                    recs.append('')
+
+                # Detection gaps
+                gaps = vdata.get("detection_gaps", {})
+                sig_misses = gaps.get("signature", {}).get("misses", [])
+                anom_misses = gaps.get("anomaly", {}).get("misses", [])
+                if sig_misses or anom_misses:
+                    recs.append('🕳️ Detection Gaps (consider custom rules):')
+                    if sig_misses:
+                        recs.append(f'   • Signature gaps: {", ".join(sig_misses)}')
+                    if anom_misses:
+                        recs.append(f'   • Anomaly gaps: {", ".join(anom_misses)}')
+                    recs.append('')
+
+                # Cross-vendor technique matrix
+                eff_techs = []
+                blk_techs = []
+                for tech_name, tech_data in technique_matrix.items():
+                    if not isinstance(tech_data, dict):
+                        continue
+                    if vendor_key in tech_data.get("effective_against", []):
+                        eff_techs.append(tech_name)
+                    elif vendor_key in tech_data.get("blocked_by", []):
+                        blk_techs.append(tech_name)
+                if eff_techs:
+                    recs.append('🎯 Techniques Effective Against This WAF:')
+                    for t in eff_techs:
+                        recs.append(f'   • {t}')
+                    recs.append('   → Add custom rules to mitigate these techniques')
+                    recs.append('')
+                if blk_techs:
+                    recs.append('✅ Techniques Already Blocked:')
+                    for t in blk_techs:
+                        recs.append(f'   • {t}')
+                    recs.append('')
+
+                # Vendor-specific hardening
+                rec_cats = vdata.get("recommended_categories", [])
+                if rec_cats:
+                    recs.append(f'� Test These Categories: {", ".join(rec_cats)}')
+                    recs.append(f'   → fray test <url> -c {rec_cats[0]} --smart')
+                    recs.append('')
+
+                delay = vdata.get("recommended_delay")
+                if delay:
+                    recs.append(f'⏱️ Safe testing delay: {delay}s between requests')
+                    recs.append('')
+        except Exception:
+            pass  # Fallback to generic if intel unavailable
+
         recs.extend([
-            '🔧 Recommended Improvements:',
+            '🔧 General Recommendations:',
             '',
             '1. Verify WAF Configuration',
             '   • Ensure WAF is in blocking mode (not just monitoring)',
@@ -266,18 +350,11 @@ class WAFRecommendationEngine:
             '   • Review false positives regularly',
             '   • Integrate with SIEM if available',
             '',
-            '4. Regular Testing',
-            '   • Test WAF effectiveness quarterly',
-            '   • Update rules based on new threats',
-            '   • Conduct penetration testing',
-            '   • Review bypass attempts',
-            '',
-            '5. Layered Security',
+            '4. Layered Security',
             '   • WAF is not enough - implement defense in depth',
             '   • Use security headers',
             '   • Implement input validation in code',
-            '   • Keep software updated',
-            '   • Use secure coding practices'
+            '   • Keep software updated'
         ])
         
         if vulnerabilities:

@@ -151,6 +151,7 @@ fray recon https://example.com --params   # Parameter brute-force mining
 | **CORS** | Wildcard, reflected origin, credentials misconfig |
 | **Rate Limit Fingerprint** | Map threshold (req/s before 429), burst limit, lockout duration, safe delay |
 | **WAF Detection Mode** | Signature vs anomaly vs hybrid — body diff, timing diff, header diff |
+| **WAF Rule Gap Analysis** | Cross-reference vendor against known bypasses, detection gaps, technique matrix |
 
 Plus: 28 exposed file probes (`.env`, `.git`, phpinfo, actuator) · subdomains via crt.sh
 

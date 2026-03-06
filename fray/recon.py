@@ -3206,6 +3206,281 @@ def check_differential_responses(host: str, port: int, use_ssl: bool,
     return result
 
 
+# ── WAF Rule Gap Analysis ─────────────────────────────────────────────────
+
+def waf_gap_analysis(
+    waf_vendor: Optional[str] = None,
+    recon_result: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Cross-reference detected WAF vendor against waf_intel knowledge base.
+
+    Produces a prioritised list of bypass techniques, detection gaps,
+    and concrete payload recommendations specific to the identified vendor.
+
+    Works in three tiers:
+      1. Explicit *waf_vendor* argument (from detector.py or user input).
+      2. Vendor inferred from differential analysis (recon_result["differential"]).
+      3. Vendor inferred from response headers / DNS / cookies in *recon_result*.
+
+    Returns a dict suitable for inclusion in recon output and print_recon display.
+    """
+    from fray import load_waf_intel
+
+    result: Dict[str, Any] = {
+        "waf_vendor": None,
+        "vendor_key": None,
+        "detection_mode": None,
+        "block_behavior": {},
+        "bypass_strategies": [],      # prioritised, with confidence
+        "ineffective_techniques": [],  # skip these — save time
+        "detection_gaps": {
+            "signature_misses": [],
+            "anomaly_misses": [],
+        },
+        "technique_matrix": [],       # ✅/❌ per technique for this vendor
+        "recommended_categories": [],
+        "recommended_delay": None,
+        "risk_summary": None,
+        "error": None,
+    }
+
+    intel = load_waf_intel()
+    vendors_db = intel.get("vendors", {})
+    technique_matrix = intel.get("technique_matrix", {})
+
+    if not vendors_db:
+        result["error"] = "waf_intel.json not found or empty"
+        return result
+
+    # ── Tier 1: explicit vendor name ──
+    vendor_key = _resolve_vendor_key(waf_vendor, vendors_db) if waf_vendor else None
+
+    # ── Tier 2: from differential analysis ──
+    if not vendor_key and recon_result:
+        diff = recon_result.get("differential", {})
+        diff_vendor = diff.get("waf_vendor")
+        if diff_vendor:
+            vendor_key = _resolve_vendor_key(diff_vendor, vendors_db)
+
+    # ── Tier 3: infer from headers / DNS / cookies ──
+    if not vendor_key and recon_result:
+        vendor_key = _infer_vendor_from_recon(recon_result, vendors_db)
+
+    if not vendor_key:
+        result["risk_summary"] = "No WAF vendor identified — gap analysis requires a known vendor"
+        return result
+
+    vdata = vendors_db[vendor_key]
+    result["waf_vendor"] = vdata.get("display_name", vendor_key)
+    result["vendor_key"] = vendor_key
+    result["detection_mode"] = vdata.get("detection_mode")
+    result["block_behavior"] = vdata.get("block_behavior", {})
+    result["recommended_delay"] = vdata.get("recommended_delay")
+    result["recommended_categories"] = vdata.get("recommended_categories", [])
+
+    # ── Bypass strategies — merge intel with differential findings ──
+    effective = vdata.get("bypass_techniques", {}).get("effective", [])
+    ineffective = vdata.get("bypass_techniques", {}).get("ineffective", [])
+
+    # Enrich with differential results if available
+    diff_sigs = []
+    diff_anoms = []
+    if recon_result:
+        diff = recon_result.get("differential", {})
+        diff_sigs = [s["label"] for s in diff.get("signature_detection", [])]
+        diff_anoms = [a["label"] for a in diff.get("anomaly_detection", [])]
+
+    for tech in effective:
+        entry = {
+            "technique": tech["technique"],
+            "confidence": tech.get("confidence", "unknown"),
+            "description": tech["description"],
+            "payload_example": tech.get("payload_example", ""),
+            "notes": tech.get("notes", ""),
+        }
+        # Boost confidence if differential analysis confirmed the gap
+        if tech["technique"] == "double_encoding" and not diff_anoms:
+            entry["live_confirmed"] = True
+            if entry["confidence"] == "medium":
+                entry["confidence"] = "high"
+        result["bypass_strategies"].append(entry)
+
+    result["ineffective_techniques"] = [
+        {"technique": t["technique"], "reason": t.get("description", "")}
+        for t in ineffective
+    ]
+
+    # ── Detection gaps ──
+    gaps = vdata.get("detection_gaps", {})
+    sig_gaps = gaps.get("signature", {})
+    anom_gaps = gaps.get("anomaly", {})
+
+    result["detection_gaps"]["signature_misses"] = sig_gaps.get("misses", [])
+    result["detection_gaps"]["anomaly_misses"] = anom_gaps.get("misses", [])
+
+    # Cross-check: if differential analysis showed a payload category was NOT
+    # blocked, and intel says it should be, flag as a configuration gap.
+    sig_blocks = sig_gaps.get("blocks", [])
+    config_gaps = []
+    for label in ("XSS", "SQLi", "Path Traversal", "Command Injection", "SSTI"):
+        if label in sig_blocks and label not in diff_sigs and diff_sigs:
+            config_gaps.append(f"{label} expected to be blocked but was not — possible config gap")
+    if config_gaps:
+        result["detection_gaps"]["config_gaps"] = config_gaps
+
+    # ── Technique matrix — ✅/❌ for this vendor ──
+    for tech_name, tech_data in technique_matrix.items():
+        if not isinstance(tech_data, dict):
+            continue
+        effective_against = tech_data.get("effective_against", [])
+        blocked_by = tech_data.get("blocked_by", [])
+        if vendor_key in effective_against:
+            result["technique_matrix"].append({
+                "technique": tech_name,
+                "status": "effective",
+                "notes": tech_data.get("notes", ""),
+            })
+        elif vendor_key in blocked_by:
+            result["technique_matrix"].append({
+                "technique": tech_name,
+                "status": "blocked",
+                "notes": tech_data.get("notes", ""),
+            })
+        else:
+            result["technique_matrix"].append({
+                "technique": tech_name,
+                "status": "untested",
+                "notes": tech_data.get("notes", ""),
+            })
+
+    # ── Risk summary ──
+    n_effective = sum(1 for s in result["bypass_strategies"] if s["confidence"] in ("high", "medium"))
+    n_sig_gaps = len(result["detection_gaps"]["signature_misses"])
+    n_anom_gaps = len(result["detection_gaps"]["anomaly_misses"])
+    n_config = len(result["detection_gaps"].get("config_gaps", []))
+
+    if n_effective >= 3 or n_sig_gaps >= 2:
+        result["risk_summary"] = f"HIGH — {n_effective} viable bypass techniques, {n_sig_gaps} signature gaps, {n_anom_gaps} anomaly gaps"
+    elif n_effective >= 1 or n_sig_gaps >= 1:
+        result["risk_summary"] = f"MEDIUM — {n_effective} viable bypass techniques, {n_sig_gaps + n_anom_gaps} detection gaps"
+    else:
+        result["risk_summary"] = f"LOW — no high-confidence bypasses identified, {n_sig_gaps + n_anom_gaps} potential gaps"
+    if n_config:
+        result["risk_summary"] += f", {n_config} config discrepancies"
+
+    return result
+
+
+def _resolve_vendor_key(vendor_name: str, vendors_db: Dict[str, Any]) -> Optional[str]:
+    """Resolve a display name or alias to a waf_intel vendor key."""
+    name_lower = vendor_name.lower()
+    # Exact key match
+    if name_lower.replace(" ", "_") in vendors_db:
+        return name_lower.replace(" ", "_")
+    # Substring match on key
+    for key in vendors_db:
+        if key.replace("_", " ") in name_lower or name_lower in key.replace("_", " "):
+            return key
+    # Match on display_name
+    for key, data in vendors_db.items():
+        if name_lower in data.get("display_name", "").lower():
+            return key
+    return None
+
+
+def _infer_vendor_from_recon(recon: Dict[str, Any], vendors_db: Dict[str, Any]) -> Optional[str]:
+    """Try to identify WAF vendor from response headers, DNS, and cookies."""
+    # Check response headers
+    headers = recon.get("headers", {})
+    raw_headers = headers.get("raw_headers", {}) if isinstance(headers, dict) else {}
+
+    # Flatten all header keys we've seen
+    all_header_keys = set()
+    if isinstance(raw_headers, dict):
+        all_header_keys.update(k.lower() for k in raw_headers.keys())
+
+    # Also check from the page fetch headers stored elsewhere
+    page_headers = recon.get("page_headers", {})
+    if isinstance(page_headers, dict):
+        all_header_keys.update(k.lower() for k in page_headers.keys())
+
+    # DNS/CDN info
+    dns_info = recon.get("dns", {})
+    cdn = dns_info.get("cdn_detected", "")
+    cnames = dns_info.get("cname", [])
+    cname_str = " ".join(cnames).lower() if cnames else ""
+
+    # Cookie names
+    cookies = recon.get("cookies", {})
+    cookie_names = set()
+    if isinstance(cookies, dict):
+        for c in cookies.get("cookies", []):
+            if isinstance(c, dict):
+                cookie_names.add(c.get("name", "").lower())
+
+    # Header-based vendor detection
+    header_vendor_map = {
+        "cloudflare": ["cf-ray", "cf-cache-status", "cf-mitigated"],
+        "aws_waf": ["x-amzn-waf-action", "x-amz-cf-id", "x-amzn-requestid"],
+        "azure_waf": ["x-azure-ref", "x-msedge-ref", "x-azure-fdid"],
+        "akamai": ["akamai-origin-hop", "x-akamai-transformed"],
+        "imperva": ["x-cdn", "x-iinfo"],
+        "fastly": ["x-fastly-request-id", "fastly-io-info", "x-sigsci-requestid"],
+        "sucuri": ["x-sucuri-id", "x-sucuri-cache"],
+        "f5_bigip": ["x-wa-info", "x-cnection"],
+    }
+
+    for vendor_key, hdr_indicators in header_vendor_map.items():
+        if any(h in all_header_keys for h in hdr_indicators):
+            if vendor_key in vendors_db:
+                return vendor_key
+
+    # Cookie-based detection
+    cookie_vendor_map = {
+        "cloudflare": ["__cfduid", "__cflb", "cf_clearance"],
+        "aws_waf": ["awsalb", "awsalbcors"],
+        "azure_waf": ["arr_affinity", "arraffinitysamesite"],
+        "akamai": ["ak_bmsc", "bm_sv", "bm_sz"],
+        "imperva": ["incap_ses", "visid_incap"],
+        "f5_bigip": ["bigipserver", "f5_cspm"],
+        "sucuri": ["sucuri_cloudproxy_uuid"],
+    }
+
+    for vendor_key, cookie_indicators in cookie_vendor_map.items():
+        if any(c in cookie_names for c in cookie_indicators):
+            if vendor_key in vendors_db:
+                return vendor_key
+
+    # CNAME / CDN based detection
+    if cdn:
+        cdn_lower = cdn.lower()
+        if "cloudflare" in cdn_lower:
+            return "cloudflare"
+        if "cloudfront" in cdn_lower or "aws" in cdn_lower:
+            return "aws_waf"
+        if "akamai" in cdn_lower:
+            return "akamai"
+        if "azure" in cdn_lower:
+            return "azure_waf"
+        if "fastly" in cdn_lower:
+            return "fastly"
+        if "sucuri" in cdn_lower:
+            return "sucuri"
+        if "imperva" in cdn_lower or "incapsula" in cdn_lower:
+            return "imperva"
+
+    if "cloudflare" in cname_str:
+        return "cloudflare"
+    if "akamai" in cname_str:
+        return "akamai"
+    if "cloudfront" in cname_str:
+        return "aws_waf"
+    if "azureedge" in cname_str or "azurefd" in cname_str:
+        return "azure_waf"
+
+    return None
+
+
 # ── Parameter Discovery ──────────────────────────────────────────────────
 
 def discover_params(url: str, max_depth: int = 2, max_pages: int = 10,
@@ -3461,6 +3736,15 @@ def run_recon(url: str, timeout: int = 8,
     result["differential"] = check_differential_responses(host, port, use_ssl,
                                                            timeout=timeout,
                                                            extra_headers=headers)
+
+    # 24. WAF rule gap analysis (cross-reference vendor against waf_intel)
+    result["gap_analysis"] = waf_gap_analysis(recon_result=result)
+
+    # Merge gap analysis recommended categories into main recommendations
+    gap_cats = result.get("gap_analysis", {}).get("recommended_categories", [])
+    for cat in gap_cats:
+        if cat not in result["recommended_categories"]:
+            result["recommended_categories"].append(cat)
 
     # Add prototype_pollution to recommendations if Node.js detected
     fp_techs = result.get("fingerprint", {}).get("technologies", {})
@@ -3968,6 +4252,70 @@ def print_recon(result: Dict[str, Any]) -> None:
             rec_cats = diff.get("recommended_categories", [])
             if rec_cats:
                 console.print(f"    [cyan]Try:[/cyan]       fray test <url> -c {rec_cats[0]} --smart")
+        console.print()
+
+    # ── WAF Rule Gap Analysis ──
+    gap = result.get("gap_analysis", {})
+    if gap and gap.get("waf_vendor"):
+        risk = gap.get("risk_summary", "")
+        risk_style = "red" if "HIGH" in risk else ("yellow" if "MEDIUM" in risk else "green")
+        console.print(f"  [bold]WAF Rule Gap Analysis — {gap['waf_vendor']}[/bold]")
+        console.print(f"    Risk:            [{risk_style}]{risk}[/{risk_style}]")
+        console.print(f"    Detection mode:  {gap.get('detection_mode', '?')}")
+
+        block = gap.get("block_behavior", {})
+        if block.get("status_codes"):
+            console.print(f"    Block codes:     {', '.join(str(c) for c in block['status_codes'])}")
+        if block.get("timing_signature"):
+            console.print(f"    Timing sig:      [dim]{block['timing_signature']}[/dim]")
+
+        strategies = gap.get("bypass_strategies", [])
+        if strategies:
+            console.print()
+            console.print("    [bold]Bypass Strategies[/bold] (prioritised)")
+            for s in strategies:
+                conf = s.get("confidence", "?")
+                conf_style = {"high": "green", "medium": "yellow", "low": "red"}.get(conf, "dim")
+                live = " [green]★ live-confirmed[/green]" if s.get("live_confirmed") else ""
+                console.print(f"      [{conf_style}]{conf.upper():6s}[/{conf_style}] {s['technique']}: {s['description']}{live}")
+                if s.get("payload_example"):
+                    console.print(f"             [dim]e.g. {s['payload_example'][:80]}[/dim]")
+
+        ineff = gap.get("ineffective_techniques", [])
+        if ineff:
+            console.print()
+            console.print("    [bold]Skip These[/bold] (known ineffective)")
+            for t in ineff:
+                console.print(f"      [dim]✗ {t['technique']}: {t['reason'][:80]}[/dim]")
+
+        det_gaps = gap.get("detection_gaps", {})
+        sig_misses = det_gaps.get("signature_misses", [])
+        anom_misses = det_gaps.get("anomaly_misses", [])
+        config_gaps = det_gaps.get("config_gaps", [])
+        if sig_misses or anom_misses or config_gaps:
+            console.print()
+            console.print("    [bold]Detection Gaps[/bold]")
+            if sig_misses:
+                console.print(f"      [green]Sig misses:[/green]   {', '.join(sig_misses)}")
+            if anom_misses:
+                console.print(f"      [green]Anom misses:[/green]  {', '.join(anom_misses)}")
+            if config_gaps:
+                console.print("      [yellow]Config issues:[/yellow]")
+                for cg in config_gaps:
+                    console.print(f"        [yellow]⚠ {cg}[/yellow]")
+
+        # Technique matrix summary (compact)
+        matrix = gap.get("technique_matrix", [])
+        if matrix:
+            eff_techs = [t["technique"] for t in matrix if t["status"] == "effective"]
+            blk_techs = [t["technique"] for t in matrix if t["status"] == "blocked"]
+            console.print()
+            console.print("    [bold]Technique Matrix[/bold]")
+            if eff_techs:
+                console.print(f"      [green]✅ Effective:[/green] {', '.join(eff_techs)}")
+            if blk_techs:
+                console.print(f"      [red]❌ Blocked:[/red]   {', '.join(blk_techs)}")
+
         console.print()
 
     # ── Recommended Categories ──

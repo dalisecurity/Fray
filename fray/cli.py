@@ -1951,7 +1951,7 @@ def cmd_help(args):
   ─────────────────────────────
   fray recon <url>              Full recon: TLS, headers, DNS, cookies, fingerprint,
                                 GraphQL, API discovery, Host injection, admin panels,
-                                rate limit fingerprinting, WAF detection mode (23 checks)
+                                rate limits, WAF detection mode, gap analysis (24 checks)
   fray recon <url> --js         LinkFinder-style JS extraction: endpoints, hostnames,
                                 cloud buckets (S3/GCS/Azure), API keys, secrets
   fray recon <url> --history    Discover old URLs via Wayback Machine / sitemap / robots
