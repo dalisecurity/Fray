@@ -1766,7 +1766,7 @@ def cmd_bypass(args):
         waf_name=getattr(args, 'waf', None),
         max_payloads=getattr(args, 'max', 50),
         max_mutations=getattr(args, 'mutations', 5),
-        mutation_budget=getattr(args, 'mutation_budget', 20),
+        mutation_budget=getattr(args, 'mutation_budget', 30),
         param=getattr(args, 'param', 'input'),
         verbose=True,
         output_file=output_file,
@@ -2658,8 +2658,8 @@ Documentation: https://github.com/dalisecurity/fray
     p_bypass.add_argument("-c", "--category", default=None, help="Payload category (default: xss)")
     p_bypass.add_argument("-m", "--max", type=int, default=50, help="Max payloads to test (default: 50)")
     p_bypass.add_argument("--mutations", type=int, default=5, help="Max mutations per bypass (default: 5)")
-    p_bypass.add_argument("--mutation-budget", type=int, default=20,
-                          help="Total mutation test budget (default: 20)")
+    p_bypass.add_argument("--mutation-budget", type=int, default=30,
+                          help="Total mutation test budget across all phases (default: 30)")
     p_bypass.add_argument("--param", default="input", help="URL parameter to inject into (default: input)")
     p_bypass.add_argument("-t", "--timeout", type=int, default=8, help="Request timeout (default: 8)")
     p_bypass.add_argument("-d", "--delay", type=float, default=0.5, help="Delay between requests (default: 0.5)")

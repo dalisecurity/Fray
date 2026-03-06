@@ -646,6 +646,98 @@ def run_bypass(
     elif verbose:
         console.print(f"\n  [dim]Phase 4: Skipped — no payloads to mutate[/dim]")
 
+    # ── Phase 5: Brute-force mutation fallback ────────────────────────────
+    #
+    # If Phase 4 still has budget and blocked payloads remain, try the
+    # broader mutator.py engine (20 strategies: URL encode, double encode,
+    # HTML entities, unicode fullwidth, tag substitution, data URIs, etc.)
+    # These are WAF-agnostic brute-force transforms that may find bypasses
+    # the profile-aware mutator missed.
+    #
+    if mut_remaining > 0 and blocked_payloads:
+        from fray.mutator import mutate_payload as brute_mutate
+
+        # Gather payloads still blocked after Phase 4
+        phase4_bypassed = {b.payload for b in mutation_bypasses}
+        still_blocked = [p for p in blocked_payloads if p not in phase4_bypassed]
+
+        if still_blocked and verbose:
+            console.print()
+            print_phase(5, f"Brute-force mutations on {len(still_blocked)} "
+                        f"remaining blocked payload(s), budget: {mut_remaining}...")
+
+        for payload_str in still_blocked:
+            if mut_remaining <= 0:
+                break
+            brute_variants = brute_mutate(payload_str, max_variants=min(mut_remaining, 15))
+            for bv in brute_variants:
+                if mut_remaining <= 0:
+                    break
+                if bv["payload"] in seen_payloads:
+                    continue
+                seen_payloads.add(bv["payload"])
+                result = tester.test_payload(bv["payload"], param=param)
+                mutation_count += 1
+                mut_remaining -= 1
+                bl_match = _is_baseline_match(result, baseline)
+                soft_block = _is_soft_block(result, baseline)
+                ev_score = _compute_evasion_score(result, profile, is_mutation=True, baseline=baseline)
+                effective_blocked = result.get("blocked", True) or soft_block
+
+                mbr = BypassResult(
+                    payload=bv["payload"],
+                    blocked=effective_blocked,
+                    status=result.get("status", 0),
+                    technique=bv["strategy"],
+                    parent=bv["original"][:60],
+                    evasion_score=ev_score,
+                    reflected=result.get("reflected", False),
+                    reflection_context=result.get("reflection_context", ""),
+                    response_length=result.get("response_length", 0),
+                )
+
+                if not mbr.blocked:
+                    mutation_bypasses.append(mbr)
+                    # Amplify: if brute mutation worked, try deeper mutations
+                    if mut_remaining > 0:
+                        deeper = brute_mutate(bv["payload"], max_variants=min(mut_remaining, 3),
+                                              strategies=["url_encode", "double_url_encode",
+                                                          "html_entity", "mixed_case"])
+                        for dv in deeper:
+                            if mut_remaining <= 0:
+                                break
+                            if dv["payload"] in seen_payloads:
+                                continue
+                            seen_payloads.add(dv["payload"])
+                            dr = tester.test_payload(dv["payload"], param=param)
+                            mutation_count += 1
+                            mut_remaining -= 1
+                            d_ev = _compute_evasion_score(dr, profile, is_mutation=True, baseline=baseline)
+                            d_blocked = dr.get("blocked", True) or _is_soft_block(dr, baseline)
+                            dbr = BypassResult(
+                                payload=dv["payload"],
+                                blocked=d_blocked,
+                                status=dr.get("status", 0),
+                                technique=dv["strategy"],
+                                parent=dv["original"][:60],
+                                evasion_score=d_ev,
+                                reflected=dr.get("reflected", False),
+                                response_length=dr.get("response_length", 0),
+                            )
+                            if not dbr.blocked:
+                                mutation_bypasses.append(dbr)
+                            tester._stealth_delay()
+
+                if verbose:
+                    from fray.output import blocked_text, bypass_text
+                    if mbr.blocked:
+                        console.print(f"    BF  ", blocked_text(), f" [{bv['strategy']}] │ {result.get('status', 0)}")
+                    else:
+                        ref_tag = " [yellow]REFLECTED[/yellow]" if mbr.reflected else ""
+                        console.print(f"    BF  ", bypass_text(), f" [{bv['strategy']}] │ Score: [bold]{ev_score}[/bold] │ {result.get('status', 0)}{ref_tag}")
+
+                tester._stealth_delay()
+
     # ── Build Scorecard ───────────────────────────────────────────────────
     all_bypasses = bypass_results + mutation_bypasses
     all_bypasses.sort(key=lambda b: b.evasion_score, reverse=True)
