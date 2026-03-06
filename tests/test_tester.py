@@ -193,12 +193,13 @@ class TestRawRequest:
         raw_resp = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nServer: nginx\r\n\r\n<html>OK</html>"
         mock_wrapped.recv = MagicMock(side_effect=[raw_resp, b""])
 
-        status, resp_str, headers = self.t._raw_request('example.com', 443, True,
+        status, resp_str, headers, elapsed_ms = self.t._raw_request('example.com', 443, True,
                                                          "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
         assert status == 200
         assert 'content-type' in headers
         assert headers['server'] == 'nginx'
         assert '<html>OK</html>' in resp_str
+        assert elapsed_ms >= 0
 
     @patch('fray.tester.socket.create_connection')
     @patch.object(WAFTester, '_resolve_and_check', return_value='93.184.216.34')
@@ -209,9 +210,10 @@ class TestRawRequest:
         mock_sock.recv = MagicMock(side_effect=[raw_resp, b""])
 
         t = WAFTester('http://example.com:80', verify_ssl=False)
-        status, resp_str, headers = t._raw_request('example.com', 80, False,
+        status, resp_str, headers, elapsed_ms = t._raw_request('example.com', 80, False,
                                                     "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
         assert status == 403
+        assert elapsed_ms >= 0
 
     @patch.object(WAFTester, '_resolve_and_check', side_effect=ValueError('private/internal'))
     def test_private_ip_blocked(self, mock_resolve):
@@ -225,13 +227,14 @@ class TestBlockDetection:
     def _make_tester_with_response(self, status, body, extra_headers=""):
         """Create a WAFTester that returns a canned response from _raw_request."""
         t = WAFTester('https://example.com')
+        t._baseline = {'status': 200, 'response_length': 100, 'elapsed_ms': 50.0}
         raw = f"HTTP/1.1 {status} OK\r\n{extra_headers}\r\n\r\n{body}"
         headers = {}
         for line in extra_headers.split('\r\n'):
             if ':' in line:
                 k, v = line.split(':', 1)
                 headers[k.strip().lower()] = v.strip()
-        with patch.object(t, '_raw_request', return_value=(status, raw, headers)):
+        with patch.object(t, '_raw_request', return_value=(status, raw, headers, 50.0)):
             result = t.test_payload('<script>alert(1)</script>')
         return result
 

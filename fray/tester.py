@@ -91,6 +91,7 @@ class WAFTester:
         self.verbose = verbose
         self.max_redirects = max_redirects
         self._last_request_time = 0.0
+        self._baseline = None  # Cached baseline for confidence scoring
 
         # Stealth mode defaults: if --stealth is on, apply sane defaults
         if self.stealth:
@@ -228,6 +229,7 @@ class WAFTester:
 
         conn.sendall(request.encode('utf-8', errors='replace'))
 
+        t0 = time.monotonic()
         resp = b""
         while True:
             try:
@@ -239,6 +241,7 @@ class WAFTester:
                     break
             except (socket.error, socket.timeout, OSError):
                 break
+        elapsed_ms = (time.monotonic() - t0) * 1000
         conn.close()
 
         resp_str = resp.decode('utf-8', errors='replace')
@@ -258,7 +261,86 @@ class WAFTester:
             print(resp_str[:800])
             print(f"{Colors.HEADER}<<< END RESPONSE <<<{Colors.END}")
 
-        return status, resp_str, headers
+        return status, resp_str, headers, elapsed_ms
+
+    def _measure_baseline(self, param: str = 'input') -> Dict:
+        """Send a benign request to establish baseline response characteristics."""
+        if self._baseline is not None:
+            return self._baseline
+        try:
+            benign = 'test123'
+            enc = urllib.parse.quote(benign, safe='')
+            query_string = f"{self.query}&{param}={enc}" if self.query else f"{param}={enc}"
+            req = (f"GET {self.path}?{query_string} HTTP/1.1\r\n"
+                   f"Host: {self.host}\r\n"
+                   f"Connection: close\r\n\r\n")
+            status, resp_str, headers, elapsed_ms = self._raw_request(
+                self.host, self.port, self.use_ssl, req)
+            resp_body = resp_str.split('\r\n\r\n', 1)[1] if '\r\n\r\n' in resp_str else ''
+            self._baseline = {
+                'status': status,
+                'response_length': len(resp_body),
+                'elapsed_ms': elapsed_ms,
+            }
+        except Exception:
+            self._baseline = {'status': 0, 'response_length': 0, 'elapsed_ms': 500.0}
+        return self._baseline
+
+    @staticmethod
+    def _compute_bypass_confidence(blocked: bool, reflected: bool,
+                                   status: int, resp_length: int,
+                                   elapsed_ms: float,
+                                   baseline: Dict) -> int:
+        """Compute a 0-100 bypass confidence score.
+
+        Factors:
+          - blocked flag (dominant: 0 if blocked)
+          - status code match with baseline
+          - response length similarity to baseline
+          - payload reflection in response body
+          - timing: WAF blocks are faster (negative delta = likely blocked)
+        """
+        if blocked:
+            return 0
+
+        score = 0.0
+
+        # Status code (40 pts max)
+        bl_status = baseline.get('status', 200)
+        if status == bl_status:
+            score += 40
+        elif 200 <= status < 300:
+            score += 30
+        elif 300 <= status < 400:
+            score += 15
+        # 4xx/5xx with not-blocked is unusual but possible
+
+        # Response length similarity (25 pts max)
+        bl_len = baseline.get('response_length', 0)
+        if bl_len > 0 and resp_length > 0:
+            ratio = min(resp_length, bl_len) / max(resp_length, bl_len)
+            score += 25 * ratio
+        elif resp_length > 100:
+            score += 10  # Some body present
+
+        # Reflection (25 pts)
+        if reflected:
+            score += 25
+
+        # Timing delta (10 pts max)
+        # WAF blocks are typically faster (edge short-circuit).
+        # If our response is slower or similar to baseline, it likely
+        # passed through to origin → good sign.
+        bl_time = baseline.get('elapsed_ms', 500.0)
+        if bl_time > 0 and elapsed_ms > 0:
+            delta = elapsed_ms - bl_time
+            if delta >= 0:  # Same or slower than baseline → likely reached origin
+                score += 10
+            elif delta > -50:  # Slightly faster, inconclusive
+                score += 5
+            # Much faster than baseline → possible WAF fast-reject (0 pts)
+
+        return max(0, min(100, int(round(score))))
 
     def test_payload(self, payload: str, method: str = 'GET', param: str = 'input',
                      content_type: str = None) -> Dict:
@@ -308,7 +390,7 @@ class WAFTester:
                            f"{extra_hdrs}"
                            f"Connection: close\r\n\r\n{body}")
 
-                status, resp_str, headers = self._raw_request(
+                status, resp_str, headers, elapsed_ms = self._raw_request(
                     current_host, current_port, current_ssl, req)
 
                 # Follow redirects
@@ -479,6 +561,11 @@ class WAFTester:
                     if hdr_name in headers:
                         sec_headers[hdr_name] = headers[hdr_name]
 
+                baseline = self._measure_baseline(param)
+                confidence = self._compute_bypass_confidence(
+                    blocked, reflected, status, len(resp_body),
+                    elapsed_ms, baseline)
+
                 return {
                     'payload': payload,
                     'status': status,
@@ -489,6 +576,8 @@ class WAFTester:
                     'reflected': reflected,
                     'reflection_context': reflection_context[:200],
                     'response_length': len(resp_body),
+                    'elapsed_ms': round(elapsed_ms, 1),
+                    'bypass_confidence': confidence,
                     'security_headers': sec_headers,
                     'timestamp': datetime.now().isoformat()
                 }
@@ -499,6 +588,8 @@ class WAFTester:
                     'status': 0,
                     'error': str(e),
                     'blocked': True,
+                    'bypass_confidence': 0,
+                    'elapsed_ms': 0,
                     'redirects': hop,
                     'timestamp': datetime.now().isoformat()
                 }
@@ -509,6 +600,8 @@ class WAFTester:
             'status': 0,
             'error': f'Too many redirects ({max_redirects})',
             'blocked': True,
+            'bypass_confidence': 0,
+            'elapsed_ms': 0,
             'redirects': max_redirects,
             'timestamp': datetime.now().isoformat()
         }
@@ -574,13 +667,23 @@ class WAFTester:
                 result['description'] = desc
                 results.append(result)
                 
-                # Print result with rich badge
+                # Print result with rich badge + confidence
                 badge = blocked_text() if result['blocked'] else passed_text()
-                label = desc[:45] if desc else payload[:45]
+                label = desc[:40] if desc else payload[:40]
+                conf = result.get('bypass_confidence', 0)
+                ms = result.get('elapsed_ms', 0)
+                if conf >= 75:
+                    conf_style = f"[bold green]{conf:>3}%[/bold green]"
+                elif conf >= 40:
+                    conf_style = f"[yellow]{conf:>3}%[/yellow]"
+                elif conf > 0:
+                    conf_style = f"[dim]{conf:>3}%[/dim]"
+                else:
+                    conf_style = f"[dim red]  0%[/dim red]"
                 progress.console.print(
                     f"  [{idx:>{len(str(total))}}/{total}] ",
                     badge,
-                    f" {result['status']} │ {label}",
+                    f" {result['status']} │ {conf_style} │ {ms:>6.0f}ms │ {label}",
                     highlight=False,
                 )
                 progress.advance(task)
@@ -602,6 +705,13 @@ class WAFTester:
             seconds = int(elapsed.total_seconds() % 60)
             duration = f"{minutes} minutes {seconds} seconds" if minutes > 0 else f"{seconds} seconds"
         
+        # Bypass confidence stats
+        confidences = [r.get('bypass_confidence', 0) for r in results if not r.get('blocked')]
+        avg_conf = round(sum(confidences) / len(confidences), 1) if confidences else 0
+        high_conf = sum(1 for c in confidences if c >= 75)
+        timings = [r.get('elapsed_ms', 0) for r in results if r.get('elapsed_ms', 0) > 0]
+        avg_ms = round(sum(timings) / len(timings), 1) if timings else 0
+
         report = {
             'target': self.target,
             'timestamp': datetime.now().isoformat(),
@@ -610,7 +720,10 @@ class WAFTester:
                 'total': total,
                 'blocked': blocked,
                 'passed': passed,
-                'block_rate': f"{(blocked/total*100):.2f}%" if total > 0 else "0%"
+                'block_rate': f"{(blocked/total*100):.2f}%" if total > 0 else "0%",
+                'avg_bypass_confidence': avg_conf,
+                'high_confidence_bypasses': high_conf,
+                'avg_response_ms': avg_ms,
             },
             'results': results
         }
@@ -642,6 +755,10 @@ class WAFTester:
         tbl.add_row("Blocked", Text(str(blocked), style="bold red"))
         tbl.add_row("Passed", Text(str(passed), style="bold green"))
         tbl.add_row("Block Rate", Text(report['summary']['block_rate'], style="bold"))
+        if high_conf > 0:
+            tbl.add_row("High-Conf Bypasses", Text(str(high_conf), style="bold green"))
+        tbl.add_row("Avg Bypass Conf", Text(f"{avg_conf}%", style="bold"))
+        tbl.add_row("Avg Response", f"{avg_ms}ms")
         tbl.add_row("Report", output)
 
         console.print()
