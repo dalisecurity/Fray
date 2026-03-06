@@ -1068,6 +1068,121 @@ def create_server() -> "FastMCP":
         """
         return _create_custom_payload(description, category, target_waf)
 
+    # ── Tool: fray_recon ───────────────────────────────────────────────────
+
+    @mcp.tool()
+    async def fray_recon(target: str, mode: str = "fast",
+                          stealth: bool = False) -> str:
+        """Run Fray reconnaissance on a target URL.
+
+        Performs automated security reconnaissance including:
+        - TLS/HTTP audit
+        - Security headers analysis
+        - Technology fingerprinting
+        - DNS records and CDN detection
+        - Subdomain enumeration (passive + active)
+        - Subdomain takeover detection
+        - Origin IP discovery
+        - Attack surface risk scoring (0-100)
+
+        Returns a JSON summary with risk score, findings, and recommendations.
+        This is a network operation and may take 15-45 seconds depending on mode.
+
+        Args:
+            target: Target URL (e.g. 'https://example.com')
+            mode: Scan depth — 'fast' (~15s), 'default' (~30s), or 'deep' (~45s)
+            stealth: If True, limit concurrency and add jitter to avoid WAF triggers
+        """
+        import asyncio
+        try:
+            from fray.recon import run_recon
+            result = await asyncio.to_thread(
+                run_recon, target, timeout=8, mode=mode, stealth=stealth)
+            # Return compact summary (full result can be huge)
+            atk = result.get("attack_surface", {})
+            summary = {
+                "target": target,
+                "mode": mode,
+                "risk_score": atk.get("risk_score", 0),
+                "risk_level": atk.get("risk_level", "?"),
+                "findings": atk.get("findings", []),
+                "waf_vendor": atk.get("waf_vendor"),
+                "cdn": atk.get("cdn"),
+                "tls_version": atk.get("tls_version"),
+                "cert_days_left": atk.get("cert_days_left"),
+                "security_headers_score": atk.get("security_headers_score"),
+                "subdomains": atk.get("subdomains", 0),
+                "subdomain_takeover": atk.get("subdomain_takeover", 0),
+                "technologies": atk.get("technologies", []),
+                "recommended_categories": result.get("recommended_categories", []),
+            }
+            return json.dumps(summary, indent=2, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    # ── Tool: fray_scan ────────────────────────────────────────────────────
+
+    @mcp.tool()
+    async def fray_scan(target: str, categories: str = "xss",
+                         max_payloads: int = 20,
+                         stealth: bool = False) -> str:
+        """Run Fray WAF bypass scan against a target URL.
+
+        Tests payloads from the specified categories against the target
+        and reports which ones bypassed the WAF, including bypass confidence
+        scores and response timing.
+
+        Returns a JSON report with blocked/bypassed counts and per-payload results.
+        This is a network operation and may take 10-60 seconds.
+
+        Args:
+            target: Target URL to test (e.g. 'https://example.com/search?q=FUZZ')
+            categories: Comma-separated payload categories (e.g. 'xss,sqli,ssti')
+            max_payloads: Maximum payloads to test per category (default: 20)
+            stealth: If True, add delays between requests to avoid rate limiting
+        """
+        import asyncio
+        try:
+            from fray.tester import WAFTester
+            tester = WAFTester(target, stealth=stealth)
+            cat_list = [c.strip() for c in categories.split(",") if c.strip()]
+            all_results = []
+            for cat in cat_list:
+                payloads = _load_payloads(cat, max_payloads=max_payloads)
+                payload_strs = []
+                for p in payloads:
+                    if isinstance(p, dict):
+                        payload_strs.append(p.get("payload", p.get("value", str(p))))
+                    else:
+                        payload_strs.append(str(p))
+                for ps in payload_strs[:max_payloads]:
+                    r = await asyncio.to_thread(tester.test_payload, ps)
+                    r["category"] = cat
+                    all_results.append(r)
+
+            report = tester.generate_report(all_results)
+            # Compact output
+            summary = {
+                "target": target,
+                "categories": cat_list,
+                "total_tested": report.get("total_tested", 0),
+                "blocked": report.get("blocked", 0),
+                "bypassed": report.get("bypassed", 0),
+                "block_rate": report.get("block_rate", "0%"),
+                "avg_bypass_confidence": report.get("avg_bypass_confidence"),
+                "high_confidence_bypasses": report.get("high_confidence_bypasses"),
+                "avg_response_ms": report.get("avg_response_ms"),
+                "bypassed_payloads": [
+                    {"payload": r.get("payload", ""), "category": r.get("category", ""),
+                     "status": r.get("status_code"), "confidence": r.get("bypass_confidence"),
+                     "reflected": r.get("reflected", False)}
+                    for r in all_results if not r.get("blocked", True)
+                ][:30],
+            }
+            return json.dumps(summary, indent=2, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
     return mcp
 
 
