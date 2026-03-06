@@ -918,6 +918,418 @@ def check_subdomains_bruteforce(host: str, timeout: float = 3.0,
     return result
 
 
+def discover_origin_ip(host: str, timeout: float = 5.0,
+                       dns_data: Optional[Dict[str, Any]] = None,
+                       tls_data: Optional[Dict[str, Any]] = None,
+                       parent_cdn: Optional[str] = None,
+                       securitytrails_key: Optional[str] = None,
+                       ) -> Dict[str, Any]:
+    """Discover the origin IP behind a CDN/WAF.
+
+    If the origin is exposed, all WAF testing becomes moot — the attacker
+    can hit the server directly and bypass the entire protection stack.
+
+    Techniques:
+        1. MX records → resolve mail servers, check if non-CDN
+        2. SPF record → parse include: chains, ip4:, a: mechanisms
+        3. TLS certificate SANs → resolve alternate names
+        4. mail./webmail./smtp./direct. subdomains → resolve
+        5. Historical DNS via SecurityTrails API (optional)
+        6. Verify: HTTP request to candidate IP with Host: header
+    """
+    import subprocess
+    import concurrent.futures
+    import re as _re
+    import os
+
+    base_domain = host.lstrip("www.") if host.startswith("www.") else host
+
+    # Use provided DNS data or resolve fresh
+    if dns_data is None:
+        dns_data = check_dns(base_domain)
+
+    # Determine parent CDN from IPs if not provided
+    if parent_cdn is None:
+        for ip in dns_data.get("a", []):
+            parent_cdn = _ip_is_cdn(ip)
+            if parent_cdn:
+                break
+
+    result: Dict[str, Any] = {
+        "origin_ips": [],
+        "candidates": [],
+        "verified": [],
+        "parent_cdn": parent_cdn,
+        "techniques_used": [],
+        "origin_exposed": False,
+    }
+
+    # Skip if no CDN/WAF detected — origin IS the direct IP
+    if not parent_cdn:
+        result["skip_reason"] = "no CDN/WAF detected — target already resolves to origin"
+        return result
+
+    candidate_ips: Dict[str, Dict[str, Any]] = {}  # ip -> {source, hostname, ...}
+
+    def _add_candidate(ip: str, source: str, hostname: str = ""):
+        """Add a non-CDN IP as an origin candidate."""
+        if not ip or ip.startswith("0.") or ip.startswith("127."):
+            return
+        cdn = _ip_is_cdn(ip)
+        if cdn:
+            return  # This IP belongs to a CDN, not origin
+        if ip not in candidate_ips:
+            candidate_ips[ip] = {"source": source, "hostname": hostname, "cdn": cdn}
+        else:
+            # Append source if new
+            existing = candidate_ips[ip]["source"]
+            if source not in existing:
+                candidate_ips[ip]["source"] = f"{existing}, {source}"
+
+    # ── 1. MX records ──
+    mx_records = dns_data.get("mx", [])
+    if mx_records:
+        result["techniques_used"].append("mx_records")
+        for mx in mx_records:
+            # MX format: "10 mail.example.com" or just "mail.example.com"
+            parts = mx.strip().split()
+            mx_host = parts[-1].rstrip(".")
+            # Only consider MX hosts on the same domain or IP
+            mx_ips = _resolve_hostname(mx_host, timeout=timeout)
+            for ip in mx_ips:
+                _add_candidate(ip, "mx_record", mx_host)
+
+    # ── 2. SPF record → parse include chains, ip4:, a: ──
+    txt_records = dns_data.get("txt", [])
+    spf_record = ""
+    for txt in txt_records:
+        if "v=spf1" in txt.lower():
+            spf_record = txt
+            break
+
+    if spf_record:
+        result["techniques_used"].append("spf_record")
+        _parse_spf_for_origins(spf_record, base_domain, _add_candidate, timeout)
+
+    # ── 3. TLS certificate SANs ──
+    san_names = []
+    if tls_data:
+        # Extract SANs from cert if available
+        san_names = tls_data.get("cert_san", [])
+
+    # Also fetch SANs directly if not already in tls_data
+    if not san_names:
+        san_names = _extract_cert_sans(base_domain, timeout=timeout)
+
+    if san_names:
+        result["techniques_used"].append("certificate_san")
+        for san in san_names:
+            if san.startswith("*."):
+                continue  # Skip wildcards
+            san_ips = _resolve_hostname(san, timeout=timeout)
+            for ip in san_ips:
+                _add_candidate(ip, "cert_san", san)
+
+    # ── 4. Common mail/origin subdomains ──
+    origin_subdomains = [
+        "mail", "webmail", "smtp", "imap", "pop", "pop3", "mx",
+        "email", "exchange", "autodiscover", "autoconfig",
+        "direct", "origin", "origin-www", "direct-connect",
+        "cpanel", "whm", "plesk", "ftp", "sftp",
+    ]
+    result["techniques_used"].append("mail_subdomains")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=15) as pool:
+        futures = {}
+        for sub in origin_subdomains:
+            fqdn = f"{sub}.{base_domain}"
+            futures[pool.submit(_resolve_hostname, fqdn, timeout)] = (sub, fqdn)
+
+        for future in concurrent.futures.as_completed(futures):
+            sub, fqdn = futures[future]
+            try:
+                ips = future.result()
+                for ip in ips:
+                    _add_candidate(ip, f"subdomain:{sub}", fqdn)
+            except Exception:
+                pass
+
+    # ── 5. Historical DNS (SecurityTrails API — optional) ──
+    st_key = securitytrails_key or os.environ.get("SECURITYTRAILS_API_KEY")
+    if st_key:
+        result["techniques_used"].append("securitytrails_history")
+        hist_ips = _securitytrails_history(base_domain, st_key, timeout=timeout)
+        for ip in hist_ips:
+            _add_candidate(ip, "historical_dns", "")
+
+    # ── Build candidates list ──
+    for ip, info in candidate_ips.items():
+        result["candidates"].append({
+            "ip": ip,
+            "source": info["source"],
+            "hostname": info["hostname"],
+            "verified": False,
+        })
+
+    result["origin_ips"] = list(candidate_ips.keys())
+
+    # ── 6. Verify: HTTP request with Host header ──
+    # Prioritize: SPF ip4/a > mail subdomains > MX (skip known mail providers)
+    _mail_providers = {"google.com", "googlemail.com", "outlook.com", "office365",
+                       "pphosted.com", "mimecast", "proofpoint", "barracuda",
+                       "messagelabs", "mailgun", "sendgrid", "zendesk",
+                       "hubspot", "amazonaws.com", "sparkpost"}
+    # Known third-party SPF IP ranges (Google, Microsoft, etc.) — not origin
+    _third_party_prefixes = [
+        "74.125.", "64.233.", "66.102.", "66.249.", "72.14.", "108.177.",
+        "142.250.", "172.217.", "173.194.", "209.85.", "216.58.", "216.239.",
+        "192.178.",  # Google
+        "40.92.", "40.93.", "40.94.", "40.107.", "52.100.", "52.101.",
+        "104.47.",  # Microsoft
+        "103.151.192.", "185.12.80.",  # SendGrid / HubSpot
+        "198.2.128.", "198.2.176.", "198.2.180.",  # Zendesk
+    ]
+    priority_ips = []
+    secondary_ips = []
+    for ip, info in candidate_ips.items():
+        src = info.get("source", "")
+        hostname = info.get("hostname", "").lower()
+        # Skip known third-party mail services (by hostname)
+        if any(mp in hostname for mp in _mail_providers):
+            continue
+        # Skip known third-party IP ranges
+        if any(ip.startswith(p) for p in _third_party_prefixes):
+            continue
+        # Skip network addresses (.0) and IPv6 (not probed well via HTTP)
+        if ip.endswith(".0") or ":" in ip:
+            continue
+        if "spf_ip4" in src or "spf_a" in src or "subdomain:" in src:
+            priority_ips.append(ip)
+        else:
+            secondary_ips.append(ip)
+    verify_targets = (priority_ips + secondary_ips)[:15]
+
+    if verify_targets:
+        result["techniques_used"].append("http_host_verification")
+        verified = _verify_origin_ips(verify_targets, base_domain, timeout=2.0)
+        for v in verified:
+            result["verified"].append(v)
+            # Update candidate entry
+            for c in result["candidates"]:
+                if c["ip"] == v["ip"]:
+                    c["verified"] = True
+                    c["status_code"] = v.get("status_code")
+                    c["server"] = v.get("server")
+                    c["title"] = v.get("title")
+
+    result["origin_exposed"] = len(result["verified"]) > 0
+
+    return result
+
+
+def _parse_spf_for_origins(spf_record: str, domain: str,
+                           add_fn, timeout: float,
+                           depth: int = 0, max_depth: int = 3):
+    """Recursively parse SPF record for origin IPs."""
+    import subprocess
+    import re as _re
+
+    if depth > max_depth:
+        return
+
+    # ip4: mechanisms → direct IPs
+    for match in _re.finditer(r'ip4:(\d+\.\d+\.\d+\.\d+(?:/\d+)?)', spf_record, _re.I):
+        ip = match.group(1).split("/")[0]  # Strip CIDR
+        add_fn(ip, "spf_ip4", "")
+
+    # ip6: mechanisms
+    for match in _re.finditer(r'ip6:([0-9a-fA-F:]+(?:/\d+)?)', spf_record, _re.I):
+        ip = match.group(1).split("/")[0]
+        add_fn(ip, "spf_ip6", "")
+
+    # a: mechanisms → resolve hostnames
+    for match in _re.finditer(r'\ba:(\S+)', spf_record, _re.I):
+        hostname = match.group(1).rstrip(".")
+        for ip in _resolve_hostname(hostname, timeout=timeout):
+            add_fn(ip, "spf_a", hostname)
+
+    # a mechanism (bare) → resolve domain itself
+    if " a " in f" {spf_record} " or spf_record.strip().endswith(" a"):
+        for ip in _resolve_hostname(domain, timeout=timeout):
+            add_fn(ip, "spf_a", domain)
+
+    # include: → recurse into referenced domain's SPF
+    for match in _re.finditer(r'include:(\S+)', spf_record, _re.I):
+        include_domain = match.group(1).rstrip(".")
+        try:
+            out = subprocess.run(
+                ["dig", "+short", "TXT", include_domain],
+                capture_output=True, text=True, timeout=5
+            )
+            for line in out.stdout.strip().splitlines():
+                line = line.strip().strip('"')
+                if "v=spf1" in line.lower():
+                    _parse_spf_for_origins(line, include_domain, add_fn,
+                                           timeout, depth + 1, max_depth)
+        except Exception:
+            pass
+
+    # mx mechanism → resolve domain's MX
+    if " mx " in f" {spf_record} " or " mx:" in spf_record.lower():
+        try:
+            out = subprocess.run(
+                ["dig", "+short", "MX", domain],
+                capture_output=True, text=True, timeout=5
+            )
+            for line in out.stdout.strip().splitlines():
+                parts = line.strip().split()
+                mx_host = parts[-1].rstrip(".")
+                for ip in _resolve_hostname(mx_host, timeout=timeout):
+                    add_fn(ip, "spf_mx", mx_host)
+        except Exception:
+            pass
+
+
+def _extract_cert_sans(host: str, port: int = 443,
+                       timeout: float = 5.0) -> List[str]:
+    """Extract Subject Alternative Names from TLS certificate.
+
+    getpeercert() only returns SANs when verify_mode != CERT_NONE,
+    so we use a verified connection first, falling back to unverified.
+    """
+    sans = []
+    for verify in (True, False):
+        try:
+            if verify:
+                ctx = ssl.create_default_context()
+            else:
+                ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+            sock = socket.create_connection((host, port), timeout=timeout)
+            ssock = ctx.wrap_socket(sock, server_hostname=host)
+            decoded = ssock.getpeercert()
+            ssock.close()
+
+            if decoded:
+                for entry_type, entry_value in decoded.get("subjectAltName", ()):
+                    if entry_type == "DNS" and entry_value not in sans:
+                        sans.append(entry_value)
+            if sans:
+                break
+        except Exception:
+            continue
+
+    return sans
+
+
+def _securitytrails_history(domain: str, api_key: str,
+                            timeout: float = 10.0) -> List[str]:
+    """Fetch historical A records from SecurityTrails API."""
+    ips = []
+    try:
+        conn = http.client.HTTPSConnection("api.securitytrails.com", timeout=timeout)
+        conn.request("GET", f"/v1/history/{domain}/dns/a",
+                     headers={
+                         "APIKEY": api_key,
+                         "Accept": "application/json",
+                     })
+        resp = conn.getresponse()
+        if resp.status == 200:
+            import json as _json
+            data = _json.loads(resp.read().decode())
+            for record in data.get("records", []):
+                for val in record.get("values", []):
+                    ip = val.get("ip", "")
+                    if ip and ip not in ips:
+                        ips.append(ip)
+        conn.close()
+    except Exception:
+        pass
+    return ips
+
+
+def _verify_origin_ips(candidate_ips: List[str], host: str,
+                       timeout: float = 5.0) -> List[Dict[str, Any]]:
+    """Verify origin IP candidates by sending HTTP request with Host header.
+
+    If the server responds with a valid page (not default/error), the origin
+    is confirmed as accessible directly — bypassing the WAF.
+    """
+    import concurrent.futures
+    import re as _re
+
+    verified = []
+
+    def _probe_ip(ip: str):
+        """Send GET / to the IP with Host: header, check response."""
+        for use_ssl in (True, False):
+            try:
+                port = 443 if use_ssl else 80
+                if use_ssl:
+                    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                    ctx.check_hostname = False
+                    ctx.verify_mode = ssl.CERT_NONE
+                    conn = http.client.HTTPSConnection(
+                        ip, port, context=ctx, timeout=timeout)
+                else:
+                    conn = http.client.HTTPConnection(ip, port, timeout=timeout)
+
+                conn.request("GET", "/", headers={
+                    "Host": host,
+                    "User-Agent": f"Fray/{__version__}",
+                    "Connection": "close",
+                })
+                resp = conn.getresponse()
+                status = resp.status
+                body = resp.read(4096).decode("utf-8", errors="replace")
+                headers = {k.lower(): v for k, v in resp.getheaders()}
+                conn.close()
+
+                # Check if this looks like a real response (not default page)
+                server = headers.get("server", "")
+                title_match = _re.search(r"<title[^>]*>([^<]+)</title>", body, _re.I)
+                title = title_match.group(1).strip() if title_match else ""
+
+                # Signals that this is the real origin:
+                # - 200 response with non-empty body
+                # - Server header present and not a CDN edge
+                # - Title matches something reasonable (not "IIS default" etc.)
+                is_valid = (
+                    status in (200, 301, 302, 403) and
+                    len(body) > 100 and
+                    "welcome to nginx" not in body.lower() and
+                    "iis windows server" not in body.lower() and
+                    "test page" not in body.lower()
+                )
+
+                if is_valid:
+                    return {
+                        "ip": ip,
+                        "port": port,
+                        "ssl": use_ssl,
+                        "status_code": status,
+                        "server": server,
+                        "title": title,
+                        "body_length": len(body),
+                        "confirmed": True,
+                    }
+            except Exception:
+                continue
+        return None
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+        futures = {pool.submit(_probe_ip, ip): ip for ip in candidate_ips[:20]}
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                entry = future.result()
+                if entry:
+                    verified.append(entry)
+            except Exception:
+                pass
+
+    return verified
+
+
 def _follow_redirect(host: str, path: str, timeout: int = 10,
                      max_hops: int = 3) -> Tuple[int, bytes]:
     """Follow HTTPS redirects, return (status, body_bytes)."""
@@ -3908,6 +4320,11 @@ def run_recon(url: str, timeout: int = 8,
     result["subdomains"]["passive_count"] = len(passive_subs)
     result["subdomains"]["active_count"] = len(active_subs)
 
+    # 13c. Origin IP discovery (WAF bypass via direct origin access)
+    result["origin_ip"] = discover_origin_ip(
+        host, timeout=3.0, dns_data=result.get("dns"),
+        tls_data=result.get("tls"), parent_cdn=parent_cdn)
+
     # 14. Smart payload recommendation
     result["recommended_categories"] = recommend_categories(result["fingerprint"])
 
@@ -4081,8 +4498,19 @@ def _build_attack_surface_summary(r: Dict[str, Any]) -> Dict[str, Any]:
     waf_bypass_subs = active_subs.get("waf_bypass", []) if isinstance(active_subs, dict) else []
     n_waf_bypass = len(waf_bypass_subs)
 
+    # ── Origin IP discovery ──
+    origin_data = r.get("origin_ip", {})
+    origin_exposed = origin_data.get("origin_exposed", False) if isinstance(origin_data, dict) else False
+    n_origin_candidates = len(origin_data.get("candidates", [])) if isinstance(origin_data, dict) else 0
+    n_origin_verified = len(origin_data.get("verified", [])) if isinstance(origin_data, dict) else 0
+
     # ── Build findings list (for quick scan) ──
     findings = []
+    if origin_exposed:
+        verified_ips = [v["ip"] for v in origin_data.get("verified", [])[:3]]
+        findings.append({"severity": "critical", "finding": f"Origin IP exposed — WAF completely bypassable via {', '.join(verified_ips)}"})
+    elif n_origin_candidates > 0:
+        findings.append({"severity": "high", "finding": f"{n_origin_candidates} origin IP candidate(s) found (unverified)"})
     if n_waf_bypass > 0:
         bypass_names = [e["subdomain"] for e in waf_bypass_subs[:3]]
         findings.append({"severity": "critical", "finding": f"{n_waf_bypass} subdomain(s) bypass WAF (direct origin IP): {', '.join(bypass_names)}"})
@@ -4164,6 +4592,9 @@ def _build_attack_surface_summary(r: Dict[str, Any]) -> Dict[str, Any]:
         "dangerous_http_methods": dangerous_methods,
         "robots_interesting_paths": len(interesting_paths),
         "waf_bypass_subdomains": n_waf_bypass,
+        "origin_ip_exposed": origin_exposed,
+        "origin_ip_candidates": n_origin_candidates,
+        "origin_ip_verified": n_origin_verified,
         "findings": findings,
     }
 
@@ -4554,6 +4985,43 @@ def print_recon(result: Dict[str, Any]) -> None:
         if sub_count > 15:
             console.print(f"    [dim]... and {sub_count - 15} more[/dim]")
         console.print()
+
+    # ── Origin IP Discovery ──
+    origin = result.get("origin_ip", {})
+    if origin and not origin.get("skip_reason"):
+        candidates = origin.get("candidates", [])
+        verified = origin.get("verified", [])
+        techniques = origin.get("techniques_used", [])
+        exposed = origin.get("origin_exposed", False)
+
+        if candidates:
+            status_color = "bold red" if exposed else "yellow"
+            status_label = "ORIGIN EXPOSED" if exposed else f"{len(candidates)} candidate(s)"
+            console.print(f"  [bold]Origin IP Discovery[/bold]  [{status_color}]{status_label}[/{status_color}]")
+            console.print(f"    Parent CDN: [cyan]{origin.get('parent_cdn', '?')}[/cyan]")
+            console.print(f"    Techniques: [dim]{', '.join(techniques)}[/dim]")
+            console.print()
+
+            if verified:
+                console.print(f"    [bold red]⚠ VERIFIED ORIGIN — WAF completely bypassable[/bold red]")
+                for v in verified:
+                    proto = "https" if v.get("ssl") else "http"
+                    server = f" ({v['server']})" if v.get("server") else ""
+                    title = f' — "{v["title"]}"' if v.get("title") else ""
+                    console.print(f"      [red]→ {v['ip']}:{v['port']}[/red]  "
+                                  f"HTTP {v.get('status_code', '?')}{server}{title}")
+                    console.print(f"        [dim]curl -k -H 'Host: {result.get('host', '')}' "
+                                  f"{proto}://{v['ip']}/[/dim]")
+                console.print()
+
+            # All candidates table
+            for c in candidates[:10]:
+                verified_s = " [bold red]✓ VERIFIED[/bold red]" if c.get("verified") else ""
+                host_s = f" ({c['hostname']})" if c.get("hostname") else ""
+                console.print(f"    {c['ip']:<18} [dim]{c['source']}[/dim]{host_s}{verified_s}")
+            if len(candidates) > 10:
+                console.print(f"    [dim]... and {len(candidates) - 10} more[/dim]")
+            console.print()
 
     # ── Parameter Discovery ──
     params_data = result.get("params", {})
