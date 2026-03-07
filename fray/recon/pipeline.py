@@ -372,10 +372,14 @@ def run_recon(url: str, timeout: int = 8,
     passive_subs = set(result["subdomains"].get("subdomains", []))
     active_subs = {e["subdomain"] for e in result["subdomains_active"].get("discovered", [])}
     merged = sorted(passive_subs | active_subs)
-    result["subdomains"]["subdomains"] = merged[:200]
+    result["subdomains"]["subdomains"] = merged[:500]
     result["subdomains"]["count"] = len(passive_subs | active_subs)
     result["subdomains"]["passive_count"] = len(passive_subs)
     result["subdomains"]["active_count"] = len(active_subs)
+    # Preserve per-source counts from multi-source enumeration
+    if "sources" not in result["subdomains"]:
+        result["subdomains"]["sources"] = {}
+    result["subdomains"]["sources"]["dns_brute"] = len(active_subs)
 
     # Subdomain takeover detection (runs on merged subdomain list)
     all_subs = result["subdomains"].get("subdomains", [])
@@ -739,6 +743,13 @@ def export_recon_dir(result: Dict[str, Any], output_dir: str) -> Dict[str, str]:
     hv_lines = _build_high_value_text(result)
     _write("high-value.txt", hv_lines)
 
+    # subdomain-map.json (graph format for visualization)
+    sub_count = result.get("subdomains", {}).get("count", 0)
+    if sub_count > 0:
+        map_path = os.path.join(output_dir, "subdomain-map.json")
+        export_subdomain_map(result, map_path)
+        created["subdomain-map.json"] = map_path
+
     # summary.json
     atk = result.get("attack_surface", {})
     path = os.path.join(output_dir, "summary.json")
@@ -846,6 +857,150 @@ def _build_high_value_text(result: Dict[str, Any]) -> list:
         lines.append("No high-value targets identified.")
 
     return lines
+
+
+def _print_subdomain_tree(result: Dict[str, Any], sub_list: list,
+                          waf_bypass_list: list, console) -> None:
+    """Print a tree-map of subdomains grouped by role, with endpoints.
+
+    Prioritizes critical/interesting subdomains:
+      1. WAF bypass subdomains
+      2. Staging/dev/test environments
+      3. API/admin/auth subdomains
+      4. Remaining (sorted alpha)
+    Shows max 20 entries.
+    """
+    host = result.get("host", "")
+    base = host.lstrip("www.") if host.startswith("www.") else host
+
+    # Collect endpoints per subdomain from API/admin/historical data
+    sub_endpoints: Dict[str, list] = {}
+    for ep in result.get("api_discovery", {}).get("endpoints_found", []):
+        sub_endpoints.setdefault(host, []).append(ep.get("path", ""))
+    for spec in result.get("api_discovery", {}).get("specs_found", []):
+        for m in spec.get("methods", []):
+            sub_endpoints.setdefault(host, []).append(m)
+    for p in result.get("admin_panels", {}).get("panels_found", []):
+        sub_endpoints.setdefault(host, []).append(p.get("path", ""))
+    for ef in result.get("exposed_files", {}).get("exposed", []):
+        sub_endpoints.setdefault(host, []).append(ef.get("path", ""))
+
+    # Categorize subdomains
+    bypass_set = {e["subdomain"] for e in waf_bypass_list}
+    staging_kw = ("dev", "staging", "stage", "test", "qa", "uat", "sandbox",
+                  "beta", "alpha", "preprod", "demo", "internal", "debug", "canary")
+    critical_kw = ("api", "admin", "auth", "sso", "login", "pay", "payment",
+                   "gateway", "graphql", "grpc", "backend")
+
+    priority_subs = []  # (subdomain, tag, color)
+    normal_subs = []
+
+    for s in sub_list:
+        name_part = s.replace(f".{base}", "").lower() if s.endswith(base) else s.lower()
+        if s in bypass_set:
+            priority_subs.append((s, "WAF bypass", "red"))
+        elif any(kw in name_part for kw in staging_kw):
+            priority_subs.append((s, "staging/dev", "yellow"))
+        elif any(kw in name_part for kw in critical_kw):
+            priority_subs.append((s, "critical", "cyan"))
+        else:
+            normal_subs.append(s)
+
+    # Build display list: priority first, then fill up to 20
+    display = priority_subs[:15]
+    remaining_slots = 20 - len(display)
+    if remaining_slots > 0:
+        for s in normal_subs[:remaining_slots]:
+            display.append((s, "", "dim"))
+
+    # Render tree
+    console.print()
+    for i, (sub, tag, color) in enumerate(display):
+        is_last = i == len(display) - 1 and len(sub_list) <= 20
+        prefix = "└── " if is_last else "├── "
+        tag_str = f"  [{color}]({tag})[/{color}]" if tag else ""
+        console.print(f"    {prefix}[{color}]{sub}[/{color}]{tag_str}")
+
+        # Show endpoints for this subdomain (max 3)
+        endpoints = sub_endpoints.get(sub, [])
+        if not endpoints and sub == host:
+            endpoints = sub_endpoints.get(host, [])
+        for j, ep in enumerate(endpoints[:3]):
+            ep_last = j == len(endpoints[:3]) - 1
+            ep_prefix = "    └── " if ep_last else "    ├── "
+            if is_last:
+                ep_prefix = "    " + ep_prefix.lstrip()
+            else:
+                ep_prefix = "│   " + ep_prefix.lstrip()
+            console.print(f"    {ep_prefix}[dim]{ep}[/dim]")
+        if len(endpoints) > 3:
+            connector = "    " if is_last else "│   "
+            console.print(f"    {connector}    [dim]... +{len(endpoints) - 3} more[/dim]")
+
+
+def export_subdomain_map(result: Dict[str, Any], output_file: str) -> str:
+    """Export subdomain tree as JSON graph for visualization.
+
+    Structure:
+    {
+      "domain": "example.com",
+      "total": 42,
+      "nodes": [
+        {"id": "api.example.com", "type": "api", "endpoints": [...], "waf_bypass": false},
+        ...
+      ],
+      "edges": [
+        {"from": "example.com", "to": "api.example.com"},
+        ...
+      ]
+    }
+    """
+    import json as _json
+
+    host = result.get("host", "")
+    base = host.lstrip("www.") if host.startswith("www.") else host
+    sub_list = result.get("subdomains", {}).get("subdomains", [])
+    active_data = result.get("subdomains_active", {})
+    bypass_set = {e["subdomain"] for e in active_data.get("waf_bypass", [])}
+
+    type_kw = {
+        "api": ("api", "graphql", "grpc", "gateway"),
+        "admin": ("admin", "dashboard", "panel", "cms"),
+        "auth": ("auth", "sso", "login", "oauth", "accounts"),
+        "staging": ("dev", "staging", "stage", "test", "qa", "uat", "sandbox", "beta"),
+        "infra": ("vpn", "bastion", "jenkins", "gitlab", "ci", "cd", "monitor"),
+        "mail": ("mail", "smtp", "imap", "exchange", "webmail"),
+        "storage": ("cdn", "static", "assets", "media", "s3", "upload", "storage"),
+        "database": ("db", "redis", "mongo", "elastic", "mysql", "postgres"),
+    }
+
+    nodes = []
+    edges = []
+    for s in sub_list:
+        name_part = s.replace(f".{base}", "").lower() if s.endswith(base) else s.lower()
+        node_type = "other"
+        for t, keywords in type_kw.items():
+            if any(kw in name_part for kw in keywords):
+                node_type = t
+                break
+        nodes.append({
+            "id": s,
+            "type": node_type,
+            "waf_bypass": s in bypass_set,
+        })
+        edges.append({"from": base, "to": s})
+
+    graph = {
+        "domain": base,
+        "total": result.get("subdomains", {}).get("count", len(sub_list)),
+        "sources": result.get("subdomains", {}).get("sources", {}),
+        "nodes": nodes,
+        "edges": edges,
+    }
+
+    with open(output_file, "w", encoding="utf-8") as f:
+        _json.dump(graph, f, indent=2, ensure_ascii=False)
+    return output_file
 
 
 def _print_high_value_targets(result: Dict[str, Any], console) -> None:
@@ -1311,13 +1466,13 @@ def print_recon(result: Dict[str, Any]) -> None:
     waf_bypass_count = active_data.get("waf_bypass_count", 0)
 
     if sub_list or waf_bypass_list:
+        # Per-source breakdown
+        src_detail = subs.get("sources", {})
         src_parts = []
-        if passive_count:
-            src_parts.append(f"[green]{passive_count}[/green] passive (crt.sh)")
-        if active_count:
-            src_parts.append(f"[cyan]{active_count}[/cyan] active (DNS brute)")
-        src_str = " \u00b7 ".join(src_parts) if src_parts else ""
-        console.print(f"  [bold]Subdomains[/bold] ([cyan]{sub_count} unique[/cyan] \u2014 {src_str})")
+        for src_name, cnt in sorted(src_detail.items(), key=lambda x: -x[1]):
+            src_parts.append(f"{src_name}:{cnt}")
+        src_summary = " \u00b7 ".join(src_parts) if src_parts else f"{passive_count} passive \u00b7 {active_count} active"
+        console.print(f"  [bold]Subdomains[/bold] ([cyan]{sub_count} unique[/cyan] \u2014 {src_summary})")
 
         # WAF bypass subdomains — show first (critical finding)
         if waf_bypass_list:
@@ -1334,16 +1489,11 @@ def print_recon(result: Dict[str, Any]) -> None:
                 console.print(f"      [dim]... and {waf_bypass_count - 10} more[/dim]")
             console.print()
 
-        # Regular subdomain list
-        for s in sub_list[:15]:
-            # Mark WAF-bypassing ones
-            is_bypass = any(e["subdomain"] == s for e in waf_bypass_list)
-            if is_bypass:
-                console.print(f"    [red]{s}[/red]  [red]\u26a0 WAF bypass[/red]")
-            else:
-                console.print(f"    [dim]{s}[/dim]")
-        if sub_count > 15:
-            console.print(f"    [dim]... and {sub_count - 15} more[/dim]")
+        # Smart subdomain display: prioritize interesting ones, show tree map
+        _print_subdomain_tree(result, sub_list, waf_bypass_list, console)
+
+        if sub_count > 20:
+            console.print(f"    [dim]... and {sub_count - 20} more (use --export-dir to get full list)[/dim]")
         console.print()
 
     # ── Origin IP Discovery ──

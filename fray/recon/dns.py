@@ -265,39 +265,176 @@ def check_dns(host: str, deep: bool = False) -> Dict[str, Any]:
 
 
 def check_subdomains_crt(host: str, timeout: int = 10) -> Dict[str, Any]:
-    """Enumerate subdomains via crt.sh certificate transparency logs."""
-    from fray.recon.http import _http_get
+    """Enumerate subdomains via multiple passive OSINT sources.
 
-    result: Dict[str, Any] = {
-        "subdomains": [],
-        "count": 0,
-        "error": None,
+    Sources (all free, no API key required):
+      1. crt.sh — Certificate Transparency logs
+      2. HackerTarget — hostsearch API
+      3. AlienVault OTX — passive DNS
+      4. URLScan.io — indexed scan results
+      5. RapidDNS — subdomain database
+
+    Returns same structure as before for backwards compatibility.
+    """
+    import concurrent.futures
+    import json as _json
+    import re as _re
+
+    search_domain = host.lstrip("www.") if host.startswith("www.") else host
+    all_subs: set = set()
+    sources: Dict[str, int] = {}
+    errors: list = []
+
+    def _valid_sub(name: str) -> bool:
+        """Check if a string is a valid subdomain of search_domain."""
+        name = name.strip().lower()
+        if not name or "*" in name or " " in name:
+            return False
+        if not name.endswith(search_domain):
+            return False
+        # Must be a proper subdomain (not the domain itself)
+        if name == search_domain:
+            return False
+        # Basic sanity: no weird chars
+        if not _re.match(r'^[a-z0-9._-]+$', name):
+            return False
+        return True
+
+    def _crt_sh() -> set:
+        """Certificate Transparency logs via crt.sh."""
+        subs = set()
+        try:
+            from fray.recon.http import _follow_redirect
+            status, body = _follow_redirect(
+                "crt.sh", f"/?q=%25.{search_domain}&output=json",
+                timeout=timeout
+            )
+            if status == 200 and body:
+                entries = _json.loads(body.decode("utf-8", errors="replace"))
+                for entry in entries:
+                    name = entry.get("name_value", "")
+                    for line in name.split("\n"):
+                        line = line.strip().lower()
+                        if _valid_sub(line):
+                            subs.add(line)
+        except Exception as e:
+            errors.append(f"crt.sh: {e}")
+        return subs
+
+    def _hackertarget() -> set:
+        """HackerTarget hostsearch API (free, no key)."""
+        subs = set()
+        try:
+            conn = http.client.HTTPSConnection("api.hackertarget.com", timeout=timeout)
+            conn.request("GET", f"/hostsearch/?q={search_domain}",
+                         headers={"User-Agent": f"Fray/{__version__}"})
+            resp = conn.getresponse()
+            if resp.status == 200:
+                body = resp.read().decode("utf-8", errors="replace")
+                if "error" not in body.lower() and "api count" not in body.lower():
+                    for line in body.strip().splitlines():
+                        parts = line.split(",")
+                        if parts:
+                            name = parts[0].strip().lower()
+                            if _valid_sub(name):
+                                subs.add(name)
+            conn.close()
+        except Exception as e:
+            errors.append(f"hackertarget: {e}")
+        return subs
+
+    def _alienvault_otx() -> set:
+        """AlienVault OTX passive DNS (free, no key)."""
+        subs = set()
+        try:
+            conn = http.client.HTTPSConnection("otx.alienvault.com", timeout=timeout)
+            conn.request("GET",
+                         f"/api/v1/indicators/domain/{search_domain}/passive_dns",
+                         headers={"User-Agent": f"Fray/{__version__}"})
+            resp = conn.getresponse()
+            if resp.status == 200:
+                data = _json.loads(resp.read().decode("utf-8", errors="replace"))
+                for record in data.get("passive_dns", []):
+                    name = record.get("hostname", "").strip().lower()
+                    if _valid_sub(name):
+                        subs.add(name)
+            conn.close()
+        except Exception as e:
+            errors.append(f"alienvault: {e}")
+        return subs
+
+    def _urlscan() -> set:
+        """URLScan.io indexed results (free, no key)."""
+        subs = set()
+        try:
+            conn = http.client.HTTPSConnection("urlscan.io", timeout=timeout)
+            conn.request("GET",
+                         f"/api/v1/search/?q=domain:{search_domain}&size=1000",
+                         headers={"User-Agent": f"Fray/{__version__}"})
+            resp = conn.getresponse()
+            if resp.status == 200:
+                data = _json.loads(resp.read().decode("utf-8", errors="replace"))
+                for result_item in data.get("results", []):
+                    page = result_item.get("page", {})
+                    domain_val = page.get("domain", "").strip().lower()
+                    if _valid_sub(domain_val):
+                        subs.add(domain_val)
+            conn.close()
+        except Exception as e:
+            errors.append(f"urlscan: {e}")
+        return subs
+
+    def _rapiddns() -> set:
+        """RapidDNS subdomain database (free, no key)."""
+        subs = set()
+        try:
+            conn = http.client.HTTPSConnection("rapiddns.io", timeout=timeout)
+            conn.request("GET", f"/subdomain/{search_domain}?full=1#result",
+                         headers={"User-Agent": f"Fray/{__version__}",
+                                  "Accept": "text/html"})
+            resp = conn.getresponse()
+            if resp.status == 200:
+                body = resp.read().decode("utf-8", errors="replace")
+                # Parse subdomains from HTML table
+                for match in _re.finditer(
+                    r'<td>([a-z0-9._-]+\.' + _re.escape(search_domain) + r')</td>',
+                    body, _re.I
+                ):
+                    name = match.group(1).strip().lower()
+                    if _valid_sub(name):
+                        subs.add(name)
+            conn.close()
+        except Exception as e:
+            errors.append(f"rapiddns: {e}")
+        return subs
+
+    # Run all sources concurrently
+    source_fns = {
+        "crt.sh": _crt_sh,
+        "hackertarget": _hackertarget,
+        "alienvault": _alienvault_otx,
+        "urlscan": _urlscan,
+        "rapiddns": _rapiddns,
     }
 
-    # Strip www. prefix for broader search
-    search_domain = host.lstrip("www.")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+        futures = {pool.submit(fn): name for name, fn in source_fns.items()}
+        for future in concurrent.futures.as_completed(futures):
+            src_name = futures[future]
+            try:
+                subs = future.result()
+                if subs:
+                    sources[src_name] = len(subs)
+                    all_subs.update(subs)
+            except Exception:
+                pass
 
-    try:
-        from fray.recon.http import _follow_redirect
-        status, body = _follow_redirect(
-            "crt.sh", f"/?q=%25.{search_domain}&output=json",
-            timeout=timeout
-        )
-        if status == 200 and body:
-            import json as _json
-            entries = _json.loads(body.decode("utf-8", errors="replace"))
-            subs = set()
-            for entry in entries:
-                name = entry.get("name_value", "")
-                for line in name.split("\n"):
-                    line = line.strip().lower()
-                    if line and "*" not in line and line.endswith(search_domain):
-                        subs.add(line)
-            result["subdomains"] = sorted(subs)[:100]  # Cap at 100
-            result["count"] = len(subs)
-    except Exception as e:
-        result["error"] = str(e)
-
+    result: Dict[str, Any] = {
+        "subdomains": sorted(all_subs)[:500],
+        "count": len(all_subs),
+        "sources": sources,
+        "error": "; ".join(errors) if errors else None,
+    }
     return result
 
 
