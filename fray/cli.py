@@ -2950,6 +2950,49 @@ def cmd_demo(args):
     print(f"\n  Run 'fray scan {target}' for a full assessment.\n")
 
 
+def cmd_leak(args):
+    """Search for leaked credentials on GitHub and Have I Been Pwned."""
+    from fray.leak import search_leaks, print_leak_results
+
+    target = args.target
+    if not target:
+        print("  Error: No target specified.")
+        print("  Usage: fray leak example.com")
+        print("         fray leak user@example.com")
+        sys.exit(1)
+
+    # Strip scheme if user passes a URL
+    if target.startswith(("http://", "https://")):
+        import urllib.parse as _up
+        target = _up.urlparse(target).hostname or target
+
+    github = not getattr(args, 'hibp_only', False)
+    hibp = not getattr(args, 'github_only', False)
+
+    result = search_leaks(
+        target=target,
+        github=github,
+        hibp=hibp,
+        timeout=getattr(args, 'timeout', 10),
+    )
+
+    if getattr(args, 'json', False):
+        out = json.dumps(result, indent=2, ensure_ascii=False)
+        if getattr(args, 'output', None):
+            _validate_output_path(args.output)
+            Path(args.output).write_text(out, encoding="utf-8")
+            print(f"  Saved to {args.output}")
+        else:
+            print(out)
+    else:
+        print_leak_results(result)
+        if getattr(args, 'output', None):
+            _validate_output_path(args.output)
+            out = json.dumps(result, indent=2, ensure_ascii=False)
+            Path(args.output).write_text(out, encoding="utf-8")
+            print(f"  💾 Results saved to {args.output}")
+
+
 def cmd_help(args):
     """Friendly high-level guide to every fray command."""
     print(f"""
@@ -3012,6 +3055,8 @@ def cmd_help(args):
   fray payloads                 List all {len(list_categories())} payload categories with counts
   fray validate <url>           Blue team: validate WAF config (defense report)
   fray bounty --platform hackerone   Bug bounty integration
+  fray leak example.com          Search GitHub + HIBP for leaked credentials
+  fray leak user@example.com     Check specific email in breach databases
   fray diff before.json after.json   Compare scan results (regression testing)
   fray explain CVE-2021-44228   Explain a CVE with payloads and severity
   fray explain results.json      Explain scan findings: impact, why it matters, next steps
@@ -3512,6 +3557,19 @@ Documentation: https://github.com/dalisecurity/fray
     p_scope.add_argument("--check", default=None, help="Check if a specific URL is in scope")
     p_scope.add_argument("--json", action="store_true", help="Output parsed scope as JSON")
     p_scope.set_defaults(func=cmd_scope)
+
+    # leak
+    p_leak = subparsers.add_parser("leak",
+        help="Search for leaked credentials on GitHub and Have I Been Pwned")
+    p_leak.add_argument("target", help="Domain (example.com) or email (user@example.com)")
+    p_leak.add_argument("--github-only", action="store_true",
+                         help="Only search GitHub code (skip HIBP)")
+    p_leak.add_argument("--hibp-only", action="store_true",
+                         help="Only search Have I Been Pwned (skip GitHub)")
+    p_leak.add_argument("--json", action="store_true", help="Output as JSON")
+    p_leak.add_argument("-o", "--output", default=None, help="Save results to file")
+    p_leak.add_argument("-t", "--timeout", type=int, default=10, help="Request timeout (default: 10)")
+    p_leak.set_defaults(func=cmd_leak)
 
     # demo
     p_demo = subparsers.add_parser("demo",
