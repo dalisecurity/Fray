@@ -11,6 +11,8 @@
 
 > **正規の許可を得たセキュリティテスト専用** — 自身が所有する、または書面で明示的に許可を得たシステムのみテストしてください。
 
+Frayは[wafw00f](https://github.com/EnableSecurity/wafw00f)（検出）と[sqlmap](https://github.com/sqlmapproject/sqlmap)（攻撃）の間を埋めるツール — 完全な**情報収集 → バイパス → 堅牢化**パイプラインを1つの `pip install` で提供します。
+
 ---
 
 ## Frayと他ツールの比較
@@ -46,6 +48,8 @@ fray recon https://example.com         # 27項目の情報収集
 <p align="center">
   <img src="docs/demo.gif" alt="Frayデモ — WAF検出とXSSバイパス" width="720">
 </p>
+
+Frayがリコンワークフローに役立ったら、ぜひ[⭐ スター](https://github.com/dalisecurity/fray)をお願いします — 他の人が見つけやすくなります。
 
 ---
 
@@ -98,27 +102,15 @@ pip install 'fray[mcp]'
 
 [Claude Codeガイド →](docs/claude-code-guide.md) · [ChatGPTガイド →](docs/chatgpt-guide.md) · [mcp.json →](mcp.json)
 
-<details>
-<summary><b>全14個のMCPツール</b></summary>
-
 | ツール | 機能 |
 |--------|------|
-| `list_payload_categories` | 全24攻撃カテゴリを一覧 |
-| `get_payloads` | カテゴリ別ペイロード取得 |
-| `search_payloads` | 6,300+ペイロードを全文検索 |
-| `get_waf_signatures` | 25ベンダーのWAFフィンガープリント |
-| `get_cve_details` | CVE検索（ペイロード・重要度付き） |
 | `suggest_payloads_for_waf` | 特定WAF向けバイパスペイロード推薦 |
-| `analyze_scan_results` | スキャン結果のリスク評価 |
 | `generate_bypass_strategy` | ブロックされたペイロードの変異戦略 |
-| `explain_vulnerability` | ペイロードの危険性を初心者向けに解説 |
-| `create_custom_payload` | 自然言語からペイロード生成 |
-| `ai_suggest_payloads` | WAFインテルを活用したコンテキスト対応ペイロード生成 |
-| `analyze_response` | 偽陰性検出：ソフトブロック、チャレンジ、反射分析 |
+| `search_payloads` | 6,300+ペイロードを全文検索 |
+| `analyze_response` | 偽陰性検出：ソフトブロック、チャレンジ |
 | `hardening_check` | セキュリティヘッダー監査（グレード + レート制限チェック） |
-| `owasp_misconfig_check` | OWASP A01/A02/A03/A05/A06/A07チェック |
 
-</details>
+[全14個のMCPツールを見る →](docs/claude-code-guide.md)
 
 ---
 
@@ -156,22 +148,6 @@ fray report results.json --html     # クライアント向けHTMLレポート
 
 ---
 
-<details>
-<summary><b>ロードマップ</b></summary>
-
-- [x] フルパイプライン：`fray auto`（recon → scan → ai-bypass）
-- [x] AI適応型バイパス + LLM連携（OpenAI/Anthropic）
-- [x] 5フェーズWAF回避スコアラー + 変異フィードバックループ
-- [x] OWASP堅牢化チェック + セキュリティヘッダー監査
-- [x] 20戦略ペイロード変異エンジン
-- [x] 自動スキャン：クロール → 発見 → 注入（`fray scan`）
-- [x] 27項目の情報収集、スマートモード、WAF検出
-- [x] 14 MCPツール、HTML/Markdownレポート、SARIF出力
-- [ ] HackerOne API連携（自動送信）
-- [ ] Webベースのレポートダッシュボード
-
-</details>
-
 ## コントリビュート
 
 [CONTRIBUTING.md](CONTRIBUTING.md) を参照。
@@ -184,7 +160,7 @@ fray report results.json --html     # クライアント向けHTMLレポート
 
 ---
 
-**[📖 ドキュメント](docs/) · [PyPI](https://pypi.org/project/fray/) · [Issues](https://github.com/dalisecurity/fray/issues) · [Discussions](https://github.com/dalisecurity/fray/discussions)**
+**[📖 ドキュメント](docs/) · [ロードマップ](docs/roadmap.md) · [PyPI](https://pypi.org/project/fray/) · [Issues](https://github.com/dalisecurity/fray/issues) · [Discussions](https://github.com/dalisecurity/fray/discussions)**
 
 ## 関連プロジェクト
 

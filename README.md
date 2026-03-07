@@ -11,6 +11,8 @@
 
 > **FOR AUTHORIZED SECURITY TESTING ONLY** — Only test systems you own or have explicit written permission to test.
 
+Fray is the missing link between [wafw00f](https://github.com/EnableSecurity/wafw00f) (detection) and [sqlmap](https://github.com/sqlmapproject/sqlmap) (exploitation) — a complete **recon → bypass → harden** pipeline in one `pip install`.
+
 ---
 
 ## How Fray Compares
@@ -46,6 +48,8 @@ fray recon https://example.com         # 27-check reconnaissance
 <p align="center">
   <img src="docs/demo.gif" alt="Fray demo — WAF detection and XSS bypass" width="720">
 </p>
+
+If Fray helped your recon workflow, please [⭐ star the repo](https://github.com/dalisecurity/fray) — it helps others find it.
 
 ---
 
@@ -98,27 +102,15 @@ Ask: *"What XSS payloads bypass Cloudflare?"* → Fray's 14 MCP tools are called
 
 [Claude Code guide →](docs/claude-code-guide.md) · [ChatGPT guide →](docs/chatgpt-guide.md) · [mcp.json →](mcp.json)
 
-<details>
-<summary><b>All 14 MCP Tools</b></summary>
-
 | Tool | What it does |
 |------|-------------|
-| `list_payload_categories` | List all 24 attack categories |
-| `get_payloads` | Retrieve payloads by category |
-| `search_payloads` | Full-text search across 6,300+ payloads |
-| `get_waf_signatures` | WAF fingerprints for 25 vendors |
-| `get_cve_details` | CVE lookup with payloads and severity |
 | `suggest_payloads_for_waf` | Best bypass payloads for a specific WAF |
-| `analyze_scan_results` | Risk assessment from scan/test JSON |
 | `generate_bypass_strategy` | Mutation strategies for blocked payloads |
-| `explain_vulnerability` | Beginner-friendly payload explanation |
-| `create_custom_payload` | Generate payloads from natural language |
-| `ai_suggest_payloads` | Context-aware payload generation with WAF intel |
-| `analyze_response` | False negative detection: soft blocks, challenges, reflection |
+| `search_payloads` | Full-text search across 6,300+ payloads |
+| `analyze_response` | False negative detection: soft blocks, challenges |
 | `hardening_check` | Security headers audit with grade + rate-limit check |
-| `owasp_misconfig_check` | OWASP A01/A02/A03/A05/A06/A07 checks |
 
-</details>
+[See all 14 MCP tools →](docs/claude-code-guide.md)
 
 ---
 
@@ -156,22 +148,6 @@ fray report results.json --html     # Client-ready HTML report
 
 ---
 
-<details>
-<summary><b>Roadmap</b></summary>
-
-- [x] Full pipeline: `fray auto` (recon → scan → ai-bypass)
-- [x] AI-assisted bypass with LLM integration (OpenAI/Anthropic)
-- [x] 5-phase WAF evasion scorer with mutation feedback loop
-- [x] OWASP hardening checks + security header audit
-- [x] 20-strategy payload mutation engine
-- [x] Auto scan: crawl → discover → inject (`fray scan`)
-- [x] 27-check reconnaissance, smart mode, WAF detection
-- [x] 14 MCP tools, HTML/Markdown reports, SARIF output
-- [ ] HackerOne API integration (auto-submit findings)
-- [ ] Web-based report dashboard
-
-</details>
-
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -184,7 +160,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
-**[📖 Docs](docs/) · [PyPI](https://pypi.org/project/fray/) · [Issues](https://github.com/dalisecurity/fray/issues) · [Discussions](https://github.com/dalisecurity/fray/discussions)**
+**[📖 Docs](docs/) · [Roadmap](docs/roadmap.md) · [PyPI](https://pypi.org/project/fray/) · [Issues](https://github.com/dalisecurity/fray/issues) · [Discussions](https://github.com/dalisecurity/fray/discussions)**
 
 ## Related Projects
 
