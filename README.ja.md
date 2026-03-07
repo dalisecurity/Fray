@@ -1,6 +1,8 @@
-# Fray
+# Fray — WAFバイパス & セキュリティテストツールキット
 
-### ⚔️ *オープンソースWAFセキュリティテストツールキット — 情報収集、スキャン、バイパス、堅牢化*
+### ⚔️ *オープンソースのWebアプリケーションファイアウォール向けペネトレーションテストツール — 情報収集、スキャン、バイパス、堅牢化*
+
+Frayは高速・オープンソースの**Webアプリケーションセキュリティ**スキャナーおよび**WAFバイパス**ツールキットです。ペネトレーションテスター、バグバウンティハンター、DevSecOpsチーム向けに、6,300以上のペイロードデータベース、27項目の情報収集、AIアシストWAF回避、OWASP堅牢化監査を依存関係ゼロの `pip install` で提供します。
 
 [![Payloads](https://img.shields.io/badge/ペイロード-6300+-brightgreen.svg?style=for-the-badge)](https://github.com/dalisecurity/fray)
 [![WAF Detection](https://img.shields.io/badge/WAF検出-25社+-blue.svg?style=for-the-badge&logo=cloudflare)](https://github.com/dalisecurity/fray)
@@ -34,19 +36,21 @@
 
 ## 誰が使う？
 
-- **バグバウンティハンター** — 隠れたパラメータ・古いエンドポイント発見、WAFバイパス、レポート作成
-- **ペンテスター** — フルrecon＋自動スキャン、クライアント向けHTMLレポート
+- **バグバウンティハンター** — 隠れたパラメータ・古いエンドポイント発見、Cloudflare/AWS WAF/Akamaiバイパス、レポート作成
+- **ペンテスター** — フル情報収集 + 自動脆弱性スキャン、クライアント向けHTMLレポート
 - **ブルーチーム** — WAFルール検証、設定変更後の回帰テスト
-- **DevSecOps** — CI/CDパイプラインでWAFテスト、バイパス検出時にビルド失敗
-- **セキュリティリサーチャー** — WAFバイパス発見、ペイロード投稿
-- **学生** — インタラクティブCTFチュートリアル、攻撃手法をハンズオンで学習
+- **DevSecOps** — CI/CDパイプラインでDAST、WAFバイパス検出時にビルド失敗
+- **セキュリティリサーチャー** — WAF回避技術の発見、ペイロード投稿
+- **学生** — インタラクティブCTFチュートリアル、OWASP Top 10攻撃手法をハンズオンで学習
 
 ---
 
 ## クイックスタート
 
 ```bash
-pip install fray
+pip install fray                # PyPI（全プラットフォーム）
+sudo apt install fray            # Kali Linux / Debian
+brew install fray                # macOS
 ```
 
 ```bash
@@ -257,7 +261,7 @@ fray harden https://example.com --json -o audit.json
 fray detect https://example.com
 ```
 
-Cloudflare、AWS WAF、Akamai、Imperva、F5 BIG-IP、Fastly、Azure WAF、Google Cloud Armor、Sucuri、Fortinet、Wallarm、Vercel 他13社
+Cloudflare、AWS WAF、Akamai、Imperva、F5 BIG-IP、Fastly、Azure WAF、Google Cloud Armor、Sucuri、Fortinet、Wallarm、Vercel 他13社。シグネチャ型、異常検知型、ハイブリッドWAFモードを識別 — 最適なバイパス戦略選択に必須。
 
 [検出シグネチャ →](docs/waf-detection-guide.md)
 
@@ -279,12 +283,14 @@ Cloudflare、AWS WAF、Akamai、Imperva、F5 BIG-IP、Fastly、Azure WAF、Googl
 
 ## 6,300以上のペイロード · 24カテゴリ · 162件のCVE
 
+最大級のオープンソースWAFペイロードデータベース — 実践的なペネトレーションテストとバグバウンティ向けに厳選。
+
 | カテゴリ | 件数 | カテゴリ | 件数 |
 |---------|-----|---------|-----|
-| XSS | 851 | SSRF | 71 |
-| SQLi | 141 | SSTI | 205 |
-| コマンドインジェクション | 118 | XXE | 151 |
-| パストラバーサル | 277 | AI/LLMプロンプトインジェクション | 370 |
+| XSS（クロスサイトスクリプティング） | 851 | SSRF | 71 |
+| SQLインジェクション | 141 | SSTI | 205 |
+| コマンドインジェクション（RCE） | 118 | XXE | 151 |
+| パストラバーサル（LFI/RFI） | 277 | AI/LLMプロンプトインジェクション | 370 |
 
 ```bash
 fray explain log4shell    # CVEインテリジェンス（ペイロード付き）
@@ -362,7 +368,9 @@ fray diff before.json after.json --json # 機械可読diff
 
 Git風ビジュアル出力：回帰は**赤**（`- BLOCKED → + BYPASS`）、改善は**緑**（`- BYPASS → + BLOCKED`）、カテゴリ別内訳テーブル付き。回帰時は終了コード1 — CI/CDゲートに最適。
 
-## MCPサーバー — AI連携
+## MCPサーバー — AIエージェント連携
+
+Frayは[Model Context Protocol (MCP)](https://modelcontextprotocol.io/)経由で14ツールを提供 — Claude Desktop、Claude Code、ChatGPT、CursorなどMCP対応クライアントからAIセキュリティエージェントとして利用可能。
 
 ```bash
 pip install 'fray[mcp]'
@@ -444,6 +452,22 @@ fray/
 - [x] 14 MCPツール、HTML/Markdownレポート、SARIF出力
 - [ ] HackerOne API連携（自動送信）
 - [ ] Webベースのレポートダッシュボード
+
+---
+
+## Frayと他ツールの比較
+
+| | Fray | Nuclei | XSStrike | wafw00f | sqlmap |
+|-|------|--------|----------|---------|--------|
+| **WAFバイパスエンジン** | ✅ AI + 変異 | ❌ | 部分的 | ❌ | Tamperスクリプト |
+| **WAF検出** | 25社 + モード | テンプレート経由 | 基本 | 150社以上 | 基本 |
+| **情報収集** | 27項目 | 別ツール | クロールのみ | ❌ | ❌ |
+| **ペイロードDB** | 6,300以上内蔵 | コミュニティテンプレ | XSSのみ | ❌ | SQLiのみ |
+| **OWASP堅牢化** | ✅ A-Fグレード | ❌ | ❌ | ❌ | ❌ |
+| **MCP / AIエージェント** | 14ツール | ❌ | ❌ | ❌ | ❌ |
+| **依存関係ゼロ** | ✅ 標準ライブラリのみ | Goバイナリ | pip | pip | pip |
+
+Frayはこれらのツールの代替ではありません — WAF検出（wafw00f）と攻撃（sqlmap/XSStrike）の間を埋める、**検出 → 情報収集 → バイパス → 堅牢化**の完全ワークフローを提供します。
 
 ---
 

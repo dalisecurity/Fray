@@ -1,8 +1,10 @@
-# Fray
+# Fray — WAF Bypass & Security Testing Toolkit
 
 **🌐 Language:** **English** | [日本語](README.ja.md)
 
-### ⚔️ *Open-source WAF security testing toolkit — recon, scan, bypass, harden*
+### ⚔️ *Open-source penetration testing tool for web application firewalls — recon, scan, bypass, harden*
+
+Fray is a fast, open-source **web application security** scanner and **WAF bypass** toolkit for penetration testers, bug bounty hunters, and DevSecOps teams. It combines a 6,300+ payload database, 27-check reconnaissance, AI-assisted WAF evasion, and OWASP hardening audits into a single `pip install` with zero dependencies.
 
 [![Total Payloads](https://img.shields.io/badge/Payloads-6300+-brightgreen.svg?style=for-the-badge)](https://github.com/dalisecurity/fray)
 [![WAF Detection](https://img.shields.io/badge/WAF_Vendors-25+-blue.svg?style=for-the-badge&logo=cloudflare)](https://github.com/dalisecurity/fray)
@@ -34,19 +36,21 @@ Most payload collections are static text files. Fray is a **complete workflow**:
 
 ## Who Uses Fray?
 
-- **Bug Bounty Hunters** — Discover hidden params, old endpoints, bypass WAFs, file reports
-- **Pentesters** — Full recon + automated scan with client-ready HTML reports
+- **Bug Bounty Hunters** — Discover hidden params, old endpoints, bypass Cloudflare/AWS WAF/Akamai, file reports
+- **Pentesters** — Full reconnaissance + automated vulnerability scanning with client-ready HTML reports
 - **Blue Teams** — Validate WAF rules, regression test after config changes
-- **DevSecOps** — CI/CD pipeline WAF testing, fail builds on bypasses
-- **Security Researchers** — Find WAF bypasses, contribute payloads
-- **Students** — Interactive CTF tutorials, learn attack vectors hands-on
+- **DevSecOps** — DAST in CI/CD pipelines, fail builds on WAF bypasses
+- **Security Researchers** — Find WAF evasion techniques, contribute payloads
+- **Students** — Interactive CTF tutorials, learn OWASP Top 10 attack vectors hands-on
 
 ---
 
 ## Quick Start
 
 ```bash
-pip install fray
+pip install fray                # PyPI (all platforms)
+sudo apt install fray            # Kali Linux / Debian
+brew install fray                # macOS
 ```
 
 ```bash
@@ -258,7 +262,7 @@ Checks security headers (HSTS, CSP, COOP, CORP, Permissions-Policy, rate-limit h
 fray detect https://example.com
 ```
 
-Cloudflare, AWS WAF, Akamai, Imperva, F5 BIG-IP, Fastly, Azure WAF, Google Cloud Armor, Sucuri, Fortinet, Wallarm, Vercel, and 13 more.
+Cloudflare, AWS WAF, Akamai, Imperva, F5 BIG-IP, Fastly, Azure WAF, Google Cloud Armor, Sucuri, Fortinet, Wallarm, Vercel, and 13 more. Identifies signature-based, anomaly-based, and hybrid WAF modes — essential for choosing the right bypass strategy.
 
 [Detection signatures →](docs/waf-detection-guide.md)
 
@@ -280,12 +284,14 @@ Cloudflare, AWS WAF, Akamai, Imperva, F5 BIG-IP, Fastly, Azure WAF, Google Cloud
 
 ## 6,300+ Payloads · 24 Categories · 162 CVEs
 
+The largest open-source WAF payload database — curated for real-world penetration testing and bug bounty hunting.
+
 | Category | Count | Category | Count |
 |----------|-------|----------|-------|
-| XSS | 851 | SSRF | 71 |
-| SQLi | 141 | SSTI | 205 |
-| Command Injection | 118 | XXE | 151 |
-| Path Traversal | 277 | AI/LLM Prompt Injection | 370 |
+| XSS (Cross-Site Scripting) | 851 | SSRF | 71 |
+| SQL Injection | 141 | SSTI | 205 |
+| Command Injection (RCE) | 118 | XXE | 151 |
+| Path Traversal (LFI/RFI) | 277 | AI/LLM Prompt Injection | 370 |
 
 ```bash
 fray explain log4shell    # CVE intelligence with payloads
@@ -363,7 +369,9 @@ fray diff before.json after.json --json # Machine-readable diff
 
 Git-style visual output: regressions in **red** (`- BLOCKED → + BYPASS`), improvements in **green** (`- BYPASS → + BLOCKED`), with per-category breakdown table. Exit code 1 on regressions — perfect for CI/CD gates.
 
-## MCP Server — AI Integration
+## MCP Server — AI Agent Integration
+
+Fray exposes 14 tools via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) — use Fray as an AI security agent from Claude Desktop, Claude Code, ChatGPT, Cursor, or any MCP-compatible client.
 
 ```bash
 pip install 'fray[mcp]'
@@ -392,7 +400,7 @@ Restart Claude Desktop. Ask: *"What XSS payloads bypass Cloudflare?"* → Fray's
 |------|-------------|
 | `list_payload_categories` | List all 24 attack categories |
 | `get_payloads` | Retrieve payloads by category |
-| `search_payloads` | Full-text search across 5,500+ payloads |
+| `search_payloads` | Full-text search across 6,300+ payloads |
 | `get_waf_signatures` | WAF fingerprints for 25 vendors |
 | `get_cve_details` | CVE lookup with payloads and severity |
 | `suggest_payloads_for_waf` | Best bypass payloads for a specific WAF |
@@ -445,6 +453,22 @@ fray/
 - [x] 14 MCP tools, HTML/Markdown reports, SARIF output
 - [ ] HackerOne API integration (auto-submit findings)
 - [ ] Web-based report dashboard
+
+---
+
+## How Fray Compares
+
+| | Fray | Nuclei | XSStrike | wafw00f | sqlmap |
+|-|------|--------|----------|---------|--------|
+| **WAF bypass engine** | ✅ AI + mutation | ❌ | Partial | ❌ | Tamper scripts |
+| **WAF detection** | 25 vendors + mode | Via templates | Basic | 150+ vendors | Basic |
+| **Recon pipeline** | 27 checks | Separate tools | Crawl only | ❌ | ❌ |
+| **Payload database** | 6,300+ built-in | Community templates | XSS only | ❌ | SQLi only |
+| **OWASP hardening** | ✅ A-F grade | ❌ | ❌ | ❌ | ❌ |
+| **MCP / AI agent** | 14 tools | ❌ | ❌ | ❌ | ❌ |
+| **Zero dependencies** | ✅ stdlib only | Go binary | pip | pip | pip |
+
+Fray is not a replacement for these tools — it fills the gap between WAF detection (wafw00f) and exploitation (sqlmap/XSStrike) with a complete **detect → recon → bypass → harden** workflow.
 
 ---
 
