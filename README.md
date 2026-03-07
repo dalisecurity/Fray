@@ -112,6 +112,10 @@ fray scan https://target.com --json -o results.json        # CI/CD
 
 Crawls → discovers injection points (forms, URL params, JS APIs) → tests payloads → detects reflection (`↩ REFLECTED`). Auto-backoff on 429 rate limits.
 
+<p align="center">
+  <img src="docs/screenshot-scan.png" alt="Fray scan — crawl, inject, detect XSS reflections" width="720">
+</p>
+
 [Full scan options + examples →](docs/scanning-guide.md)
 
 ---
@@ -224,6 +228,10 @@ fray scan target.com --ai           # LLM-optimized JSON for AI agents
 fray scan target.com --sarif -o r.sarif  # SARIF → GitHub Security tab
 fray diff before.json after.json    # Regression testing (exit 1 on bypass)
 ```
+
+<p align="center">
+  <img src="docs/screenshot-graph.png" alt="Fray graph — visual attack surface tree" width="720">
+</p>
 
 ## MCP Server — AI Agent Integration
 

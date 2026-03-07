@@ -112,6 +112,10 @@ fray scan https://target.com --json -o results.json        # CI/CD
 
 クロール → 注入ポイント発見（フォーム、URLパラメータ、JS API）→ ペイロードテスト → 反射検出（`↩ REFLECTED`）。429レート制限時は自動バックオフ。
 
+<p align="center">
+  <img src="docs/screenshot-scan.png" alt="Fray scan — クロール、注入、XSS反射検出" width="720">
+</p>
+
 [全スキャンオプション + 使用例 →](docs/scanning-guide.md)
 
 ---
@@ -224,6 +228,10 @@ fray scan target.com --ai           # AIエージェント向けLLM最適化JSON
 fray scan target.com --sarif -o r.sarif  # SARIF → GitHubセキュリティタブ
 fray diff before.json after.json    # 回帰テスト（バイパス時に終了コード1）
 ```
+
+<p align="center">
+  <img src="docs/screenshot-graph.png" alt="Fray graph — 攻撃サーフェスのビジュアルツリー" width="720">
+</p>
 
 ## MCPサーバー — AIエージェント連携
 
