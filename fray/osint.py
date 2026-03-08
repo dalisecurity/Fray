@@ -374,23 +374,25 @@ _SOCIAL_PLATFORMS = [
 ]
 
 
-def _verify_profile_owns_domain(url: str, domain: str, timeout: int = 6) -> str:
+def _verify_profile_owns_domain(url: str, domain: str, platform: str,
+                                timeout: int = 6) -> str:
     """Fetch a profile page and check if it references the domain.
 
     Returns:
         "verified"   — page body or meta tags contain the domain
-        "unverified" — page exists but no domain reference found
+        "likely"     — strong heuristic match (brand name in title, org page)
+        "unverified" — page exists but no ownership signal found
         "not_found"  — page doesn't exist (404 / error)
     """
-    # Patterns that indicate the profile belongs to this domain
-    # Match the domain itself, with or without scheme/www
     domain_bare = domain.lower()
-    domain_no_tld = domain_bare.split(".")[0]
-    patterns = [
-        domain_bare,                      # dalisec.io
-        f"www.{domain_bare}",             # www.dalisec.io
-        f"https://{domain_bare}",         # https://dalisec.io
-        f"http://{domain_bare}",          # http://dalisec.io
+    brand = domain_bare.split(".")[0]  # e.g. "cloudflare" from "cloudflare.com"
+
+    # Domain patterns (exact ownership proof)
+    domain_patterns = [
+        domain_bare,
+        f"www.{domain_bare}",
+        f"https://{domain_bare}",
+        f"http://{domain_bare}",
     ]
 
     ctx = ssl.create_default_context()
@@ -406,22 +408,60 @@ def _verify_profile_owns_domain(url: str, domain: str, timeout: int = 6) -> str:
                 return "not_found"
             body = resp.read(64_000).decode("utf-8", errors="replace").lower()
 
-            # Check if the page references the domain (in bio, website, links, meta)
-            for pat in patterns:
+            # Tier 1: page references the exact domain
+            for pat in domain_patterns:
                 if pat in body:
                     return "verified"
+
+            # Tier 2: heuristic — page title/meta contains brand name
+            # This catches JS-rendered pages where <title> is still in raw HTML
+            title_match = re.search(r"<title[^>]*>([^<]+)</title>", body)
+            meta_desc = re.search(r'<meta[^>]+(?:name|property)=["\'](?:description|og:description)["\'][^>]+content=["\']([^"\']+)', body)
+            og_title = re.search(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)', body)
+
+            title_text = (title_match.group(1) if title_match else "").lower()
+            desc_text = (meta_desc.group(1) if meta_desc else "").lower()
+            og_text = (og_title.group(1) if og_title else "").lower()
+
+            # Tier 2: heuristic — brand name in page metadata
+            # NOTE: LinkedIn and Crunchbase echo the URL slug as page title
+            # (e.g. "dalisec | linkedin") even for non-existent companies,
+            # so brand-in-title alone is NOT proof of a real page there.
+            # Only use brand-in-title for platforms with meaningful titles.
+            has_brand_in_title = brand in title_text or brand in og_text
+
+            if has_brand_in_title:
+                # Skip platforms that just echo the slug as title
+                if platform in ("LinkedIn Company", "Crunchbase"):
+                    # For these, require additional signals beyond slug echo
+                    # Check for employee count, description, or other real content
+                    has_real_content = (
+                        "employees" in body or "follower" in body
+                        or domain_bare in desc_text
+                        or len(desc_text) > 50  # Real companies have descriptions
+                    )
+                    if has_real_content:
+                        return "likely"
+                    # else: just a slug echo, stay unverified
+                else:
+                    return "likely"
+
             return "unverified"
     except urllib.error.HTTPError as e:
         if e.code in (301, 302):
-            return "unverified"  # Exists but can't verify
+            return "unverified"
         return "not_found"
     except Exception:
         return "not_found"
 
 
-# GitHub API can confirm profile ownership via website field without scraping
 def _verify_github(username: str, domain: str, timeout: int = 6) -> str:
-    """Use GitHub API to check if user/org blog field matches the domain."""
+    """Use GitHub API to check if user/org blog field matches the domain.
+
+    Returns "verified" if blog/bio references the domain,
+    "likely" if it's an Organization account with matching name,
+    "unverified" otherwise.
+    """
     try:
         req = urllib.request.Request(
             f"https://api.github.com/users/{username}",
@@ -438,11 +478,22 @@ def _verify_github(username: str, domain: str, timeout: int = 6) -> str:
             data = json.loads(resp.read().decode())
             blog = (data.get("blog") or "").lower().rstrip("/")
             bio = (data.get("bio") or "").lower()
+            name = (data.get("name") or "").lower()
+            acct_type = (data.get("type") or "").lower()  # "organization" or "user"
             domain_bare = domain.lower()
+            brand = domain_bare.split(".")[0]
+
+            # Tier 1: blog/bio explicitly references the domain
             if domain_bare in blog or domain_bare in bio:
                 return "verified"
-            if f"https://{domain_bare}" in blog or f"http://{domain_bare}" in blog:
+            # Also match alternate domains (e.g. stripe.dev for stripe.com)
+            if brand in blog and (".dev" in blog or ".io" in blog or ".org" in blog or ".com" in blog):
                 return "verified"
+
+            # Tier 2: Organization account with matching login name
+            if acct_type == "organization" and data.get("login", "").lower() == brand:
+                return "likely"
+
             return "unverified"
     except Exception:
         return "unverified"
@@ -491,7 +542,8 @@ def check_social_profiles(domain: str, timeout: int = 8) -> Dict[str, Any]:
                         if platform == "GitHub":
                             verification = _verify_github(username, domain, timeout)
                         else:
-                            verification = _verify_profile_owns_domain(url, domain, timeout)
+                            verification = _verify_profile_owns_domain(
+                                url, domain, platform, timeout)
 
                         found.append({
                             "platform": platform,
@@ -506,9 +558,9 @@ def check_social_profiles(domain: str, timeout: int = 8) -> Dict[str, Any]:
                 pass
             time.sleep(0.3)  # Be polite
 
-    # Separate verified from unverified
-    verified = [p for p in found if p.get("verification") == "verified"]
-    unverified = [p for p in found if p.get("verification") != "verified"]
+    # Separate by confidence tier
+    verified = [p for p in found if p.get("verification") in ("verified", "likely")]
+    unverified = [p for p in found if p.get("verification") not in ("verified", "likely")]
 
     return {
         "domain": domain,
@@ -669,7 +721,11 @@ def print_osint(result: Dict[str, Any]) -> None:
             total_label += f", {unverified_count} unverified"
         console.print(f"  [bold]Social Media Profiles[/bold] ({total_label})")
         for prof in s.get("profiles", []):
-            console.print(f"    [green]✓ {prof['platform']}[/green]: {prof['url']}")
+            v = prof.get("verification", "verified")
+            if v == "likely":
+                console.print(f"    [yellow]~ {prof['platform']}[/yellow]: {prof['url']}  [dim](likely match)[/dim]")
+            else:
+                console.print(f"    [green]✓ {prof['platform']}[/green]: {prof['url']}")
         for prof in s.get("unverified_profiles", []):
             console.print(f"    [dim]? {prof['platform']}: {prof['url']}  (unverified — may not belong to {s.get('domain', 'target')})[/dim]")
         if not verified and not unverified_count:
