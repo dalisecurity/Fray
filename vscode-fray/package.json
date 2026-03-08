@@ -1,0 +1,208 @@
+{
+  "name": "fray-security",
+  "displayName": "Fray Security Scanner",
+  "description": "Run Fray WAF/security scans directly from VS Code — scan, test, recon, OSINT on any URL",
+  "version": "0.1.0",
+  "publisher": "dalisecurity",
+  "license": "MIT",
+  "icon": "media/fray-icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dalisecurity/Fray"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Testing",
+    "Other"
+  ],
+  "keywords": [
+    "security",
+    "waf",
+    "scanner",
+    "penetration testing",
+    "xss",
+    "sqli",
+    "recon",
+    "osint",
+    "fray"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "fray.scanUrl",
+        "title": "Fray: Scan URL",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "fray.testUrl",
+        "title": "Fray: Test Payloads Against URL",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "fray.reconUrl",
+        "title": "Fray: Recon URL",
+        "icon": "$(search)"
+      },
+      {
+        "command": "fray.osintDomain",
+        "title": "Fray: OSINT Domain",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "fray.leakSearch",
+        "title": "Fray: Leak Search",
+        "icon": "$(key)"
+      },
+      {
+        "command": "fray.scanFromSelection",
+        "title": "Fray: Scan Selected URL",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "fray.quickPick",
+        "title": "Fray: Run Command...",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "fray.stopScan",
+        "title": "Fray: Stop Running Scan",
+        "icon": "$(debug-stop)"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "fray.scanFromSelection",
+          "when": "editorHasSelection",
+          "group": "fray@1"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "fray.quickPick",
+          "group": "navigation"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "fray.quickPick",
+        "key": "ctrl+shift+f",
+        "mac": "cmd+shift+f",
+        "when": "!searchViewletVisible"
+      }
+    ],
+    "configuration": {
+      "title": "Fray Security Scanner",
+      "properties": {
+        "fray.pythonPath": {
+          "type": "string",
+          "default": "python",
+          "description": "Path to Python interpreter (must have fray installed)"
+        },
+        "fray.defaultCategory": {
+          "type": "string",
+          "default": "xss",
+          "enum": [
+            "xss",
+            "sqli",
+            "rce",
+            "ssrf",
+            "lfi",
+            "open-redirect",
+            "ssti",
+            "xxe",
+            "nosqli",
+            "crlf",
+            "all"
+          ],
+          "description": "Default payload category for scans"
+        },
+        "fray.maxPayloads": {
+          "type": "number",
+          "default": 5,
+          "description": "Maximum payloads per injection point"
+        },
+        "fray.timeout": {
+          "type": "number",
+          "default": 8,
+          "description": "HTTP request timeout in seconds"
+        },
+        "fray.delay": {
+          "type": "number",
+          "default": 0.5,
+          "description": "Delay between requests in seconds"
+        },
+        "fray.autoThrottle": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable auto-throttle (fingerprint rate limits before scanning)"
+        },
+        "fray.stealth": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable stealth mode (randomize UA, add jitter)"
+        },
+        "fray.browserMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable Playwright browser mode for JS-heavy SPAs"
+        },
+        "fray.notifyWebhook": {
+          "type": "string",
+          "default": "",
+          "description": "Slack/Discord/Teams webhook URL for notifications"
+        },
+        "fray.showInlineFindings": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show scan findings as inline diagnostics"
+        },
+        "fray.jsonOutput": {
+          "type": "boolean",
+          "default": true,
+          "description": "Always capture JSON output (needed for diagnostics)"
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "fray-explorer",
+          "title": "Fray Security",
+          "icon": "media/fray-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "fray-explorer": [
+        {
+          "id": "fray.resultsView",
+          "name": "Scan Results"
+        },
+        {
+          "id": "fray.historyView",
+          "name": "History"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.22.0",
+    "typescript": "^5.3.3"
+  }
+}
