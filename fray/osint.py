@@ -1,22 +1,28 @@
 """
-Fray OSINT — broader Open Source Intelligence gathering
+Fray OSINT — offensive Open Source Intelligence gathering
 
 Usage:
     fray osint example.com              # Full OSINT scan
     fray osint example.com --json       # JSON output
     fray osint example.com --whois      # Whois only
     fray osint example.com --emails     # Email harvesting only
-    fray osint example.com --social     # Social media profile enumeration
+    fray osint example.com --github     # GitHub org recon only
+    fray osint example.com --docs       # Document metadata harvesting only
 
 Modules:
-    1. Whois lookup + history (registrar, creation date, name servers)
+    1. Whois lookup (registrar, creation date, name servers, privacy flags)
     2. Email harvesting (Hunter.io, public patterns, role addresses)
     3. Subdomain permutation (dnstwist-style typosquatting detection)
-    4. Social media / service profile enumeration
-    5. Technology profiling (Wappalyzer-style via headers/HTML)
+    4. GitHub org recon (repos, members, commit authors, leaked URLs,
+       interesting repos — infra/deploy/secrets)
+    5. Employee enumeration (names from GitHub commits + members,
+       corporate email pattern detection, email permutation generation)
+    6. Document metadata harvesting (crawl PDFs/Office docs, extract
+       author names, software versions, internal file paths from EXIF)
 
 Environment variables:
-    HUNTER_API_KEY    — Optional: enables Hunter.io email search (free tier: 25 req/month)
+    HUNTER_API_KEY    — Optional: enables Hunter.io email search
+    GITHUB_TOKEN      — Optional: increases GitHub API rate limit (60 → 5000 req/hr)
 
 Zero dependencies — stdlib only.
 """
@@ -359,233 +365,535 @@ def check_permutations(domain: str, timeout: float = 2.0,
     }
 
 
-# ── Social Media / Service Profile Enumeration ────────────────────────
+# ── GitHub Organisation Recon ─────────────────────────────────────────
 
-_SOCIAL_PLATFORMS = [
-    ("GitHub", "https://github.com/{username}", "github.com"),
-    ("Twitter/X", "https://x.com/{username}", "x.com"),
-    ("LinkedIn Company", "https://www.linkedin.com/company/{username}", "linkedin.com"),
-    ("Facebook", "https://www.facebook.com/{username}", "facebook.com"),
-    ("Instagram", "https://www.instagram.com/{username}", "instagram.com"),
-    ("YouTube", "https://www.youtube.com/@{username}", "youtube.com"),
-    ("Reddit", "https://www.reddit.com/user/{username}", "reddit.com"),
-    ("Medium", "https://medium.com/@{username}", "medium.com"),
-    ("Crunchbase", "https://www.crunchbase.com/organization/{username}", "crunchbase.com"),
+def _gh_api(path: str, timeout: int = 10) -> Any:
+    """Authenticated GitHub API GET.  Returns parsed JSON or None."""
+    url = f"https://api.github.com{path}"
+    req = urllib.request.Request(url, headers={
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "Fray-OSINT/1.0",
+    })
+    token = os.environ.get("GITHUB_TOKEN")
+    if token:
+        req.add_header("Authorization", f"token {token}")
+    ctx = ssl.create_default_context()
+    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+        return json.loads(resp.read().decode())
+
+
+def github_org_recon(domain: str, timeout: int = 10) -> Dict[str, Any]:
+    """Deep GitHub org recon — repos, members, commit authors, leaked endpoints.
+
+    1. Resolves the brand name to a GitHub org via API
+    2. Enumerates public repos (stars, language, last push)
+    3. Lists public org members
+    4. Samples recent commits for author names/emails
+    5. Scans repo descriptions + README for leaked internal URLs/endpoints
+    """
+    brand = domain.split(".")[0].lower()
+    result: Dict[str, Any] = {
+        "org_found": False,
+        "org_login": None,
+        "org_name": None,
+        "org_url": None,
+        "blog": None,
+        "public_repos": 0,
+        "members": [],
+        "repos": [],
+        "commit_authors": [],
+        "leaked_urls": [],
+        "interesting_repos": [],
+        "error": None,
+    }
+
+    # Step 1: check if org exists and verify domain ownership
+    try:
+        org_data = _gh_api(f"/users/{brand}", timeout)
+    except Exception as e:
+        result["error"] = f"GitHub API error: {e}"
+        return result
+
+    if not org_data or org_data.get("type", "").lower() != "organization":
+        # Try common org name variants
+        for variant in [brand, f"{brand}-inc", f"{brand}-io", f"{brand}hq"]:
+            try:
+                org_data = _gh_api(f"/users/{variant}", timeout)
+                if org_data and org_data.get("type", "").lower() == "organization":
+                    brand = variant
+                    break
+            except Exception:
+                continue
+        else:
+            result["error"] = f"No GitHub org found for '{brand}'"
+            return result
+
+    result["org_found"] = True
+    result["org_login"] = org_data.get("login")
+    result["org_name"] = org_data.get("name")
+    result["org_url"] = org_data.get("html_url")
+    result["blog"] = org_data.get("blog")
+    result["public_repos"] = org_data.get("public_repos", 0)
+
+    # Step 2: enumerate public repos (top 30 by stars)
+    try:
+        repos = _gh_api(f"/orgs/{brand}/repos?per_page=30&sort=stars&direction=desc", timeout)
+        for r in (repos or []):
+            entry = {
+                "name": r.get("name"),
+                "full_name": r.get("full_name"),
+                "description": (r.get("description") or "")[:120],
+                "language": r.get("language"),
+                "stars": r.get("stargazers_count", 0),
+                "forks": r.get("forks_count", 0),
+                "last_push": r.get("pushed_at"),
+                "url": r.get("html_url"),
+                "default_branch": r.get("default_branch"),
+            }
+            result["repos"].append(entry)
+
+            # Flag interesting repos (infra, internal tools, config)
+            name_lower = (r.get("name") or "").lower()
+            desc_lower = (r.get("description") or "").lower()
+            interesting_keywords = [
+                "internal", "infra", "deploy", "terraform", "ansible",
+                "k8s", "kubernetes", "docker", "ci", "cd", "pipeline",
+                "config", "secret", "credential", "auth", "admin",
+                "staging", "prod", "monitoring", "api-gateway", "vpn",
+            ]
+            for kw in interesting_keywords:
+                if kw in name_lower or kw in desc_lower:
+                    result["interesting_repos"].append({
+                        "name": r.get("name"),
+                        "reason": kw,
+                        "url": r.get("html_url"),
+                        "description": entry["description"],
+                    })
+                    break
+    except Exception:
+        pass
+
+    # Step 3: enumerate public members
+    try:
+        members = _gh_api(f"/orgs/{brand}/members?per_page=50", timeout)
+        for m in (members or []):
+            result["members"].append({
+                "login": m.get("login"),
+                "url": m.get("html_url"),
+                "avatar": m.get("avatar_url"),
+            })
+    except Exception:
+        pass
+
+    # Step 4: sample commit authors from top repos (unique names/emails)
+    seen_authors = set()
+    for repo in result["repos"][:5]:
+        try:
+            commits = _gh_api(
+                f"/repos/{repo['full_name']}/commits?per_page=30", timeout)
+            for c in (commits or []):
+                author = c.get("commit", {}).get("author", {})
+                name = author.get("name", "")
+                email = author.get("email", "")
+                if not email or email.endswith("@users.noreply.github.com"):
+                    continue
+                key = email.lower()
+                if key not in seen_authors:
+                    seen_authors.add(key)
+                    result["commit_authors"].append({
+                        "name": name,
+                        "email": email,
+                        "repo": repo["name"],
+                    })
+        except Exception:
+            pass
+        time.sleep(0.2)
+
+    # Step 5: scan repo descriptions for leaked internal URLs
+    url_pattern = re.compile(
+        r'https?://[a-zA-Z0-9._-]+\.(?:internal|local|corp|staging|dev|test|'
+        + re.escape(domain) + r')[/\w.-]*',
+        re.IGNORECASE,
+    )
+    for repo in result["repos"][:10]:
+        desc = repo.get("description") or ""
+        for match in url_pattern.finditer(desc):
+            result["leaked_urls"].append({
+                "url": match.group(),
+                "source": f"repo description: {repo['name']}",
+            })
+
+    return result
+
+
+# ── Employee & Email Enumeration ─────────────────────────────────────
+
+# Common corporate email patterns
+_EMAIL_PATTERNS = [
+    "{first}.{last}",          # john.doe@example.com
+    "{first}{last}",           # johndoe@example.com
+    "{f}{last}",               # jdoe@example.com
+    "{first}_{last}",          # john_doe@example.com
+    "{first}",                 # john@example.com
+    "{last}.{first}",          # doe.john@example.com
+    "{f}.{last}",              # j.doe@example.com
 ]
 
 
-def _verify_profile_owns_domain(url: str, domain: str, platform: str,
-                                timeout: int = 6) -> str:
-    """Fetch a profile page and check if it references the domain.
+def enumerate_employees(domain: str, github_data: Optional[Dict] = None,
+                        timeout: int = 10) -> Dict[str, Any]:
+    """Enumerate employee names and generate email permutations.
+
+    Sources:
+        1. GitHub commit authors (real names + emails from git history)
+        2. GitHub org members (login → profile name lookup)
+        3. Email pattern inference from discovered real emails
 
     Returns:
-        "verified"   — page body or meta tags contain the domain
-        "likely"     — strong heuristic match (brand name in title, org page)
-        "unverified" — page exists but no ownership signal found
-        "not_found"  — page doesn't exist (404 / error)
+        Dict with people, inferred_emails, email_pattern, and stats.
     """
-    domain_bare = domain.lower()
-    brand = domain_bare.split(".")[0]  # e.g. "cloudflare" from "cloudflare.com"
+    brand = domain.split(".")[0].lower()
+    result: Dict[str, Any] = {
+        "domain": domain,
+        "people": [],
+        "email_pattern": None,
+        "inferred_emails": [],
+        "total_unique_people": 0,
+        "sources": {},
+    }
 
-    # Domain patterns (exact ownership proof)
-    domain_patterns = [
-        domain_bare,
-        f"www.{domain_bare}",
-        f"https://{domain_bare}",
-        f"http://{domain_bare}",
-    ]
+    seen_names: Dict[str, Dict] = {}  # normalized name → person record
+    real_emails: List[str] = []       # emails with the target domain
 
-    ctx = ssl.create_default_context()
-    try:
-        req = urllib.request.Request(url, headers={
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                          "AppleWebKit/537.36 (KHTML, like Gecko) "
-                          "Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml",
-        })
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-            if resp.status != 200:
-                return "not_found"
-            body = resp.read(64_000).decode("utf-8", errors="replace").lower()
+    # Source 1: GitHub commit authors
+    if github_data:
+        for author in github_data.get("commit_authors", []):
+            email = author.get("email", "")
+            name = author.get("name", "")
+            if not name or len(name) < 3:
+                continue
 
-            # Tier 1: page references the exact domain
-            for pat in domain_patterns:
-                if pat in body:
-                    return "verified"
+            # Track real corporate emails for pattern detection
+            if email.lower().endswith(f"@{domain}"):
+                real_emails.append(email.lower())
 
-            # Tier 2: heuristic — page title/meta contains brand name
-            # This catches JS-rendered pages where <title> is still in raw HTML
-            title_match = re.search(r"<title[^>]*>([^<]+)</title>", body)
-            meta_desc = re.search(r'<meta[^>]+(?:name|property)=["\'](?:description|og:description)["\'][^>]+content=["\']([^"\']+)', body)
-            og_title = re.search(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)', body)
+            nkey = name.strip().lower()
+            if nkey not in seen_names:
+                seen_names[nkey] = {
+                    "name": name.strip(),
+                    "emails": [],
+                    "sources": [],
+                    "github_login": None,
+                }
+            if email and email not in seen_names[nkey]["emails"]:
+                seen_names[nkey]["emails"].append(email)
+            if "github_commit" not in seen_names[nkey]["sources"]:
+                seen_names[nkey]["sources"].append("github_commit")
 
-            title_text = (title_match.group(1) if title_match else "").lower()
-            desc_text = (meta_desc.group(1) if meta_desc else "").lower()
-            og_text = (og_title.group(1) if og_title else "").lower()
-
-            # Tier 2: heuristic — brand name in page metadata
-            # NOTE: LinkedIn and Crunchbase echo the URL slug as page title
-            # (e.g. "dalisec | linkedin") even for non-existent companies,
-            # so brand-in-title alone is NOT proof of a real page there.
-            # Only use brand-in-title for platforms with meaningful titles.
-            has_brand_in_title = brand in title_text or brand in og_text
-
-            if has_brand_in_title:
-                # Skip platforms that just echo the slug as title
-                if platform in ("LinkedIn Company", "Crunchbase"):
-                    # For these, require additional signals beyond slug echo
-                    # Check for employee count, description, or other real content
-                    has_real_content = (
-                        "employees" in body or "follower" in body
-                        or domain_bare in desc_text
-                        or len(desc_text) > 50  # Real companies have descriptions
-                    )
-                    if has_real_content:
-                        return "likely"
-                    # else: just a slug echo, stay unverified
-                else:
-                    return "likely"
-
-            return "unverified"
-    except urllib.error.HTTPError as e:
-        if e.code in (301, 302):
-            return "unverified"
-        return "not_found"
-    except Exception:
-        return "not_found"
-
-
-def _verify_github(username: str, domain: str, timeout: int = 6) -> str:
-    """Use GitHub API to check if user/org blog field matches the domain.
-
-    Returns "verified" if blog/bio references the domain,
-    "likely" if it's an Organization account with matching name,
-    "unverified" otherwise.
-    """
-    try:
-        req = urllib.request.Request(
-            f"https://api.github.com/users/{username}",
-            headers={
-                "Accept": "application/vnd.github.v3+json",
-                "User-Agent": "Fray-OSINT/1.0",
-            },
-        )
-        token = os.environ.get("GITHUB_TOKEN")
-        if token:
-            req.add_header("Authorization", f"token {token}")
-        ctx = ssl.create_default_context()
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-            data = json.loads(resp.read().decode())
-            blog = (data.get("blog") or "").lower().rstrip("/")
-            bio = (data.get("bio") or "").lower()
-            name = (data.get("name") or "").lower()
-            acct_type = (data.get("type") or "").lower()  # "organization" or "user"
-            domain_bare = domain.lower()
-            brand = domain_bare.split(".")[0]
-
-            # Tier 1: blog/bio explicitly references the domain
-            if domain_bare in blog or domain_bare in bio:
-                return "verified"
-            # Also match alternate domains (e.g. stripe.dev for stripe.com)
-            if brand in blog and (".dev" in blog or ".io" in blog or ".org" in blog or ".com" in blog):
-                return "verified"
-
-            # Tier 2: Organization account with matching login name
-            if acct_type == "organization" and data.get("login", "").lower() == brand:
-                return "likely"
-
-            return "unverified"
-    except Exception:
-        return "unverified"
-
-
-def check_social_profiles(domain: str, timeout: int = 8) -> Dict[str, Any]:
-    """Check for social media profiles using the domain's brand name.
-
-    Derives likely usernames from the domain name, checks major platforms,
-    then **verifies** each profile actually belongs to the domain owner by
-    checking if the profile page references the domain. Profiles that exist
-    but don't reference the domain are marked "unverified" to avoid false
-    positives.
-    """
-    # Derive candidate usernames from domain
-    name = domain.split(".")[0]
-    usernames = set()
-    usernames.add(name)
-    if "-" in name:
-        usernames.add(name.replace("-", ""))
-        usernames.add(name.replace("-", "_"))
-    if "_" in name:
-        usernames.add(name.replace("_", ""))
-        usernames.add(name.replace("_", "-"))
-
-    found = []
-    checked = 0
-
-    ctx = ssl.create_default_context()
-
-    for platform, url_template, host in _SOCIAL_PLATFORMS:
-        for username in usernames:
-            url = url_template.format(username=username)
-            checked += 1
+        # Source 2: GitHub org member profile names
+        for member in github_data.get("members", []):
+            login = member.get("login", "")
+            if not login:
+                continue
             try:
-                # Quick HEAD check first to see if profile exists
-                req = urllib.request.Request(url, headers={
-                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                                  "AppleWebKit/537.36 (KHTML, like Gecko) "
-                                  "Chrome/120.0.0.0 Safari/537.36",
-                    "Accept": "text/html",
-                }, method="HEAD")
-                with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-                    if resp.status == 200:
-                        # Profile exists — verify it belongs to the domain
-                        if platform == "GitHub":
-                            verification = _verify_github(username, domain, timeout)
-                        else:
-                            verification = _verify_profile_owns_domain(
-                                url, domain, platform, timeout)
-
-                        found.append({
-                            "platform": platform,
-                            "username": username,
-                            "url": url,
-                            "status": resp.status,
-                            "verification": verification,
-                        })
-            except urllib.error.HTTPError:
-                pass
+                profile = _gh_api(f"/users/{login}", timeout)
+                name = (profile or {}).get("name")
+                if not name or len(name) < 3:
+                    continue
+                nkey = name.strip().lower()
+                if nkey not in seen_names:
+                    seen_names[nkey] = {
+                        "name": name.strip(),
+                        "emails": [],
+                        "sources": [],
+                        "github_login": login,
+                    }
+                else:
+                    seen_names[nkey]["github_login"] = login
+                if "github_member" not in seen_names[nkey]["sources"]:
+                    seen_names[nkey]["sources"].append("github_member")
             except Exception:
                 pass
-            time.sleep(0.3)  # Be polite
+            time.sleep(0.3)
 
-    # Separate by confidence tier
-    verified = [p for p in found if p.get("verification") in ("verified", "likely")]
-    unverified = [p for p in found if p.get("verification") not in ("verified", "likely")]
+    result["sources"]["github_commits"] = len([
+        a for a in (github_data or {}).get("commit_authors", [])])
+    result["sources"]["github_members"] = len([
+        m for m in (github_data or {}).get("members", [])])
 
-    return {
+    # Detect email pattern from real corporate emails
+    detected_pattern = None
+    if real_emails:
+        pattern_counts: Dict[str, int] = {}
+        for email in real_emails:
+            local = email.split("@")[0]
+            if "." in local:
+                parts = local.split(".")
+                if len(parts) == 2:
+                    if len(parts[0]) == 1:
+                        pattern_counts["{f}.{last}"] = pattern_counts.get("{f}.{last}", 0) + 1
+                    else:
+                        pattern_counts["{first}.{last}"] = pattern_counts.get("{first}.{last}", 0) + 1
+            elif "_" in local:
+                pattern_counts["{first}_{last}"] = pattern_counts.get("{first}_{last}", 0) + 1
+            elif local.isalpha() and len(local) > 4:
+                pattern_counts["{first}{last}"] = pattern_counts.get("{first}{last}", 0) + 1
+
+        if pattern_counts:
+            detected_pattern = max(pattern_counts, key=pattern_counts.get)
+            result["email_pattern"] = detected_pattern
+
+    # Build people list and generate email permutations
+    patterns_to_use = [detected_pattern] if detected_pattern else _EMAIL_PATTERNS[:3]
+
+    for nkey, person in seen_names.items():
+        parts = person["name"].split()
+        if len(parts) < 2:
+            result["people"].append(person)
+            continue
+
+        first = parts[0].lower()
+        last = parts[-1].lower()
+        f = first[0] if first else ""
+
+        generated = []
+        for pattern in patterns_to_use:
+            candidate = pattern.format(first=first, last=last, f=f) + f"@{domain}"
+            if candidate not in person["emails"]:
+                generated.append(candidate)
+
+        person["generated_emails"] = generated
+        result["people"].append(person)
+        result["inferred_emails"].extend(generated)
+
+    result["total_unique_people"] = len(seen_names)
+    # Deduplicate inferred emails
+    result["inferred_emails"] = sorted(set(result["inferred_emails"]))
+
+    return result
+
+
+# ── Document Metadata Harvesting ─────────────────────────────────────
+
+_DOC_EXTENSIONS = (".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt",
+                   ".pptx", ".odt", ".ods", ".odp")
+
+
+def harvest_document_metadata(domain: str, timeout: int = 10,
+                              max_docs: int = 15) -> Dict[str, Any]:
+    """Crawl a domain for public documents and extract metadata.
+
+    1. Discovers document URLs via:
+       - Google dork: site:domain filetype:pdf|doc|xls
+       - Direct crawl of /docs, /assets, /downloads, /files paths
+       - robots.txt / sitemap references
+    2. Downloads headers + first bytes of each document
+    3. Extracts metadata: author, creator app, creation date, title
+
+    For PDFs, parses the /Info dictionary from raw bytes.
+    For Office XML (docx/xlsx/pptx), reads docProps/core.xml from ZIP.
+    """
+    result: Dict[str, Any] = {
         "domain": domain,
-        "usernames_tested": sorted(usernames),
-        "checked": checked,
-        "found": len(verified),
-        "found_unverified": len(unverified),
-        "profiles": verified,
-        "unverified_profiles": unverified,
+        "documents_found": 0,
+        "documents": [],
+        "unique_authors": [],
+        "unique_software": [],
+        "internal_paths": [],
+        "error": None,
     }
+
+    ctx = ssl.create_default_context()
+    base_url = f"https://{domain}"
+
+    discovered_urls: List[str] = []
+
+    # Method 1: probe common document directories
+    doc_paths = [
+        "/docs", "/documents", "/downloads", "/files", "/assets",
+        "/wp-content/uploads", "/media", "/resources", "/publications",
+        "/reports", "/whitepapers", "/legal",
+    ]
+    for path in doc_paths:
+        try:
+            req = urllib.request.Request(f"{base_url}{path}", headers={
+                "User-Agent": "Fray-OSINT/1.0",
+                "Accept": "text/html",
+            })
+            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+                if resp.status == 200:
+                    body = resp.read(32_000).decode("utf-8", errors="replace")
+                    # Extract links to documents
+                    for ext in _DOC_EXTENSIONS:
+                        for match in re.finditer(
+                            r'href=["\']([^"\']*' + re.escape(ext) + r')["\']',
+                            body, re.IGNORECASE,
+                        ):
+                            href = match.group(1)
+                            if href.startswith("http"):
+                                discovered_urls.append(href)
+                            elif href.startswith("/"):
+                                discovered_urls.append(f"{base_url}{href}")
+                            else:
+                                discovered_urls.append(f"{base_url}{path}/{href}")
+        except Exception:
+            pass
+
+    # Method 2: check sitemap for document links
+    try:
+        req = urllib.request.Request(f"{base_url}/sitemap.xml", headers={
+            "User-Agent": "Fray-OSINT/1.0",
+        })
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            if resp.status == 200:
+                sitemap = resp.read(100_000).decode("utf-8", errors="replace")
+                for ext in _DOC_EXTENSIONS:
+                    for match in re.finditer(
+                        r'<loc>([^<]*' + re.escape(ext) + r')</loc>',
+                        sitemap, re.IGNORECASE,
+                    ):
+                        discovered_urls.append(match.group(1))
+    except Exception:
+        pass
+
+    # Deduplicate
+    discovered_urls = list(dict.fromkeys(discovered_urls))[:max_docs]
+    result["documents_found"] = len(discovered_urls)
+
+    # Download and extract metadata from each document
+    authors = set()
+    software = set()
+    internal_paths = set()
+
+    for doc_url in discovered_urls:
+        doc_entry: Dict[str, Any] = {
+            "url": doc_url,
+            "filename": doc_url.rsplit("/", 1)[-1][:80],
+            "content_type": None,
+            "size_bytes": None,
+            "metadata": {},
+        }
+
+        try:
+            req = urllib.request.Request(doc_url, headers={
+                "User-Agent": "Fray-OSINT/1.0",
+            })
+            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+                ct = resp.headers.get("Content-Type", "")
+                cl = resp.headers.get("Content-Length")
+                doc_entry["content_type"] = ct
+                doc_entry["size_bytes"] = int(cl) if cl else None
+
+                # Read enough to parse metadata
+                raw = resp.read(min(int(cl) if cl else 500_000, 500_000))
+
+                if doc_url.lower().endswith(".pdf") or "pdf" in ct.lower():
+                    meta = _extract_pdf_metadata(raw)
+                elif doc_url.lower().endswith((".docx", ".xlsx", ".pptx")):
+                    meta = _extract_ooxml_metadata(raw)
+                else:
+                    meta = {}
+
+                doc_entry["metadata"] = meta
+
+                # Collect unique intel
+                if meta.get("author"):
+                    authors.add(meta["author"])
+                if meta.get("creator"):
+                    software.add(meta["creator"])
+                if meta.get("producer"):
+                    software.add(meta["producer"])
+
+                # Look for internal paths in metadata values
+                for val in meta.values():
+                    if isinstance(val, str):
+                        # Windows paths
+                        for m in re.finditer(r'[A-Z]:\\[\\a-zA-Z0-9_./ -]+', val):
+                            internal_paths.add(m.group())
+                        # Unix paths
+                        for m in re.finditer(r'/(?:home|Users|var|opt|srv)/[/a-zA-Z0-9_.-]+', val):
+                            internal_paths.add(m.group())
+
+        except Exception as e:
+            doc_entry["error"] = str(e)[:100]
+
+        result["documents"].append(doc_entry)
+
+    result["unique_authors"] = sorted(authors)
+    result["unique_software"] = sorted(software)
+    result["internal_paths"] = sorted(internal_paths)
+
+    return result
+
+
+def _extract_pdf_metadata(raw: bytes) -> Dict[str, str]:
+    """Extract metadata from PDF /Info dictionary (no external deps)."""
+    meta: Dict[str, str] = {}
+    try:
+        text = raw.decode("latin-1", errors="replace")
+        # Find /Info dictionary entries
+        for key, label in [
+            ("/Author", "author"), ("/Creator", "creator"),
+            ("/Producer", "producer"), ("/Title", "title"),
+            ("/Subject", "subject"), ("/CreationDate", "creation_date"),
+            ("/ModDate", "modification_date"),
+        ]:
+            pattern = re.escape(key) + r'\s*\(([^)]{1,200})\)'
+            m = re.search(pattern, text)
+            if m:
+                val = m.group(1).strip()
+                if val and val not in ("", "()", "unknown"):
+                    meta[label] = val
+    except Exception:
+        pass
+    return meta
+
+
+def _extract_ooxml_metadata(raw: bytes) -> Dict[str, str]:
+    """Extract metadata from Office XML (docx/xlsx/pptx) core.xml."""
+    import io
+    import zipfile
+    meta: Dict[str, str] = {}
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+            if "docProps/core.xml" in zf.namelist():
+                core = zf.read("docProps/core.xml").decode("utf-8", errors="replace")
+                for tag, label in [
+                    ("dc:creator", "author"),
+                    ("cp:lastModifiedBy", "last_modified_by"),
+                    ("dc:title", "title"),
+                    ("dc:subject", "subject"),
+                    ("dcterms:created", "creation_date"),
+                    ("dcterms:modified", "modification_date"),
+                ]:
+                    m = re.search(f"<{re.escape(tag)}[^>]*>([^<]+)</{re.escape(tag)}>", core)
+                    if m:
+                        meta[label] = m.group(1).strip()
+            if "docProps/app.xml" in zf.namelist():
+                app = zf.read("docProps/app.xml").decode("utf-8", errors="replace")
+                m = re.search(r"<Application>([^<]+)</Application>", app)
+                if m:
+                    meta["creator"] = m.group(1).strip()
+    except Exception:
+        pass
+    return meta
 
 
 # ── Combined OSINT Search ─────────────────────────────────────────────
 
 def run_osint(domain: str, whois: bool = True, emails: bool = True,
-              permutations: bool = True, social: bool = True,
-              timeout: int = 10, quiet: bool = False) -> Dict[str, Any]:
-    """Run combined OSINT gathering on a domain.
+              permutations: bool = True, github: bool = True,
+              docs: bool = True, timeout: int = 10,
+              quiet: bool = False) -> Dict[str, Any]:
+    """Run offensive OSINT gathering on a domain.
 
     Args:
         domain: Target domain
         whois: Enable WHOIS lookup
         emails: Enable email harvesting
         permutations: Enable typosquatting check
-        social: Enable social media enumeration
+        github: Enable GitHub org recon + employee enumeration
+        docs: Enable document metadata harvesting
         timeout: Per-request timeout
         quiet: Suppress progress output
 
@@ -605,25 +913,31 @@ def run_osint(domain: str, whois: bool = True, emails: bool = True,
         "whois": None,
         "emails": None,
         "permutations": None,
-        "social": None,
+        "github": None,
+        "employees": None,
+        "documents": None,
     }
 
-    # Count enabled modules for progress bar
-    modules = []
+    # Phase 1: parallel independent modules
+    phase1 = []
     if whois:
-        modules.append(("whois", "WHOIS lookup", lambda: whois_lookup(domain, timeout)))
+        phase1.append(("whois", "WHOIS lookup", lambda: whois_lookup(domain, timeout)))
     if emails:
-        modules.append(("emails", "Email harvesting", lambda: harvest_emails(domain, timeout)))
+        phase1.append(("emails", "Email harvesting", lambda: harvest_emails(domain, timeout)))
     if permutations:
-        modules.append(("permutations", "Typosquatting check", lambda: check_permutations(domain, timeout=2.0)))
-    if social:
-        modules.append(("social", "Social profiles", lambda: check_social_profiles(domain, timeout)))
+        phase1.append(("permutations", "Typosquatting check", lambda: check_permutations(domain, timeout=2.0)))
+    if github:
+        phase1.append(("github", "GitHub org recon", lambda: github_org_recon(domain, timeout)))
+    if docs:
+        phase1.append(("documents", "Document metadata", lambda: harvest_document_metadata(domain, timeout)))
 
-    prog = FrayProgress(len(modules), title=f"🌐 OSINT: {domain}", quiet=quiet)
+    # Employee enumeration depends on GitHub data, so count it separately
+    total_steps = len(phase1) + (1 if github else 0)
+    prog = FrayProgress(total_steps, title=f"🔍 OSINT: {domain}", quiet=quiet)
 
     tasks = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-        for key, label, fn in modules:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+        for key, label, fn in phase1:
             prog.start(label)
             tasks[key] = (label, pool.submit(fn))
 
@@ -633,6 +947,16 @@ def run_osint(domain: str, whois: bool = True, emails: bool = True,
             except Exception as e:
                 result[key] = {"error": str(e)}
             prog.done(label)
+
+    # Phase 2: employee enumeration (needs GitHub data)
+    if github:
+        prog.start("Employee enumeration")
+        try:
+            result["employees"] = enumerate_employees(
+                domain, github_data=result.get("github"), timeout=timeout)
+        except Exception as e:
+            result["employees"] = {"error": str(e)}
+        prog.done("Employee enumeration")
 
     return result
 
@@ -645,7 +969,6 @@ def print_osint(result: Dict[str, Any]) -> None:
         from rich.console import Console
         console = Console()
     except ImportError:
-        # Fallback to basic print
         print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
         return
 
@@ -653,7 +976,7 @@ def print_osint(result: Dict[str, Any]) -> None:
     console.print(f"\n  [bold]OSINT Report: {domain}[/bold]")
     console.print(f"  {'━' * 50}")
 
-    # Whois
+    # ── Whois ──
     w = result.get("whois")
     if w and not w.get("error"):
         console.print(f"\n  [bold]WHOIS[/bold]")
@@ -678,7 +1001,7 @@ def print_osint(result: Dict[str, Any]) -> None:
     elif w and w.get("error"):
         console.print(f"\n  [bold]WHOIS[/bold]  [dim]{w['error']}[/dim]")
 
-    # Emails
+    # ── Emails ──
     e = result.get("emails")
     if e:
         total = e.get("total", 0)
@@ -696,7 +1019,7 @@ def print_osint(result: Dict[str, Any]) -> None:
             console.print(f"    Role addresses: [dim]{', '.join(roles[:10])}[/dim]")
         console.print()
 
-    # Permutations / Typosquatting
+    # ── Typosquatting ──
     p = result.get("permutations")
     if p and not p.get("error"):
         registered = p.get("registered", 0)
@@ -711,25 +1034,142 @@ def print_osint(result: Dict[str, Any]) -> None:
             console.print(f"    [dim]... and {registered - 15} more[/dim]")
         console.print()
 
-    # Social profiles
-    s = result.get("social")
-    if s:
-        verified = s.get("found", 0)
-        unverified_count = s.get("found_unverified", 0)
-        total_label = f"{verified} verified"
-        if unverified_count:
-            total_label += f", {unverified_count} unverified"
-        console.print(f"  [bold]Social Media Profiles[/bold] ({total_label})")
-        for prof in s.get("profiles", []):
-            v = prof.get("verification", "verified")
-            if v == "likely":
-                console.print(f"    [yellow]~ {prof['platform']}[/yellow]: {prof['url']}  [dim](likely match)[/dim]")
-            else:
-                console.print(f"    [green]✓ {prof['platform']}[/green]: {prof['url']}")
-        for prof in s.get("unverified_profiles", []):
-            console.print(f"    [dim]? {prof['platform']}: {prof['url']}  (unverified — may not belong to {s.get('domain', 'target')})[/dim]")
-        if not verified and not unverified_count:
-            console.print(f"    [dim]No profiles found for usernames: {', '.join(s.get('usernames_tested', []))}[/dim]")
+    # ── GitHub Org Recon ──
+    gh = result.get("github")
+    if gh and gh.get("org_found"):
+        console.print(f"  [bold]GitHub Organisation[/bold]")
+        console.print(f"    Org:          [cyan]{gh['org_login']}[/cyan]"
+                       f"  ({gh.get('org_name') or ''})")
+        console.print(f"    URL:          {gh['org_url']}")
+        if gh.get("blog"):
+            console.print(f"    Website:      [dim]{gh['blog']}[/dim]")
+        console.print(f"    Public repos: [bold]{gh['public_repos']}[/bold]  "
+                       f"Members: [bold]{len(gh.get('members', []))}[/bold]")
+
+        # Top repos
+        repos = gh.get("repos", [])
+        if repos:
+            console.print(f"\n    [bold]Top Repositories[/bold] (by stars)")
+            for r in repos[:10]:
+                lang = f"[dim]{r['language']}[/dim]" if r.get("language") else "[dim]—[/dim]"
+                console.print(f"    ⭐ {r['stars']:>5}  {lang:<15}  [cyan]{r['name']}[/cyan]")
+                if r.get("description"):
+                    console.print(f"                          [dim]{r['description'][:70]}[/dim]")
+
+        # Interesting repos (infra, secrets, deploy)
+        interesting = gh.get("interesting_repos", [])
+        if interesting:
+            console.print(f"\n    [bold red]Interesting Repos[/bold red] (infra/deploy/secrets)")
+            for r in interesting[:10]:
+                console.print(f"    🔴 [bold]{r['name']}[/bold]  [yellow]({r['reason']})[/yellow]")
+                if r.get("description"):
+                    console.print(f"       [dim]{r['description'][:80]}[/dim]")
+                console.print(f"       {r['url']}")
+
+        # Commit authors with real emails
+        authors = gh.get("commit_authors", [])
+        if authors:
+            console.print(f"\n    [bold]Commit Authors[/bold] ({len(authors)} unique emails)")
+            for a in authors[:15]:
+                console.print(f"    📧 {a['name']:<25} [green]{a['email']}[/green]  [dim]({a['repo']})[/dim]")
+            if len(authors) > 15:
+                console.print(f"    [dim]... and {len(authors) - 15} more[/dim]")
+
+        # Leaked URLs
+        leaked = gh.get("leaked_urls", [])
+        if leaked:
+            console.print(f"\n    [bold red]Leaked Internal URLs[/bold red]")
+            for l in leaked[:10]:
+                console.print(f"    🚨 [red]{l['url']}[/red]  [dim]({l['source']})[/dim]")
+
         console.print()
+    elif gh and gh.get("error"):
+        console.print(f"  [bold]GitHub Organisation[/bold]  [dim]{gh['error']}[/dim]")
+        console.print()
+
+    # ── Employee Enumeration ──
+    emp = result.get("employees")
+    if emp and not emp.get("error") and emp.get("total_unique_people", 0) > 0:
+        total_ppl = emp["total_unique_people"]
+        pattern = emp.get("email_pattern")
+        console.print(f"  [bold]Employee Enumeration[/bold] ({total_ppl} people)")
+        if pattern:
+            console.print(f"    Email pattern: [cyan]{pattern}@{domain}[/cyan]  "
+                           f"[dim](auto-detected from git history)[/dim]")
+        src = emp.get("sources", {})
+        if src:
+            console.print(f"    Sources:       "
+                           + "  ".join(f"{k}: {v}" for k, v in src.items() if v))
+
+        # People with generated emails
+        inferred = emp.get("inferred_emails", [])
+        if inferred:
+            console.print(f"\n    [bold]Generated Email Addresses[/bold] ({len(inferred)})")
+            for email in inferred[:20]:
+                console.print(f"    📬 [green]{email}[/green]")
+            if len(inferred) > 20:
+                console.print(f"    [dim]... and {len(inferred) - 20} more[/dim]")
+
+        # People list with sources
+        people = emp.get("people", [])
+        if people:
+            console.print(f"\n    [bold]People[/bold]")
+            for p in people[:20]:
+                login = f"  @{p['github_login']}" if p.get("github_login") else ""
+                known = ", ".join(p.get("emails", [])[:2])
+                src_tags = "/".join(p.get("sources", []))
+                console.print(f"    👤 {p['name']:<25} [dim]{src_tags}{login}[/dim]")
+                if known:
+                    console.print(f"       Known: [green]{known}[/green]")
+            if len(people) > 20:
+                console.print(f"    [dim]... and {len(people) - 20} more[/dim]")
+
+        console.print()
+
+    # ── Document Metadata ──
+    doc = result.get("documents")
+    if doc and not doc.get("error"):
+        n_docs = doc.get("documents_found", 0)
+        authors = doc.get("unique_authors", [])
+        sw = doc.get("unique_software", [])
+        paths = doc.get("internal_paths", [])
+
+        if n_docs > 0 or authors or sw or paths:
+            console.print(f"  [bold]Document Metadata[/bold] ({n_docs} documents found)")
+
+            for d in doc.get("documents", [])[:10]:
+                meta = d.get("metadata", {})
+                if not meta:
+                    continue
+                fname = d.get("filename", "?")[:50]
+                author = meta.get("author", "")
+                creator = meta.get("creator", "")
+                console.print(f"    📄 [cyan]{fname}[/cyan]")
+                if author:
+                    console.print(f"       Author: [green]{author}[/green]")
+                if creator:
+                    console.print(f"       Software: [dim]{creator}[/dim]")
+                if meta.get("title"):
+                    console.print(f"       Title: [dim]{meta['title'][:60]}[/dim]")
+
+            if authors:
+                console.print(f"\n    [bold]Unique Authors[/bold] ({len(authors)})")
+                for a in authors[:15]:
+                    console.print(f"    👤 [green]{a}[/green]")
+
+            if sw:
+                console.print(f"\n    [bold]Software Versions[/bold]")
+                for s in sw[:10]:
+                    console.print(f"    💻 [dim]{s}[/dim]")
+
+            if paths:
+                console.print(f"\n    [bold red]Internal Paths Leaked[/bold red]")
+                for p in paths[:10]:
+                    console.print(f"    🚨 [red]{p}[/red]")
+
+            console.print()
+        elif n_docs == 0:
+            console.print(f"  [bold]Document Metadata[/bold]  [dim]No public documents found[/dim]")
+            console.print()
 
     console.print(f"  {'━' * 50}")

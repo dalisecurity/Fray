@@ -3075,7 +3075,7 @@ def cmd_leak(args):
 
 
 def cmd_osint(args):
-    """Broader OSINT gathering: whois, emails, typosquatting, social profiles."""
+    """Offensive OSINT: whois, emails, typosquatting, GitHub org recon, employee enum, doc metadata."""
     from fray.osint import run_osint, print_osint
 
     target = args.target
@@ -3084,27 +3084,31 @@ def cmd_osint(args):
         print("  Usage: fray osint example.com")
         sys.exit(1)
 
-    do_whois = not getattr(args, 'no_whois', False)
-    do_emails = not getattr(args, 'no_emails', False)
-    do_perms = not getattr(args, 'no_permutations', False)
-    do_social = not getattr(args, 'no_social', False)
+    do_whois = True
+    do_emails = True
+    do_perms = True
+    do_github = True
+    do_docs = True
 
-    # Individual flags override defaults
+    # Individual flags: run only the specified module
     if getattr(args, 'whois_only', False):
-        do_emails = do_perms = do_social = False
+        do_emails = do_perms = do_github = do_docs = False
     elif getattr(args, 'emails_only', False):
-        do_whois = do_perms = do_social = False
-    elif getattr(args, 'social_only', False):
-        do_whois = do_emails = do_perms = False
+        do_whois = do_perms = do_github = do_docs = False
+    elif getattr(args, 'github_only', False):
+        do_whois = do_emails = do_perms = do_docs = False
+    elif getattr(args, 'docs_only', False):
+        do_whois = do_emails = do_perms = do_github = False
     elif getattr(args, 'permutations_only', False):
-        do_whois = do_emails = do_social = False
+        do_whois = do_emails = do_github = do_docs = False
 
     result = run_osint(
         domain=target,
         whois=do_whois,
         emails=do_emails,
         permutations=do_perms,
-        social=do_social,
+        github=do_github,
+        docs=do_docs,
         timeout=getattr(args, 'timeout', 10),
         quiet=getattr(args, 'json', False),
     )
@@ -3271,13 +3275,14 @@ def cmd_help(args):
   fray report -i results.json   Generate HTML security report
   fray report --sample          Generate a sample demo report
 
-  🌐 OSINT — Open Source Intelligence
+  🔍 OSINT — Offensive Open Source Intelligence
   ─────────────────────────────
-  fray osint example.com         Full OSINT: whois, emails, typosquatting, social profiles
+  fray osint example.com           Full OSINT: whois, emails, typosquatting, GitHub org, employees, docs
+  fray osint example.com --github  GitHub org recon + employee enumeration only
+  fray osint example.com --docs    Document metadata harvesting only
   fray osint example.com --whois   Whois lookup only
-  fray osint example.com --emails  Email harvesting (Hunter.io + role addresses)
-  fray osint example.com --permutations   Typosquatting / domain permutation check
-  fray osint example.com --social  Social media profile enumeration
+  fray osint example.com --emails  Email harvesting only
+  fray osint example.com --permutations   Typosquatting check only
 
   🔑 CRED — Credential Stuffing Test
   ─────────────────────────────
@@ -3839,7 +3844,7 @@ Documentation: https://github.com/dalisecurity/fray
 
     # osint
     p_osint = subparsers.add_parser("osint",
-        help="Broader OSINT: whois, email harvesting, typosquatting, social profiles")
+        help="Offensive OSINT: whois, emails, typosquatting, GitHub org recon, employee enum, doc metadata")
     p_osint.add_argument("target", nargs="?", default=None,
                           help="Target domain (e.g. example.com)")
     p_osint.add_argument("--json", action="store_true", help="Output as JSON")
@@ -3849,8 +3854,10 @@ Documentation: https://github.com/dalisecurity/fray
                           help="Whois lookup only")
     p_osint.add_argument("--emails", dest="emails_only", action="store_true",
                           help="Email harvesting only")
-    p_osint.add_argument("--social", dest="social_only", action="store_true",
-                          help="Social media profile enumeration only")
+    p_osint.add_argument("--github", dest="github_only", action="store_true",
+                          help="GitHub org recon + employee enumeration only")
+    p_osint.add_argument("--docs", dest="docs_only", action="store_true",
+                          help="Document metadata harvesting only")
     p_osint.add_argument("--permutations", dest="permutations_only", action="store_true",
                           help="Typosquatting / domain permutation check only")
     p_osint.set_defaults(func=cmd_osint)
