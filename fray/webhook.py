@@ -363,6 +363,80 @@ def _send_payload(webhook_url: str, payload: Dict, platform: str, verbose: bool 
         return False
 
 
+def send_generic_notification(webhook_url: str, command: str, target: str,
+                               summary: Dict, verbose: bool = False) -> bool:
+    """Send a notification for any fray command.
+
+    Args:
+        webhook_url: Slack/Discord/Teams/generic webhook URL.
+        command: Command name (osint, cred, scan, leak, etc.).
+        target: Target that was scanned.
+        summary: Dict with key findings (varies per command).
+        verbose: Print debug info.
+
+    Returns:
+        True if sent successfully.
+    """
+    platform = detect_platform(webhook_url)
+
+    # Build platform-specific payload
+    title = f"Fray {command.upper()} Complete"
+    fields = [{"name": "Target", "value": target}]
+    for k, v in summary.items():
+        if k.startswith("_"):
+            continue
+        label = k.replace("_", " ").title()
+        fields.append({"name": label, "value": str(v)})
+
+    # Severity color
+    severity = summary.get("_severity", "info")
+    colors = {"critical": 0xEF4444, "high": 0xF97316, "medium": 0xEAB308,
+              "low": 0x22C55E, "info": 0x3B82F6}
+    color = colors.get(severity, 0x3B82F6)
+    color_hex = f"{color:06X}"
+
+    emojis = {"critical": ":rotating_light:", "high": ":warning:",
+              "medium": ":large_yellow_circle:", "low": ":white_check_mark:",
+              "info": ":mag:"}
+    emoji = emojis.get(severity, ":mag:")
+
+    if platform == "slack":
+        slack_fields = [{"type": "mrkdwn", "text": f"*{f['name']}:*\n{f['value']}"} for f in fields[:8]]
+        payload = {
+            "blocks": [
+                {"type": "header", "text": {"type": "plain_text", "text": f"{emoji} {title}", "emoji": True}},
+                {"type": "section", "fields": slack_fields},
+                {"type": "context", "elements": [
+                    {"type": "mrkdwn", "text": "Powered by <https://github.com/dalisecurity/fray|Fray> — DALI Security"}
+                ]}
+            ]
+        }
+    elif platform == "discord":
+        discord_fields = [{"name": f["name"], "value": f["value"], "inline": True} for f in fields[:8]]
+        payload = {
+            "embeds": [{
+                "title": title,
+                "color": color,
+                "fields": discord_fields,
+                "footer": {"text": "Fray — DALI Security | github.com/dalisecurity/fray"}
+            }]
+        }
+    elif platform == "teams":
+        facts = [{"name": f["name"], "value": f["value"]} for f in fields[:8]]
+        payload = {
+            "@type": "MessageCard",
+            "@context": "http://schema.org/extensions",
+            "themeColor": color_hex,
+            "summary": f"Fray {command}: {target}",
+            "sections": [{"activityTitle": title, "activitySubtitle": target, "facts": facts, "markdown": True}]
+        }
+    else:
+        lines = [f"{f['name']}: {f['value']}" for f in fields]
+        payload = {"text": f"{title}\n" + "\n".join(lines)}
+
+    return _send_payload(webhook_url, payload, platform, verbose)
+
+
 def send_webhook(webhook_url: str, report: Dict, verbose: bool = False) -> bool:
     """
     Send scan results to a webhook URL.

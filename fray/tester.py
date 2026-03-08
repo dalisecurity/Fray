@@ -351,6 +351,87 @@ class WAFTester:
 
         return max(0, min(100, int(round(score))))
 
+    @staticmethod
+    def _compute_fp_score(blocked: bool, reflected: bool,
+                          status: int, resp_body: str,
+                          elapsed_ms: float, baseline: Dict) -> Dict:
+        """Compute false positive risk score for a finding.
+
+        Returns:
+            Dict with fp_score (0-100, higher = more likely FP),
+            fp_reasons (list of flags explaining the score),
+            and confidence_label ("confirmed", "likely", "possible", "noise").
+        """
+        if blocked:
+            return {"fp_score": 0, "fp_reasons": [], "confidence_label": "confirmed_block"}
+
+        fp = 0.0
+        reasons = []
+
+        bl_status = baseline.get('status', 200)
+        bl_len = baseline.get('response_length', 0)
+        bl_time = baseline.get('elapsed_ms', 500.0)
+
+        # 1. Generic error page masquerading as bypass (30 pts)
+        body_lower = resp_body.lower() if resp_body else ""
+        generic_error_sigs = [
+            "page not found", "404 not found", "not found",
+            "bad request", "400 bad request", "invalid request",
+            "internal server error", "500 internal",
+            "service unavailable", "502 bad gateway", "503 service",
+            "default page", "welcome to nginx", "it works!",
+            "apache2 default", "microsoft-iis",
+        ]
+        if any(sig in body_lower for sig in generic_error_sigs):
+            fp += 30
+            reasons.append("generic_error_page")
+
+        # 2. Empty or near-empty response (20 pts)
+        if len(resp_body) < 50:
+            fp += 20
+            reasons.append("empty_response")
+        elif bl_len > 0 and len(resp_body) < bl_len * 0.1:
+            fp += 15
+            reasons.append("response_much_shorter_than_baseline")
+
+        # 3. Status code mismatch with baseline (15 pts)
+        if status != bl_status and status >= 400:
+            fp += 15
+            reasons.append(f"status_{status}_differs_from_baseline_{bl_status}")
+
+        # 4. Response body identical to baseline (15 pts) — param was ignored
+        if bl_len > 100 and resp_body and abs(len(resp_body) - bl_len) < 10:
+            fp += 15
+            reasons.append("response_identical_to_baseline")
+
+        # 5. No reflection when payload should reflect (10 pts)
+        if not reflected and status == 200 and bl_status == 200:
+            fp += 10
+            reasons.append("no_reflection")
+
+        # 6. Suspiciously fast response (WAF fast-reject leaked through?) (10 pts)
+        if bl_time > 0 and elapsed_ms > 0:
+            if elapsed_ms < bl_time * 0.3:
+                fp += 10
+                reasons.append("suspiciously_fast_response")
+
+        fp_score = max(0, min(100, int(round(fp))))
+
+        if fp_score <= 15:
+            label = "confirmed"
+        elif fp_score <= 35:
+            label = "likely"
+        elif fp_score <= 60:
+            label = "possible"
+        else:
+            label = "noise"
+
+        return {
+            "fp_score": fp_score,
+            "fp_reasons": reasons,
+            "confidence_label": label,
+        }
+
     def test_payload(self, payload: str, method: str = 'GET', param: str = 'input',
                      content_type: str = None) -> Dict:
         """Test a single payload, following redirects up to max_redirects hops.
@@ -587,6 +668,9 @@ class WAFTester:
                 confidence = self._compute_bypass_confidence(
                     blocked, reflected, status, len(resp_body),
                     elapsed_ms, baseline)
+                fp_info = self._compute_fp_score(
+                    blocked, reflected, status, resp_body,
+                    elapsed_ms, baseline)
 
                 return {
                     'payload': payload,
@@ -600,6 +684,9 @@ class WAFTester:
                     'response_length': len(resp_body),
                     'elapsed_ms': round(elapsed_ms, 1),
                     'bypass_confidence': confidence,
+                    'fp_score': fp_info['fp_score'],
+                    'fp_reasons': fp_info['fp_reasons'],
+                    'confidence_label': fp_info['confidence_label'],
                     'security_headers': sec_headers,
                     'timestamp': datetime.now().isoformat()
                 }
@@ -611,6 +698,9 @@ class WAFTester:
                     'error': str(e),
                     'blocked': True,
                     'bypass_confidence': 0,
+                    'fp_score': 0,
+                    'fp_reasons': [],
+                    'confidence_label': 'error',
                     'elapsed_ms': 0,
                     'redirects': hop,
                     'timestamp': datetime.now().isoformat()
@@ -623,6 +713,9 @@ class WAFTester:
             'error': f'Too many redirects ({max_redirects})',
             'blocked': True,
             'bypass_confidence': 0,
+            'fp_score': 0,
+            'fp_reasons': [],
+            'confidence_label': 'error',
             'elapsed_ms': 0,
             'redirects': max_redirects,
             'timestamp': datetime.now().isoformat()

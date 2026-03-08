@@ -793,17 +793,36 @@ def cmd_test(args):
         max_redirects = 0
     else:
         max_redirects = getattr(args, 'redirect_limit', 5) or 5
+
+    delay = args.delay
+    rl = getattr(args, 'rate_limit', 0.0)
+
+    # Auto-throttle: fingerprint rate limits before testing
+    if getattr(args, 'auto_throttle', False):
+        from fray.scanner import auto_throttle
+        throttle_info = auto_throttle(
+            args.target, timeout=args.timeout,
+            verify_ssl=not getattr(args, 'insecure', False),
+            quiet=getattr(args, 'json', False),
+        )
+        rec_delay = throttle_info.get("recommended_delay", 0.5)
+        if rec_delay > delay:
+            delay = rec_delay
+        rps = throttle_info.get("threshold_rps")
+        if rps and (rl == 0.0 or rps < rl):
+            rl = rps * 0.6
+
     tester = WAFTester(
         target=args.target,
         timeout=args.timeout,
-        delay=args.delay,
+        delay=delay,
         verify_ssl=not getattr(args, 'insecure', False),
         custom_headers=custom_headers or None,
         verbose=getattr(args, 'verbose', False),
         max_redirects=max_redirects,
         jitter=getattr(args, 'jitter', 0.0),
         stealth=getattr(args, 'stealth', False),
-        rate_limit=getattr(args, 'rate_limit', 0.0),
+        rate_limit=rl,
     )
 
     all_payloads = []
@@ -1138,10 +1157,26 @@ def cmd_payloads(args):
 
 def cmd_scan(args):
     """Auto scan: crawl → param discovery → payload injection."""
-    from fray.scanner import run_scan, print_scan_result
+    from fray.scanner import run_scan, print_scan_result, InjectionPoint
 
     custom_headers = build_auth_headers(args)
     json_mode = getattr(args, 'json', False)
+
+    # Browser pre-crawl: discover JS-rendered endpoints before static scan
+    browser_result = None
+    if getattr(args, 'browser', False):
+        from fray.browser import check_playwright, browser_crawl
+        if not check_playwright():
+            print("  Error: Playwright not installed.")
+            print("  Install: pip install playwright && playwright install chromium")
+            sys.exit(1)
+        browser_result = browser_crawl(
+            target=args.target,
+            max_pages=getattr(args, 'max_pages', 20),
+            max_depth=getattr(args, 'depth', 2),
+            timeout=args.timeout,
+            quiet=json_mode,
+        )
 
     scan = run_scan(
         target=args.target,
@@ -1159,7 +1194,23 @@ def cmd_scan(args):
         rate_limit=getattr(args, 'rate_limit', 0.0),
         scope_file=getattr(args, 'scope', None),
         workers=getattr(args, 'workers', 1),
+        use_auto_throttle=getattr(args, 'auto_throttle', False),
     )
+
+    # Merge browser-discovered injection points into scan results
+    if browser_result and not browser_result.get("error") and scan.crawl:
+        existing = {(ip.url, ip.param, ip.method) for ip in scan.crawl.injection_points}
+        added = 0
+        for bip in browser_result.get("injection_points", []):
+            key = (bip["url"], bip["param"], bip["method"])
+            if key not in existing:
+                scan.crawl.injection_points.append(
+                    InjectionPoint(url=bip["url"], param=bip["param"],
+                                   method=bip["method"], source=bip.get("source", "browser")))
+                existing.add(key)
+                added += 1
+        if added > 0 and not json_mode:
+            print(f"\n  🌐 Browser mode added {added} extra injection point(s)")
 
     # SARIF output (GitHub Security tab / CodeQL compatible)
     if getattr(args, 'sarif', False):
@@ -1249,6 +1300,25 @@ def cmd_scan(args):
             print(f"  Run: nuclei -t {args.nuclei_export}/ -u {args.target}")
         else:
             print(f"\n  No bypasses found — no Nuclei templates generated.")
+
+    # Webhook notification
+    notify_url = getattr(args, 'notify', None)
+    if notify_url:
+        from fray.webhook import send_generic_notification
+        sd = scan.to_dict()
+        sm = sd.get("summary", {})
+        passed = sm.get("passed", 0)
+        sev = "critical" if passed > 5 else "high" if passed > 0 else "low"
+        summary = {
+            "total_tested": sm.get("total_tested", 0),
+            "blocked": sm.get("blocked", 0),
+            "bypassed": passed,
+            "reflected": sm.get("reflected", 0),
+            "block_rate": sm.get("block_rate", "N/A"),
+            "duration": sd.get("duration", "N/A"),
+            "_severity": sev,
+        }
+        send_generic_notification(notify_url, "scan", args.target, summary)
 
 
 def cmd_stats(args):
@@ -3073,6 +3143,21 @@ def cmd_leak(args):
             Path(args.output).write_text(out, encoding="utf-8")
             print(f"  💾 Results saved to {args.output}")
 
+    # Webhook notification
+    notify_url = getattr(args, 'notify', None)
+    if notify_url:
+        from fray.webhook import send_generic_notification
+        gh_leaks = len(result.get("github_results", []))
+        hibp_leaks = len(result.get("hibp_results", []))
+        total = gh_leaks + hibp_leaks
+        summary = {
+            "github_leaks": gh_leaks,
+            "hibp_breaches": hibp_leaks,
+            "total_findings": total,
+            "_severity": "critical" if total > 5 else "high" if total > 0 else "low",
+        }
+        send_generic_notification(notify_url, "leak", target, summary)
+
 
 def cmd_osint(args):
     """Offensive OSINT: accepts domain, email, or company name."""
@@ -3174,6 +3259,22 @@ def cmd_osint(args):
     if not getattr(args, 'json', False):
         print(f"\n  📁 Saved to {export_dir}/ (JSON + HTML)")
 
+    # Webhook notification
+    notify_url = getattr(args, 'notify', None)
+    if notify_url:
+        from fray.webhook import send_generic_notification
+        gh = result.get("github", {})
+        emp = result.get("employees", {})
+        summary = {
+            "domain": domain,
+            "emails_found": result.get("emails", {}).get("total", 0) if result.get("emails") else 0,
+            "employees": emp.get("total_unique_people", 0) if emp else 0,
+            "github_repos": gh.get("public_repos", 0) if gh else 0,
+            "typosquatting": result.get("permutations", {}).get("registered", 0) if result.get("permutations") else 0,
+            "_severity": "medium" if result.get("permutations", {}).get("registered", 0) > 3 else "info",
+        }
+        send_generic_notification(notify_url, "osint", domain, summary)
+
 
 def cmd_cred(args):
     """Credential stuffing / reuse testing against login endpoints."""
@@ -3224,6 +3325,19 @@ def cmd_cred(args):
             out = json.dumps(result, indent=2, ensure_ascii=False)
             Path(args.output).write_text(out, encoding="utf-8")
             print(f"  💾 Results saved to {args.output}")
+
+    # Webhook notification
+    notify_url = getattr(args, 'notify', None)
+    if notify_url:
+        from fray.webhook import send_generic_notification
+        valid = result.get("valid_credentials", [])
+        summary = {
+            "pairs_tested": result.get("total_tested", 0),
+            "valid_found": len(valid),
+            "lockouts": result.get("lockout_detected", 0),
+            "_severity": "critical" if valid else "info",
+        }
+        send_generic_notification(notify_url, "cred", target, summary)
 
 
 def cmd_monitor(args):
@@ -3534,6 +3648,8 @@ Documentation: https://github.com/dalisecurity/fray
                          help="Stealth mode: randomize User-Agent, add jitter, throttle requests — evade rate limiting")
     p_test.add_argument("--rate-limit", type=float, default=0.0,
                          help="Max requests per second (e.g. --rate-limit 2 = max 2 req/s)")
+    p_test.add_argument("--auto-throttle", action="store_true", dest="auto_throttle",
+                         help="Fingerprint rate limits before testing, auto-set delay")
     p_test.add_argument("--json", action="store_true", help="Output results as JSON to stdout")
     p_test.add_argument("--ai", action="store_true", help="AI-ready structured JSON output for LLM consumption")
     p_test.add_argument("--sarif", action="store_true", help="Output SARIF 2.1.0 for GitHub Security tab / CodeQL")
@@ -3723,6 +3839,10 @@ Documentation: https://github.com/dalisecurity/fray
                          help="Scope file: one domain/IP/CIDR per line (restricts crawl)")
     p_scan.add_argument("-w", "--workers", type=int, default=1,
                          help="Concurrent workers for crawl + injection (default: 1)")
+    p_scan.add_argument("--auto-throttle", action="store_true", dest="auto_throttle",
+                         help="Fingerprint rate limits before scanning, auto-set delay")
+    p_scan.add_argument("--browser", action="store_true",
+                         help="Use Playwright browser for JS-heavy SPAs (requires: pip install playwright)")
     p_scan.add_argument("--burp", default=None, metavar="FILE",
                          help="Export results as Burp Suite XML (e.g. --burp results.xml)")
     p_scan.add_argument("--zap", default=None, metavar="FILE",
@@ -3731,6 +3851,8 @@ Documentation: https://github.com/dalisecurity/fray
                          help="Export bypasses as Nuclei YAML templates to DIR")
     p_scan.add_argument("--burp-import", dest="burp_import", default=None, metavar="FILE",
                          help="Import Burp request file as scan targets")
+    p_scan.add_argument("--notify", default=None, metavar="WEBHOOK_URL",
+                         help="Send Slack/Discord/Teams notification on completion")
     p_scan.set_defaults(func=cmd_scan)
 
     # graph
@@ -3874,6 +3996,8 @@ Documentation: https://github.com/dalisecurity/fray
     p_leak.add_argument("--json", action="store_true", help="Output as JSON")
     p_leak.add_argument("-o", "--output", default=None, help="Save results to file")
     p_leak.add_argument("-t", "--timeout", type=int, default=10, help="Request timeout (default: 10)")
+    p_leak.add_argument("--notify", default=None, metavar="WEBHOOK_URL",
+                         help="Send Slack/Discord/Teams notification on completion")
     p_leak.set_defaults(func=cmd_leak)
 
     # osint
@@ -3894,6 +4018,8 @@ Documentation: https://github.com/dalisecurity/fray
                           help="Document metadata harvesting only")
     p_osint.add_argument("--permutations", dest="permutations_only", action="store_true",
                           help="Typosquatting / domain permutation check only")
+    p_osint.add_argument("--notify", default=None, metavar="WEBHOOK_URL",
+                          help="Send Slack/Discord/Teams notification on completion")
     p_osint.set_defaults(func=cmd_osint)
 
     # cred
@@ -3927,6 +4053,8 @@ Documentation: https://github.com/dalisecurity/fray
     p_cred.add_argument("--bearer", default=None, help="Bearer token")
     p_cred.add_argument("-H", "--header", action="append",
                          help="Custom header (repeatable, format: 'Name: Value')")
+    p_cred.add_argument("--notify", default=None, metavar="WEBHOOK_URL",
+                         help="Send Slack/Discord/Teams notification on completion")
     p_cred.set_defaults(func=cmd_cred)
 
     # monitor

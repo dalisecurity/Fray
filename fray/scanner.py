@@ -92,10 +92,11 @@ class ScanResult:
     total_passed: int = 0
     total_reflected: int = 0
     duration: str = "N/A"
+    auto_throttle: Optional[Dict] = None
 
     def to_dict(self) -> dict:
         block_rate = f"{(self.total_blocked / self.total_tested * 100):.1f}%" if self.total_tested else "0%"
-        return {
+        d = {
             "target": self.target,
             "crawl": self.crawl.to_dict() if self.crawl else {},
             "summary": {
@@ -108,6 +109,9 @@ class ScanResult:
             "test_results": self.test_results,
             "duration": self.duration,
         }
+        if self.auto_throttle:
+            d["auto_throttle"] = self.auto_throttle
+        return d
 
 
 # ── HTTP fetcher (stdlib only) ───────────────────────────────────────────
@@ -116,6 +120,65 @@ class ScanResult:
 
 _backoff_delay: float = 0.0       # extra delay added on 429
 _BACKOFF_MAX: float = 30.0        # cap
+
+
+def auto_throttle(target: str, timeout: int = 8, verify_ssl: bool = True,
+                  quiet: bool = False) -> Dict[str, any]:
+    """Fingerprint target rate limits and return optimal scan parameters.
+
+    Sends escalating probe bursts to detect the exact threshold where the
+    target starts returning 429/503, then calculates a safe delay.
+
+    Returns:
+        Dict with recommended_delay, threshold_rps, burst_limit,
+        detection_type, and rate_limit_headers.
+    """
+    parsed = urlparse(target)
+    host = parsed.hostname or ""
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    use_ssl = parsed.scheme == "https"
+
+    if not quiet:
+        try:
+            from fray.output import console
+            console.print(f"\n  [bold]Auto-throttle[/bold]: fingerprinting rate limits on [cyan]{host}[/cyan]...")
+        except ImportError:
+            print(f"  Auto-throttle: fingerprinting rate limits on {host}...")
+
+    from fray.recon.checks import check_rate_limits
+    rl = check_rate_limits(host, port, use_ssl, timeout=timeout)
+
+    result = {
+        "recommended_delay": rl.get("recommended_delay", 0.5),
+        "threshold_rps": rl.get("threshold_rps"),
+        "burst_limit": rl.get("burst_limit"),
+        "detection_type": rl.get("detection_type", "unknown"),
+        "rate_limit_headers": rl.get("rate_limit_headers", {}),
+        "lockout_duration": rl.get("lockout_duration"),
+    }
+
+    if not quiet:
+        try:
+            from fray.output import console
+            det = result["detection_type"] or "none"
+            rps = result["threshold_rps"]
+            delay = result["recommended_delay"]
+            burst = result["burst_limit"]
+
+            if det == "none":
+                console.print(f"  [green]No rate limiting detected[/green] — using fast delay ({delay}s)")
+            else:
+                console.print(f"  [yellow]Rate limit detected[/yellow]: type=[bold]{det}[/bold]"
+                              f"  threshold=[bold]{rps} req/s[/bold]"
+                              f"  burst=[bold]{burst}[/bold]")
+                console.print(f"  [bold]Auto-set delay: {delay}s[/bold] (60% of threshold)")
+                if result.get("lockout_duration"):
+                    console.print(f"  [dim]Lockout duration: {result['lockout_duration']}s[/dim]")
+            console.print()
+        except ImportError:
+            pass
+
+    return result
 
 
 def _fetch(url: str, timeout: int = 8, verify_ssl: bool = True,
@@ -738,7 +801,8 @@ def run_scan(target: str, category: str = "xss", max_payloads: int = 5,
              stealth: bool = False,
              rate_limit: float = 0.0,
              scope_file: Optional[str] = None,
-             workers: int = 1) -> ScanResult:
+             workers: int = 1,
+             use_auto_throttle: bool = False) -> ScanResult:
     """Full automated scan: crawl → discover params → inject payloads.
 
     Args:
@@ -768,6 +832,19 @@ def run_scan(target: str, category: str = "xss", max_payloads: int = 5,
     start = datetime.now()
     scan = ScanResult(target=target)
     scope = ScopeChecker(scope_file=scope_file) if scope_file else None
+
+    # Phase 0: Auto-throttle — fingerprint rate limits before scanning
+    if use_auto_throttle:
+        throttle_info = auto_throttle(target, timeout=timeout,
+                                       verify_ssl=verify_ssl, quiet=quiet)
+        rec_delay = throttle_info.get("recommended_delay", 0.5)
+        # Only override if auto-throttle found a tighter limit
+        if rec_delay > delay:
+            delay = rec_delay
+        rps = throttle_info.get("threshold_rps")
+        if rps and (rate_limit == 0.0 or rps < rate_limit):
+            rate_limit = rps * 0.6  # stay at 60% of threshold
+        scan.auto_throttle = throttle_info
 
     # Phase 1: Crawl
     crawl_result = crawl(
