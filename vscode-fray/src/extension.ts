@@ -50,6 +50,7 @@ let statusBarItem: vscode.StatusBarItem;
 let resultsProvider: FrayResultsProvider;
 let historyProvider: FrayHistoryProvider;
 let activeProcess: cp.ChildProcess | null = null;
+let lastResults: { command: string; target: string; data: any } | null = null;
 
 // ---------------------------------------------------------------------------
 // Activation
@@ -84,8 +85,12 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('fray.reconUrl', () => promptAndRun('recon', context)),
     vscode.commands.registerCommand('fray.osintDomain', () => promptAndRun('osint', context)),
     vscode.commands.registerCommand('fray.leakSearch', () => promptAndRun('leak', context)),
+    vscode.commands.registerCommand('fray.bypassUrl', () => promptAndRun('bypass', context)),
+    vscode.commands.registerCommand('fray.detectWaf', () => promptAndRun('detect', context)),
+    vscode.commands.registerCommand('fray.hardenUrl', () => promptAndRun('harden', context)),
     vscode.commands.registerCommand('fray.scanFromSelection', () => runFromSelection('scan', context)),
     vscode.commands.registerCommand('fray.quickPick', () => showQuickPick(context)),
+    vscode.commands.registerCommand('fray.showReport', () => showReportWebview(context)),
     vscode.commands.registerCommand('fray.stopScan', () => stopRunning()),
   );
 
@@ -105,9 +110,13 @@ async function showQuickPick(context: vscode.ExtensionContext) {
   const items: vscode.QuickPickItem[] = [
     { label: '$(shield) Scan URL', description: 'Crawl + param discovery + payload injection', detail: 'fray scan' },
     { label: '$(beaker) Test URL', description: 'Test payloads against a specific URL', detail: 'fray test' },
+    { label: '$(zap) WAF Bypass', description: '5-phase WAF evasion scorer with mutation loop', detail: 'fray bypass' },
+    { label: '$(eye) Detect WAF', description: 'Fingerprint WAF vendor (25 vendors)', detail: 'fray detect' },
+    { label: '$(verified) Harden Check', description: 'Security headers A-F grade + OWASP Top 10', detail: 'fray harden' },
     { label: '$(search) Recon URL', description: 'Reconnaissance: tech, headers, DNS, certs', detail: 'fray recon' },
     { label: '$(globe) OSINT Domain', description: 'OSINT: whois, emails, GitHub, typosquatting', detail: 'fray osint' },
     { label: '$(key) Leak Search', description: 'Search leaked credentials (GitHub + HIBP)', detail: 'fray leak' },
+    { label: '$(open-preview) Show Last Report', description: 'Open HTML report of last scan results' },
     { label: '$(debug-stop) Stop Running Scan', description: 'Kill the currently running fray process' },
   ];
 
@@ -119,6 +128,11 @@ async function showQuickPick(context: vscode.ExtensionContext) {
 
   if (pick.label.includes('Stop')) {
     stopRunning();
+    return;
+  }
+
+  if (pick.label.includes('Report')) {
+    showReportWebview(context);
     return;
   }
 
@@ -173,6 +187,12 @@ async function promptAndRun(command: string, context: vscode.ExtensionContext) {
     ? 'Enter domain, email, or company name (e.g. example.com)'
     : command === 'leak'
     ? 'Enter domain or email (e.g. example.com, user@example.com)'
+    : command === 'bypass'
+    ? 'Enter target URL for WAF bypass assessment (e.g. https://example.com)'
+    : command === 'detect'
+    ? 'Enter target URL to detect WAF (e.g. https://example.com)'
+    : command === 'harden'
+    ? 'Enter target URL for hardening check (e.g. https://example.com)'
     : 'Enter target URL (e.g. https://example.com)';
 
   const target = await vscode.window.showInputBox({
@@ -329,13 +349,18 @@ async function runFray(command: string, target: string, context: vscode.Extensio
 function buildArgs(command: string, target: string, config: vscode.WorkspaceConfiguration): string[] {
   const args = [command, target, '--json'];
 
-  if (command === 'scan' || command === 'test') {
+  if (command === 'scan' || command === 'test' || command === 'bypass') {
     const category = config.get<string>('defaultCategory', 'xss');
     const maxPayloads = config.get<number>('maxPayloads', 5);
     const timeout = config.get<number>('timeout', 8);
     const delay = config.get<number>('delay', 0.5);
 
-    args.push('-c', category, '-m', String(maxPayloads), '-t', String(timeout), '-d', String(delay));
+    if (command !== 'bypass') {
+      args.push('-c', category, '-m', String(maxPayloads));
+    } else {
+      args.push('-c', category);
+    }
+    args.push('-t', String(timeout), '-d', String(delay));
 
     if (config.get<boolean>('autoThrottle', false)) {
       args.push('--auto-throttle');
@@ -346,6 +371,11 @@ function buildArgs(command: string, target: string, config: vscode.WorkspaceConf
     if (command === 'scan' && config.get<boolean>('browserMode', false)) {
       args.push('--browser');
     }
+  }
+
+  if (command === 'detect' || command === 'harden') {
+    const timeout = config.get<number>('timeout', 8);
+    args.push('-t', String(timeout));
   }
 
   if (command === 'recon' || command === 'osint' || command === 'leak') {
@@ -366,6 +396,7 @@ function buildArgs(command: string, target: string, config: vscode.WorkspaceConf
 // ---------------------------------------------------------------------------
 
 function processResults(command: string, target: string, results: any, context: vscode.ExtensionContext) {
+  lastResults = { command, target, data: results };
   const findings: FrayFinding[] = results.test_results || results.results || [];
 
   // Update tree view
@@ -424,14 +455,15 @@ function processResults(command: string, target: string, results: any, context: 
     diagnosticCollection.set(doc.uri, diagnostics);
   }
 
-  // Show summary notification for scan/test
-  if (command === 'scan' || command === 'test') {
+  // Show summary notification for scan/test/bypass
+  if (command === 'scan' || command === 'test' || command === 'bypass') {
     const summary = results.summary;
     if (summary) {
       const msg = `Fray: ${summary.passed || 0} bypass(es), ${summary.blocked || 0} blocked, block rate: ${summary.block_rate || 'N/A'}`;
       if (summary.passed > 0) {
-        vscode.window.showWarningMessage(msg, 'Show Results').then((choice: string | undefined) => {
+        vscode.window.showWarningMessage(msg, 'Show Results', 'Open Report').then((choice: string | undefined) => {
           if (choice === 'Show Results') { outputChannel.show(); }
+          if (choice === 'Open Report') { showReportWebview(context); }
         });
       }
     }
@@ -466,6 +498,122 @@ function tryParseJson(text: string): any | null {
   }
 
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// HTML Report Webview
+// ---------------------------------------------------------------------------
+
+function showReportWebview(context: vscode.ExtensionContext) {
+  if (!lastResults) {
+    vscode.window.showInformationMessage('No scan results yet. Run a Fray command first.');
+    return;
+  }
+
+  const panel = vscode.window.createWebviewPanel(
+    'frayReport',
+    `Fray Report: ${lastResults.target}`,
+    vscode.ViewColumn.One,
+    { enableScripts: false }
+  );
+
+  panel.webview.html = buildReportHtml(lastResults.command, lastResults.target, lastResults.data);
+}
+
+function buildReportHtml(command: string, target: string, data: any): string {
+  const findings: FrayFinding[] = data.test_results || data.results || [];
+  const summary = data.summary || {};
+  const bypasses = findings.filter(f => !f.blocked);
+  const blocked = findings.filter(f => f.blocked);
+  const timestamp = new Date().toLocaleString();
+
+  const bypassRows = bypasses.map((f, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td><code>${escHtml(truncate(f.payload, 80))}</code></td>
+      <td>${f.status}</td>
+      <td>${f.bypass_confidence}%</td>
+      <td>${f.fp_score}%</td>
+      <td>${f.elapsed_ms}ms</td>
+    </tr>`).join('');
+
+  const blockedRows = blocked.slice(0, 20).map((f, i) => `
+    <tr class="blocked">
+      <td>${i + 1}</td>
+      <td><code>${escHtml(truncate(f.payload, 80))}</code></td>
+      <td>${f.status}</td>
+      <td>${f.elapsed_ms}ms</td>
+    </tr>`).join('');
+
+  const blockRate = summary.block_rate || 'N/A';
+  const totalTested = summary.total_tested || findings.length;
+  const passedCount = summary.passed || bypasses.length;
+  const blockedCount = summary.blocked || blocked.length;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 20px; color: var(--vscode-foreground); background: var(--vscode-editor-background); }
+  h1 { font-size: 1.6em; margin-bottom: 4px; }
+  h2 { font-size: 1.2em; margin-top: 24px; border-bottom: 1px solid var(--vscode-widget-border); padding-bottom: 6px; }
+  .meta { color: var(--vscode-descriptionForeground); font-size: 0.9em; margin-bottom: 16px; }
+  .stats { display: flex; gap: 16px; flex-wrap: wrap; margin: 16px 0; }
+  .stat-card { background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-widget-border); border-radius: 8px; padding: 14px 20px; min-width: 120px; text-align: center; }
+  .stat-card .value { font-size: 2em; font-weight: 700; }
+  .stat-card .label { font-size: 0.85em; color: var(--vscode-descriptionForeground); margin-top: 2px; }
+  .stat-card.danger .value { color: var(--vscode-errorForeground); }
+  .stat-card.success .value { color: var(--vscode-testing-iconPassed); }
+  .stat-card.info .value { color: var(--vscode-notificationsInfoIcon-foreground); }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.9em; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--vscode-widget-border); }
+  th { background: var(--vscode-editorWidget-background); font-weight: 600; }
+  tr:hover { background: var(--vscode-list-hoverBackground); }
+  tr.blocked { opacity: 0.6; }
+  code { background: var(--vscode-textCodeBlock-background); padding: 2px 5px; border-radius: 3px; font-size: 0.85em; word-break: break-all; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.8em; font-weight: 600; }
+  .badge-danger { background: var(--vscode-inputValidation-errorBackground); color: var(--vscode-errorForeground); }
+  .badge-warn { background: var(--vscode-inputValidation-warningBackground); color: var(--vscode-editorWarning-foreground); }
+  .badge-ok { background: var(--vscode-inputValidation-infoBackground); color: var(--vscode-notificationsInfoIcon-foreground); }
+  .empty { color: var(--vscode-descriptionForeground); font-style: italic; padding: 20px; text-align: center; }
+</style>
+</head>
+<body>
+  <h1>Fray ${escHtml(command.toUpperCase())} Report</h1>
+  <div class="meta">Target: <strong>${escHtml(target)}</strong> &mdash; ${escHtml(timestamp)}</div>
+
+  <div class="stats">
+    <div class="stat-card info"><div class="value">${totalTested}</div><div class="label">Total Tested</div></div>
+    <div class="stat-card danger"><div class="value">${passedCount}</div><div class="label">Bypassed</div></div>
+    <div class="stat-card success"><div class="value">${blockedCount}</div><div class="label">Blocked</div></div>
+    <div class="stat-card"><div class="value">${blockRate}</div><div class="label">Block Rate</div></div>
+  </div>
+
+  <h2>Bypasses (${bypasses.length})</h2>
+  ${bypasses.length > 0 ? `
+  <table>
+    <thead><tr><th>#</th><th>Payload</th><th>Status</th><th>Confidence</th><th>FP Score</th><th>Time</th></tr></thead>
+    <tbody>${bypassRows}</tbody>
+  </table>` : '<div class="empty">No bypasses found &mdash; WAF blocked all payloads.</div>'}
+
+  <h2>Blocked (${blocked.length})</h2>
+  ${blocked.length > 0 ? `
+  <table>
+    <thead><tr><th>#</th><th>Payload</th><th>Status</th><th>Time</th></tr></thead>
+    <tbody>${blockedRows}</tbody>
+  </table>
+  ${blocked.length > 20 ? `<div class="meta">Showing first 20 of ${blocked.length} blocked payloads.</div>` : ''}` : '<div class="empty">No blocked payloads.</div>'}
+
+  <h2>Raw JSON</h2>
+  <details><summary>Click to expand</summary><pre><code>${escHtml(JSON.stringify(data, null, 2))}</code></pre></details>
+</body>
+</html>`;
+}
+
+function escHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // ---------------------------------------------------------------------------

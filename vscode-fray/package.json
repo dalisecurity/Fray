@@ -68,6 +68,26 @@
         "icon": "$(shield)"
       },
       {
+        "command": "fray.bypassUrl",
+        "title": "Fray: WAF Bypass Assessment",
+        "icon": "$(zap)"
+      },
+      {
+        "command": "fray.detectWaf",
+        "title": "Fray: Detect WAF",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "fray.hardenUrl",
+        "title": "Fray: Harden Check",
+        "icon": "$(verified)"
+      },
+      {
+        "command": "fray.showReport",
+        "title": "Fray: Show Last Report",
+        "icon": "$(open-preview)"
+      },
+      {
         "command": "fray.stopScan",
         "title": "Fray: Stop Running Scan",
         "icon": "$(debug-stop)"
@@ -94,6 +114,11 @@
         "key": "ctrl+shift+f",
         "mac": "cmd+shift+f",
         "when": "!searchViewletVisible"
+      },
+      {
+        "command": "fray.showReport",
+        "key": "ctrl+shift+r",
+        "mac": "cmd+shift+r"
       }
     ],
     "configuration": {
