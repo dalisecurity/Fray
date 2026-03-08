@@ -879,6 +879,213 @@ def _extract_ooxml_metadata(raw: bytes) -> Dict[str, str]:
     return meta
 
 
+# ── Input Resolution ─────────────────────────────────────────────────
+
+# Well-known company → domain mappings
+_COMPANY_DOMAINS: Dict[str, str] = {
+    "amazon": "amazon.com", "aws": "amazon.com",
+    "google": "google.com", "alphabet": "google.com",
+    "microsoft": "microsoft.com", "apple": "apple.com",
+    "meta": "meta.com", "facebook": "facebook.com",
+    "netflix": "netflix.com", "cloudflare": "cloudflare.com",
+    "stripe": "stripe.com", "github": "github.com",
+    "gitlab": "gitlab.com", "twitter": "twitter.com",
+    "slack": "slack.com", "salesforce": "salesforce.com",
+    "shopify": "shopify.com", "dropbox": "dropbox.com",
+    "uber": "uber.com", "airbnb": "airbnb.com",
+    "spotify": "spotify.com", "snap": "snap.com",
+    "oracle": "oracle.com", "ibm": "ibm.com",
+    "intel": "intel.com", "cisco": "cisco.com",
+    "paloalto": "paloaltonetworks.com",
+    "crowdstrike": "crowdstrike.com",
+    "datadog": "datadoghq.com",
+    "okta": "okta.com", "twilio": "twilio.com",
+    "zoom": "zoom.us", "docker": "docker.com",
+    "hashicorp": "hashicorp.com", "elastic": "elastic.co",
+    "mongodb": "mongodb.com", "redis": "redis.com",
+    "confluent": "confluent.io", "vercel": "vercel.com",
+    "netlify": "netlify.com", "digitalocean": "digitalocean.com",
+    "linode": "linode.com", "vultr": "vultr.com",
+}
+
+
+def resolve_target(target: str) -> Dict[str, str]:
+    """Resolve a target string into a structured input.
+
+    Accepts:
+        - Domain:       example.com
+        - URL:          https://example.com
+        - Email:        user@example.com
+        - Company name: Amazon, Cloudflare
+
+    Returns:
+        {"type": "domain"|"email"|"company", "domain": "example.com",
+         "email": "user@example.com" (if email), "original": target}
+    """
+    target = target.strip()
+    original = target
+
+    # URL → extract hostname
+    if target.startswith(("http://", "https://")):
+        parsed = urllib.parse.urlparse(target)
+        return {"type": "domain", "domain": parsed.hostname or target,
+                "original": original}
+
+    # Email → extract domain
+    if "@" in target:
+        parts = target.split("@", 1)
+        domain = parts[1].lower()
+        return {"type": "email", "domain": domain, "email": target.lower(),
+                "original": original}
+
+    # Has a dot → treat as domain
+    if "." in target:
+        return {"type": "domain", "domain": target.lower(),
+                "original": original}
+
+    # No dot → company name lookup
+    key = target.lower().replace(" ", "").replace("-", "").replace("_", "")
+    if key in _COMPANY_DOMAINS:
+        return {"type": "company", "domain": _COMPANY_DOMAINS[key],
+                "company": target, "original": original}
+
+    # Unknown company → try {name}.com
+    return {"type": "company", "domain": f"{key}.com",
+            "company": target, "original": original}
+
+
+# ── Email-specific OSINT ─────────────────────────────────────────────
+
+def run_osint_email(email: str, timeout: int = 10,
+                    quiet: bool = False) -> Dict[str, Any]:
+    """Run OSINT focused on a specific email address.
+
+    Checks:
+        1. HIBP breach lookup
+        2. GitHub profile search (by email)
+        3. Gravatar profile
+        4. Domain WHOIS (from email domain)
+    """
+    import hashlib
+
+    domain = email.split("@", 1)[1].lower()
+    from fray.progress import FrayProgress
+    prog = FrayProgress(4, title=f"🔍 OSINT: {email}", quiet=quiet)
+
+    result: Dict[str, Any] = {
+        "target_type": "email",
+        "email": email,
+        "domain": domain,
+        "breaches": None,
+        "github_profile": None,
+        "gravatar": None,
+        "whois": None,
+    }
+
+    ctx = ssl.create_default_context()
+
+    # 1. HIBP breach check
+    prog.start("HIBP breach check")
+    hibp_key = os.environ.get("HIBP_API_KEY")
+    if hibp_key:
+        try:
+            req = urllib.request.Request(
+                f"https://haveibeenpwned.com/api/v3/breachedaccount/"
+                f"{urllib.parse.quote(email)}?truncateResponse=false",
+                headers={
+                    "User-Agent": "Fray-OSINT/1.0",
+                    "hibp-api-key": hibp_key,
+                },
+            )
+            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+                breaches = json.loads(resp.read().decode())
+                result["breaches"] = {
+                    "count": len(breaches),
+                    "breaches": [
+                        {"name": b.get("Name"), "date": b.get("BreachDate"),
+                         "data_classes": b.get("DataClasses", [])}
+                        for b in breaches
+                    ],
+                }
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                result["breaches"] = {"count": 0, "breaches": []}
+            else:
+                result["breaches"] = {"error": f"HTTP {e.code}"}
+        except Exception as e:
+            result["breaches"] = {"error": str(e)}
+    else:
+        result["breaches"] = {"error": "Set HIBP_API_KEY for breach lookup"}
+    prog.done("HIBP breach check")
+
+    # 2. GitHub profile search by email
+    prog.start("GitHub profile search")
+    try:
+        token = os.environ.get("GITHUB_TOKEN")
+        headers_gh = {
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "Fray-OSINT/1.0",
+        }
+        if token:
+            headers_gh["Authorization"] = f"token {token}"
+        req = urllib.request.Request(
+            f"https://api.github.com/search/users?q={urllib.parse.quote(email)}+in:email",
+            headers=headers_gh,
+        )
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            data = json.loads(resp.read().decode())
+            items = data.get("items", [])
+            if items:
+                result["github_profile"] = {
+                    "found": True,
+                    "login": items[0].get("login"),
+                    "url": items[0].get("html_url"),
+                    "avatar": items[0].get("avatar_url"),
+                }
+            else:
+                result["github_profile"] = {"found": False}
+    except Exception as e:
+        result["github_profile"] = {"error": str(e)[:100]}
+    prog.done("GitHub profile search")
+
+    # 3. Gravatar check
+    prog.start("Gravatar lookup")
+    try:
+        email_hash = hashlib.md5(email.strip().lower().encode()).hexdigest()
+        req = urllib.request.Request(
+            f"https://www.gravatar.com/{email_hash}.json",
+            headers={"User-Agent": "Fray-OSINT/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            grav = json.loads(resp.read().decode())
+            entry = grav.get("entry", [{}])[0]
+            result["gravatar"] = {
+                "found": True,
+                "display_name": entry.get("displayName"),
+                "profile_url": entry.get("profileUrl"),
+                "about_me": entry.get("aboutMe"),
+                "accounts": [
+                    {"shortname": a.get("shortname"), "url": a.get("url")}
+                    for a in entry.get("accounts", [])
+                ],
+            }
+    except urllib.error.HTTPError:
+        result["gravatar"] = {"found": False}
+    except Exception:
+        result["gravatar"] = {"found": False}
+    prog.done("Gravatar lookup")
+
+    # 4. Domain WHOIS
+    prog.start("Domain WHOIS")
+    try:
+        result["whois"] = whois_lookup(domain, timeout)
+    except Exception as e:
+        result["whois"] = {"error": str(e)}
+    prog.done("Domain WHOIS")
+
+    return result
+
+
 # ── Combined OSINT Search ─────────────────────────────────────────────
 
 def run_osint(domain: str, whois: bool = True, emails: bool = True,
@@ -888,7 +1095,7 @@ def run_osint(domain: str, whois: bool = True, emails: bool = True,
     """Run offensive OSINT gathering on a domain.
 
     Args:
-        domain: Target domain
+        domain: Target domain (already resolved — use resolve_target() first)
         whois: Enable WHOIS lookup
         emails: Enable email harvesting
         permutations: Enable typosquatting check
@@ -1173,3 +1380,239 @@ def print_osint(result: Dict[str, Any]) -> None:
             console.print()
 
     console.print(f"  {'━' * 50}")
+
+
+def print_osint_email(result: Dict[str, Any]) -> None:
+    """Pretty-print email-focused OSINT results."""
+    try:
+        from rich.console import Console
+        console = Console()
+    except ImportError:
+        print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+        return
+
+    email = result.get("email", "?")
+    domain = result.get("domain", "?")
+    console.print(f"\n  [bold]OSINT Report: {email}[/bold]")
+    console.print(f"  {'━' * 50}")
+
+    # Breaches
+    b = result.get("breaches")
+    if b and not b.get("error"):
+        count = b.get("count", 0)
+        color = "red" if count > 0 else "green"
+        console.print(f"\n  [bold]Breach Check (HIBP)[/bold]  [{color}]{count} breach(es)[/{color}]")
+        for breach in b.get("breaches", [])[:10]:
+            classes = ", ".join(breach.get("data_classes", [])[:4])
+            console.print(f"    🔓 [red]{breach['name']}[/red]  {breach.get('date', '?')}  [dim]{classes}[/dim]")
+    elif b and b.get("error"):
+        console.print(f"\n  [bold]Breach Check[/bold]  [dim]{b['error']}[/dim]")
+
+    # GitHub profile
+    gh = result.get("github_profile")
+    if gh and gh.get("found"):
+        console.print(f"\n  [bold]GitHub Profile[/bold]")
+        console.print(f"    Login: [cyan]{gh['login']}[/cyan]")
+        console.print(f"    URL:   {gh['url']}")
+    elif gh and not gh.get("found") and not gh.get("error"):
+        console.print(f"\n  [bold]GitHub Profile[/bold]  [dim]Not found[/dim]")
+
+    # Gravatar
+    grav = result.get("gravatar")
+    if grav and grav.get("found"):
+        console.print(f"\n  [bold]Gravatar Profile[/bold]")
+        if grav.get("display_name"):
+            console.print(f"    Name:    [cyan]{grav['display_name']}[/cyan]")
+        if grav.get("profile_url"):
+            console.print(f"    Profile: {grav['profile_url']}")
+        if grav.get("about_me"):
+            console.print(f"    Bio:     [dim]{grav['about_me'][:100]}[/dim]")
+        for acct in grav.get("accounts", [])[:5]:
+            console.print(f"    🔗 {acct.get('shortname', '?')}: {acct.get('url', '')}")
+
+    # Whois
+    w = result.get("whois")
+    if w and not w.get("error"):
+        console.print(f"\n  [bold]Domain: {domain}[/bold]")
+        if w.get("registrar"):
+            console.print(f"    Registrar: [cyan]{w['registrar']}[/cyan]")
+        if w.get("registrant_org"):
+            console.print(f"    Org:       [cyan]{w['registrant_org']}[/cyan]")
+
+    console.print(f"\n  {'━' * 50}")
+
+
+# ── HTML Export ──────────────────────────────────────────────────────
+
+def export_osint_html(result: Dict[str, Any], output_path: str) -> None:
+    """Export OSINT results as a self-contained HTML report."""
+    import html as _html
+    from datetime import datetime, timezone
+
+    domain = _html.escape(result.get("domain", "?"))
+    target_type = result.get("target_type", "domain")
+    email_target = result.get("email", "")
+    report_title = f"OSINT Report: {email_target}" if target_type == "email" else f"OSINT Report: {domain}"
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    sections = []
+
+    def _h(text: str) -> str:
+        return _html.escape(str(text))
+
+    def _add_section(heading: str, content: str) -> None:
+        sections.append(f'<div class="section"><h2>{_h(heading)}</h2>{content}</div>')
+
+    # ── Whois ──
+    w = result.get("whois")
+    if w and not w.get("error"):
+        rows = ""
+        for key, label in [("registrar", "Registrar"), ("creation_date", "Created"),
+                           ("expiry_date", "Expires"), ("registrant_org", "Organisation"),
+                           ("registrant_country", "Country")]:
+            if w.get(key):
+                rows += f"<tr><td>{label}</td><td>{_h(w[key])}</td></tr>"
+        ns = w.get("name_servers", [])
+        if ns:
+            rows += f"<tr><td>Name Servers</td><td>{_h(', '.join(ns[:4]))}</td></tr>"
+        if rows:
+            _add_section("WHOIS", f"<table>{rows}</table>")
+
+    # ── GitHub ──
+    gh = result.get("github")
+    if gh and gh.get("org_found"):
+        html_gh = f"<p><strong>{_h(gh.get('org_login', ''))}</strong> &mdash; {_h(gh.get('org_name', ''))}</p>"
+        html_gh += f"<p>Public repos: {gh.get('public_repos', 0)} &middot; Members: {len(gh.get('members', []))}</p>"
+
+        interesting = gh.get("interesting_repos", [])
+        if interesting:
+            html_gh += "<h3>Infrastructure Repos</h3><ul>"
+            for r in interesting[:10]:
+                html_gh += f"<li><strong>{_h(r['name'])}</strong> ({_h(r['reason'])}) &mdash; {_h(r.get('description', ''))}</li>"
+            html_gh += "</ul>"
+
+        authors = gh.get("commit_authors", [])
+        if authors:
+            html_gh += f"<h3>Commit Authors ({len(authors)})</h3><table><tr><th>Name</th><th>Email</th><th>Repo</th></tr>"
+            for a in authors[:20]:
+                html_gh += f"<tr><td>{_h(a['name'])}</td><td>{_h(a['email'])}</td><td>{_h(a['repo'])}</td></tr>"
+            html_gh += "</table>"
+
+        _add_section("GitHub Organisation", html_gh)
+
+    # ── Employees ──
+    emp = result.get("employees")
+    if emp and emp.get("total_unique_people", 0) > 0:
+        html_emp = f"<p>{emp['total_unique_people']} people discovered</p>"
+        pattern = emp.get("email_pattern")
+        if pattern:
+            html_emp += f"<p>Email pattern: <code>{_h(pattern)}@{_h(domain)}</code></p>"
+        inferred = emp.get("inferred_emails", [])
+        if inferred:
+            html_emp += f"<h3>Generated Emails ({len(inferred)})</h3><ul>"
+            for em in inferred[:30]:
+                html_emp += f"<li>{_h(em)}</li>"
+            html_emp += "</ul>"
+        _add_section("Employee Enumeration", html_emp)
+
+    # ── Emails ──
+    e = result.get("emails")
+    if e and e.get("total", 0) > 0:
+        html_em = f"<p>{e['total']} email(s) found</p><ul>"
+        for em in e.get("emails", [])[:15]:
+            html_em += f"<li>{_h(em['email'])} ({em.get('confidence', 0)}%)</li>"
+        html_em += "</ul>"
+        roles = e.get("role_addresses", [])
+        if roles:
+            html_em += f"<p>Role addresses: {_h(', '.join(roles[:10]))}</p>"
+        _add_section("Email Addresses", html_em)
+
+    # ── Typosquatting ──
+    p = result.get("permutations")
+    if p and p.get("registered", 0) > 0:
+        html_p = f"<p class='danger'>{p['registered']} registered out of {p.get('checked', 0)} checked</p><ul>"
+        for perm in p.get("permutations", [])[:15]:
+            html_p += f"<li><strong>{_h(perm['domain'])}</strong> &rarr; {_h(perm['ip'])}</li>"
+        html_p += "</ul>"
+        _add_section("Typosquatting / Permutations", html_p)
+
+    # ── Documents ──
+    doc = result.get("documents")
+    if doc and doc.get("documents_found", 0) > 0:
+        html_doc = f"<p>{doc['documents_found']} documents found</p>"
+        authors_list = doc.get("unique_authors", [])
+        if authors_list:
+            html_doc += "<h3>Authors</h3><ul>"
+            for a in authors_list:
+                html_doc += f"<li>{_h(a)}</li>"
+            html_doc += "</ul>"
+        paths = doc.get("internal_paths", [])
+        if paths:
+            html_doc += "<h3>Internal Paths Leaked</h3><ul>"
+            for ip in paths:
+                html_doc += f"<li class='danger'>{_h(ip)}</li>"
+            html_doc += "</ul>"
+        _add_section("Document Metadata", html_doc)
+
+    # ── Email-mode sections ──
+    if target_type == "email":
+        b = result.get("breaches")
+        if b and not b.get("error") and b.get("count", 0) > 0:
+            html_b = f"<p class='danger'>{b['count']} breach(es)</p><ul>"
+            for br in b.get("breaches", [])[:10]:
+                html_b += f"<li><strong>{_h(br['name'])}</strong> ({_h(br.get('date', '?'))})</li>"
+            html_b += "</ul>"
+            _add_section("Breach Check (HIBP)", html_b)
+
+        gh_prof = result.get("github_profile")
+        if gh_prof and gh_prof.get("found"):
+            html_gp = f"<p>Login: <a href='{_h(gh_prof['url'])}'>{_h(gh_prof['login'])}</a></p>"
+            _add_section("GitHub Profile", html_gp)
+
+        grav = result.get("gravatar")
+        if grav and grav.get("found"):
+            html_gv = f"<p>{_h(grav.get('display_name', ''))}</p>"
+            for acct in grav.get("accounts", []):
+                html_gv += f"<p>{_h(acct.get('shortname', ''))}: <a href='{_h(acct.get('url', ''))}'>{_h(acct.get('url', ''))}</a></p>"
+            _add_section("Gravatar", html_gv)
+
+    # Build full HTML page
+    body = "\n".join(sections) if sections else "<p>No results found.</p>"
+
+    page = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{_h(report_title)}</title>
+<style>
+  :root {{ --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9;
+           --accent: #58a6ff; --red: #f85149; --green: #3fb950; --yellow: #d29922; }}
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{ background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 2rem; }}
+  h1 {{ color: #fff; margin-bottom: 0.3rem; font-size: 1.5rem; }}
+  .meta {{ color: #8b949e; margin-bottom: 2rem; font-size: 0.85rem; }}
+  .section {{ background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.2rem 1.5rem; margin-bottom: 1rem; }}
+  .section h2 {{ color: var(--accent); font-size: 1.1rem; margin-bottom: 0.8rem; border-bottom: 1px solid var(--border); padding-bottom: 0.4rem; }}
+  .section h3 {{ color: var(--text); font-size: 0.95rem; margin: 0.8rem 0 0.4rem; }}
+  table {{ width: 100%; border-collapse: collapse; font-size: 0.85rem; }}
+  td, th {{ padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--border); text-align: left; }}
+  th {{ color: #8b949e; }}
+  ul {{ padding-left: 1.2rem; font-size: 0.85rem; }}
+  li {{ margin: 0.2rem 0; }}
+  code {{ background: #1c2129; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.85rem; color: var(--accent); }}
+  a {{ color: var(--accent); text-decoration: none; }}
+  a:hover {{ text-decoration: underline; }}
+  .danger {{ color: var(--red); }}
+  p {{ margin: 0.3rem 0; font-size: 0.9rem; }}
+</style>
+</head>
+<body>
+<h1>{_h(report_title)}</h1>
+<p class="meta">Generated by Fray OSINT &middot; {now}</p>
+{body}
+</body>
+</html>"""
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(page)

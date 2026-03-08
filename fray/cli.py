@@ -3075,70 +3075,104 @@ def cmd_leak(args):
 
 
 def cmd_osint(args):
-    """Offensive OSINT: whois, emails, typosquatting, GitHub org recon, employee enum, doc metadata."""
-    from fray.osint import run_osint, print_osint
+    """Offensive OSINT: accepts domain, email, or company name."""
+    from fray.osint import (resolve_target, run_osint, run_osint_email,
+                            print_osint, print_osint_email, export_osint_html)
 
     target = args.target
     if not target:
         print("  Error: No target specified.")
         print("  Usage: fray osint example.com")
+        print("         fray osint user@example.com")
+        print("         fray osint Amazon")
         sys.exit(1)
 
-    do_whois = True
-    do_emails = True
-    do_perms = True
-    do_github = True
-    do_docs = True
+    # Resolve input type
+    resolved = resolve_target(target)
+    input_type = resolved["type"]
+    domain = resolved["domain"]
 
-    # Individual flags: run only the specified module
-    if getattr(args, 'whois_only', False):
-        do_emails = do_perms = do_github = do_docs = False
-    elif getattr(args, 'emails_only', False):
-        do_whois = do_perms = do_github = do_docs = False
-    elif getattr(args, 'github_only', False):
-        do_whois = do_emails = do_perms = do_docs = False
-    elif getattr(args, 'docs_only', False):
-        do_whois = do_emails = do_perms = do_github = False
-    elif getattr(args, 'permutations_only', False):
-        do_whois = do_emails = do_github = do_docs = False
+    if not getattr(args, 'json', False):
+        if input_type == "email":
+            print(f"  📧 Email mode: {resolved['email']} (domain: {domain})")
+        elif input_type == "company":
+            print(f"  🏢 Company: {resolved.get('company', target)} → {domain}")
 
-    result = run_osint(
-        domain=target,
-        whois=do_whois,
-        emails=do_emails,
-        permutations=do_perms,
-        github=do_github,
-        docs=do_docs,
-        timeout=getattr(args, 'timeout', 10),
-        quiet=getattr(args, 'json', False),
-    )
+    # Route based on input type
+    if input_type == "email":
+        result = run_osint_email(
+            email=resolved["email"],
+            timeout=getattr(args, 'timeout', 10),
+            quiet=getattr(args, 'json', False),
+        )
+    else:
+        do_whois = True
+        do_emails = True
+        do_perms = True
+        do_github = True
+        do_docs = True
+
+        if getattr(args, 'whois_only', False):
+            do_emails = do_perms = do_github = do_docs = False
+        elif getattr(args, 'emails_only', False):
+            do_whois = do_perms = do_github = do_docs = False
+        elif getattr(args, 'github_only', False):
+            do_whois = do_emails = do_perms = do_docs = False
+        elif getattr(args, 'docs_only', False):
+            do_whois = do_emails = do_perms = do_github = False
+        elif getattr(args, 'permutations_only', False):
+            do_whois = do_emails = do_github = do_docs = False
+
+        result = run_osint(
+            domain=domain,
+            whois=do_whois,
+            emails=do_emails,
+            permutations=do_perms,
+            github=do_github,
+            docs=do_docs,
+            timeout=getattr(args, 'timeout', 10),
+            quiet=getattr(args, 'json', False),
+        )
+
+    # Output
+    out_path = getattr(args, 'output', None)
+    is_html = out_path and (out_path.endswith('.html') or out_path.endswith('.htm'))
 
     if getattr(args, 'json', False):
         out = json.dumps(result, indent=2, ensure_ascii=False, default=str)
-        if getattr(args, 'output', None):
-            _validate_output_path(args.output)
-            Path(args.output).write_text(out, encoding="utf-8")
-            print(f"  Saved to {args.output}")
+        if out_path and not is_html:
+            _validate_output_path(out_path)
+            Path(out_path).write_text(out, encoding="utf-8")
+            print(f"  Saved to {out_path}")
         else:
             print(out)
     else:
-        print_osint(result)
-        if getattr(args, 'output', None):
-            _validate_output_path(args.output)
-            out = json.dumps(result, indent=2, ensure_ascii=False, default=str)
-            Path(args.output).write_text(out, encoding="utf-8")
-            print(f"  💾 Results saved to {args.output}")
+        if input_type == "email":
+            print_osint_email(result)
+        else:
+            print_osint(result)
+        if out_path:
+            _validate_output_path(out_path)
+            if is_html:
+                export_osint_html(result, out_path)
+                print(f"  📄 HTML report saved to {out_path}")
+            else:
+                out = json.dumps(result, indent=2, ensure_ascii=False, default=str)
+                Path(out_path).write_text(out, encoding="utf-8")
+                print(f"  💾 Results saved to {out_path}")
 
-    # Auto-export to ~/.fray/osint/{domain}/
+    # Auto-export to ~/.fray/osint/{key}/
     import os as _os
-    domain = result.get("domain", target)
-    export_dir = _os.path.join(_os.path.expanduser("~"), ".fray", "osint", domain)
+    export_key = resolved.get("email", domain)
+    export_dir = _os.path.join(_os.path.expanduser("~"), ".fray", "osint", export_key)
     _os.makedirs(export_dir, exist_ok=True)
-    export_path = _os.path.join(export_dir, "osint.json")
-    with open(export_path, "w", encoding="utf-8") as f:
+    export_json = _os.path.join(export_dir, "osint.json")
+    with open(export_json, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2, ensure_ascii=False, default=str)
+    export_html = _os.path.join(export_dir, "osint.html")
+    export_osint_html(result, export_html)
     if not getattr(args, 'json', False):
-        print(f"\n  📁 Saved to {export_dir}/")
+        print(f"\n  📁 Saved to {export_dir}/ (JSON + HTML)")
 
 
 def cmd_cred(args):
