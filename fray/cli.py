@@ -1109,6 +1109,21 @@ def cmd_test(args):
             report["duration"] = f"{minutes}m {seconds}s" if minutes > 0 else f"{seconds}s"
         send_webhook(args.webhook, report)
 
+    # --notify (generic notification)
+    notify_url = getattr(args, 'notify', None)
+    if notify_url:
+        from fray.webhook import send_generic_notification
+        passed = sum(1 for r in results if not r.get("blocked"))
+        sev = "critical" if passed > 5 else "high" if passed > 0 else "low"
+        summary = {
+            "total_tested": len(results),
+            "blocked": sum(1 for r in results if r.get("blocked")),
+            "bypassed": passed,
+            "block_rate": f"{sum(1 for r in results if r.get('blocked')) / len(results) * 100:.1f}%" if results else "0%",
+            "_severity": sev,
+        }
+        send_generic_notification(notify_url, "test", args.target, summary)
+
 
 def cmd_report(args):
     """Generate HTML or Markdown report from results"""
@@ -3655,6 +3670,8 @@ Documentation: https://github.com/dalisecurity/fray
     p_test.add_argument("--sarif", action="store_true", help="Output SARIF 2.1.0 for GitHub Security tab / CodeQL")
     p_test.add_argument("--mutate", type=int, nargs="?", const=10, default=0, metavar="N",
                           help="Auto-mutate blocked payloads and re-test (default: 10 variants per payload)")
+    p_test.add_argument("--notify", default=None, metavar="WEBHOOK_URL",
+                         help="Send Slack/Discord/Teams notification on completion")
     p_test.set_defaults(func=cmd_test)
 
     # bypass
