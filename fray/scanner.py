@@ -1031,23 +1031,25 @@ def print_scan_result(scan: ScanResult) -> None:
                             border_style="bright_green", expand=False))
 
         # ── Next Steps ──
+        _target = scan.target
+        _cat = "xss"  # default category for recommendations
         console.print()
         console.print("  [bold]What This Means / Next Steps:[/bold]")
         if scan.total_passed == 0:
             console.print(f"    → [bold]All {scan.total_blocked} payloads blocked — WAF is actively protecting this target[/bold]")
-            console.print(f"      Try bypass scorer:  fray bypass {target} -c {category} -m 50")
-            console.print(f"      Try smart mode:     fray test {target} -c {category} --smart --max 100")
-            console.print(f"      Try more payloads:  fray test {target} -c sqli,rce,ssrf -m 20")
-            console.print(f"      Run full recon:     fray recon {target}")
+            console.print(f"      Try bypass scorer:  fray bypass {_target} -c {_cat} -m 50")
+            console.print(f"      Try smart mode:     fray test {_target} -c {_cat} --smart --max 100")
+            console.print(f"      Try more payloads:  fray test {_target} -c sqli,rce,ssrf -m 20")
+            console.print(f"      Run full recon:     fray recon {_target}")
         elif scan.total_reflected > 0:
             console.print(f"    → [bold]{scan.total_reflected} payload(s) REFLECTED — confirmed injection, likely exploitable[/bold]")
-            console.print(f"      Run bypass scorer:  fray bypass {target} -c {category} -m 50")
-            console.print(f"      Export report:      fray scan {target} -c {category} -o scan_report.json")
+            console.print(f"      Run bypass scorer:  fray bypass {_target} -c {_cat} -m 50")
+            console.print(f"      Export report:      fray scan {_target} -c {_cat} -o scan_report.json")
             console.print(f"      Generate report:    fray report -i scan_report.json --format html")
         else:
             console.print(f"    → [bold]{scan.total_passed} payload(s) not blocked ({block_rate:.0f}% block rate)[/bold]")
-            console.print(f"      Verify bypasses:    fray bypass {target} -c {category} -m 30")
-            console.print(f"      Test more payloads: fray test {target} -c {category} -m 50")
+            console.print(f"      Verify bypasses:    fray bypass {_target} -c {_cat} -m 30")
+            console.print(f"      Test more payloads: fray test {_target} -c {_cat} -m 50")
         console.print()
 
         # Show passed (bypassed) payloads if any
@@ -1098,13 +1100,15 @@ def print_scan_result(scan: ScanResult) -> None:
             console.print(Panel(bypass_table, title="[bold red]⚠ Bypassed (Not Blocked)[/bold red]",
                                 border_style="red", expand=False))
     else:
+        _target = scan.target
+        _cat = "xss"
         console.print("\n  [dim]No payloads tested (no injection points found).[/dim]")
         console.print()
         console.print("  [bold]What This Means / Next Steps:[/bold]")
         console.print(f"    → [bold]No forms or injectable parameters found on crawled pages[/bold]")
         console.print(f"      This is common on JS-heavy SPAs (React, Angular, Vue)")
-        console.print(f"      Try browser mode:   fray scan {target} -c {category} --browser")
-        console.print(f"      Test a specific URL: fray test {target}/search?q=test -c {category}")
-        console.print(f"      Run recon to find endpoints: fray recon {target}")
-        console.print(f"      Crawl deeper:       fray scan {target} -c {category} --max-pages 20 --depth 3")
+        console.print(f"      Try browser mode:   fray scan {_target} -c {_cat} --browser")
+        console.print(f"      Test a specific URL: fray test {_target}/search?q=test -c {_cat}")
+        console.print(f"      Run recon to find endpoints: fray recon {_target}")
+        console.print(f"      Crawl deeper:       fray scan {_target} -c {_cat} --max-pages 20 --depth 3")
         console.print()

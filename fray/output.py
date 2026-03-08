@@ -89,6 +89,7 @@ def severity_style(severity: str) -> str:
 
 
 def grade_label(score) -> str:
+    """Return severity label.  NONE only appears when score is exactly 0 (not tested)."""
     s = float(score)
     if s >= 90:
         return "CRITICAL"

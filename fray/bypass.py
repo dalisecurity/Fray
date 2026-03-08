@@ -269,8 +269,8 @@ def _score_label(pct: int) -> str:
       90-100%  CRITICAL — Confirmed real bypass, exploit-ready
       70-89%   HIGH     — Strong bypass, likely exploitable with refinement
       40-69%   MEDIUM   — Bypass detected, needs manual verification
-      1-39%    LOW      — Weak signal, probably false positive
-      0%       NONE     — Blocked or no bypass
+      1-39%    LOW      — WAF is strong; weak signals or false positives
+      0%       NONE     — No testing performed
     """
     if pct >= 90:
         return "CRITICAL"
@@ -297,15 +297,17 @@ def _next_steps_for_score(score: int, total_blocked: int, total_bypassed: int,
         steps.append(f"No payloads tested. Run: fray bypass {target} -c {category} -m 20")
         return steps
 
+    waf_slug = waf_label.lower().replace(" ", "_").split("(")[0].strip("_")
+
     if total_bypassed == 0:
-        # All blocked — user needs guidance
-        steps.append(f"All {total_blocked} payloads blocked by {waf_label} ({strictness})")
-        steps.append(f"Try mutation mode:    fray bypass {target} -c {category} -m 50 --waf {waf_label.lower().replace(' ', '_')}")
-        steps.append(f"Try different category: fray bypass {target} -c sqli -m 30")
-        steps.append(f"Try smart mode:       fray test {target} -c {category} --smart --max 100")
+        # All blocked — WAF is strong, guide the user to try harder
+        steps.append(f"WAF held strong: {waf_label} blocked all {total_blocked} payloads ({strictness} strictness)")
+        steps.append(f"Increase mutation depth: fray bypass {target} -c {category} -m 100 --waf {waf_slug}")
+        steps.append(f"Try different category:  fray bypass {target} -c sqli -m 30")
+        steps.append(f"Try smart mode:          fray test {target} -c {category} --smart --max 100")
         if strictness in ("strict", "moderate"):
-            steps.append(f"Try stealth mode:     fray bypass {target} -c {category} --stealth -d 1.5")
-        steps.append(f"Run full recon first: fray recon {target}")
+            steps.append(f"Try stealth mode:        fray bypass {target} -c {category} --stealth -d 1.5")
+        steps.append(f"Run full recon:          fray recon {target}")
         return steps
 
     bypass_rate = total_bypassed / total * 100
@@ -326,10 +328,16 @@ def _next_steps_for_score(score: int, total_blocked: int, total_bypassed: int,
         steps.append(f"Increase testing:   fray bypass {target} -c {category} -m 100")
         steps.append(f"Try smart mode:     fray test {target} -c {category} --smart --max 100")
     else:
-        steps.append(f"LOW: {total_bypassed} weak signal(s) — likely false positives (response matches baseline)")
-        steps.append(f"This usually means the app ignores the parameter, not a real bypass")
-        steps.append(f"Try with a real param:  fray test {target}?q=test -c {category} -m 10")
-        steps.append(f"Run scan to find real injection points: fray scan {target} -c {category}")
+        # LOW with some bypasses — likely false positives
+        if bypass_rate > 80:
+            steps.append(f"LOW: {total_bypassed} passed but likely no real WAF filtering (responses match baseline)")
+            steps.append(f"The target may not have a WAF on this endpoint")
+            steps.append(f"Detect WAF:            fray detect {target}")
+            steps.append(f"Scan for real inputs:   fray scan {target} -c {category}")
+        else:
+            steps.append(f"LOW: {total_bypassed} weak signal(s) — responses match baseline, likely false positives")
+            steps.append(f"Try with a real param:  fray test {target}?q=test -c {category} -m 10")
+            steps.append(f"Scan for injection pts: fray scan {target} -c {category}")
         steps.append(f"Run recon to find endpoints: fray recon {target}")
 
     return steps
@@ -404,6 +412,12 @@ def _overall_score(bypasses: List[BypassResult], total_tested: int,
     """Compute an overall WAF evasion score as a percentage (0–100%).
 
     Combines bypass rate and average individual scores, weighted by WAF strictness.
+
+    Minimum score logic (never 0% if testing happened):
+      - WAF detected + probes ran = base 3%
+      - Testing effort bonus:  +1% per 10 payloads tested (max +5%)
+      - Strictness bonus: strict +4%, moderate +3%, permissive +1%
+      This ensures even 100% blocked targets show 5-12% ("WAF is strong, tested it")
     """
     if total_tested == 0:
         return 0
@@ -422,6 +436,17 @@ def _overall_score(bypasses: List[BypassResult], total_tested: int,
 
     # Combine: bypass rate (40%) + average score (60%), weighted by strictness
     overall = (bypass_rate * 40.0 * weight) + (avg_score * 0.6)
+
+    # Minimum floor: never 0% if we actually tested payloads
+    # This reflects the value of WAF detection + probe + testing effort
+    if total_tested > 0:
+        base = 3  # WAF detected + probes ran
+        effort_bonus = min(total_tested // 10, 5)  # +1% per 10 payloads, max +5%
+        strictness_bonus = {"strict": 4, "moderate": 3, "permissive": 1, "minimal": 0}
+        s_bonus = strictness_bonus.get(profile.strictness, 1)
+        floor = base + effort_bonus + s_bonus  # 3–12%
+        overall = max(overall, floor)
+
     return int(round(min(overall, 100.0)))
 
 
@@ -1029,7 +1054,7 @@ def _print_scorecard(sc: BypassScorecard):
 
     # ── Score Guide (compact) ──
     console.print()
-    console.print("  [dim]Score: 90%+ CRITICAL (exploit-ready) │ 70%+ HIGH (strong) │ 40%+ MEDIUM (unconfirmed) │ <40% LOW (weak/FP)[/dim]")
+    console.print("  [dim]Score: 90%+ CRITICAL (exploit-ready) │ 70%+ HIGH (strong bypass) │ 40%+ MEDIUM (unconfirmed) │ <40% LOW (WAF holding)[/dim]")
 
     console.print()
     console.rule(style="dim")

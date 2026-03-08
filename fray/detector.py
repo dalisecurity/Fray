@@ -534,6 +534,7 @@ class WAFDetector:
         
         print(f"\n{Colors.HEADER}WAF Detection:{Colors.END}")
         
+        target = results['target']
         if results['waf_detected']:
             color = Colors.GREEN if results['confidence'] >= 70 else Colors.YELLOW
             print(f"{color}✓ WAF Detected: {results['waf_vendor']}{Colors.END}")
@@ -549,9 +550,21 @@ class WAFDetector:
                 print(f"\n{Colors.BLUE}Other Possible Matches:{Colors.END}")
                 for detection in results['all_detections'][1:4]:  # Show top 3 alternatives
                     print(f"  • {detection['vendor']} ({detection['confidence']}%)")
+
+            # Next steps
+            waf = results['waf_vendor']
+            waf_slug = waf.lower().replace(" ", "_").split("(")[0].strip("_")
+            print(f"\n{Colors.BOLD}Next Steps:{Colors.END}")
+            print(f"  Test WAF bypass:   fray bypass {target} -c xss --waf {waf_slug} -m 30")
+            print(f"  Run full test:     fray test {target} -c xss -m 50")
+            print(f"  Run recon:         fray recon {target}")
         else:
             print(f"{Colors.YELLOW}✗ No WAF Detected{Colors.END}")
             print(f"  The target may not be using a WAF, or it's using a custom/unknown WAF")
+            print(f"\n{Colors.BOLD}Next Steps:{Colors.END}")
+            print(f"  Test anyway:       fray test {target} -c xss -m 20")
+            print(f"  Run recon:         fray recon {target}")
+            print(f"  Scan for inputs:   fray scan {target} -c xss")
         
         print(f"\n{Colors.HEADER}{'='*70}{Colors.END}\n")
 
