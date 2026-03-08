@@ -13,10 +13,10 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
         
@@ -57,7 +57,7 @@ jobs:
         print(f"{'='*60}\n")
         
         # Verify expected count
-        expected = 2258
+        expected = 2913
         if total != expected:
             print(f"⚠️  WARNING: Expected {expected} payloads, found {total}")
             exit(1)
@@ -76,7 +76,7 @@ jobs:
             data = json.load(f)
             
         cve_count = len(data['payloads'])
-        expected_cve = 103
+        expected_cve = 120
         
         print(f"CVE payloads found: {cve_count}")
         

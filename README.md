@@ -22,7 +22,7 @@ Fray is the missing link between [wafw00f](https://github.com/EnableSecurity/waf
 | **WAF bypass engine** | ✅ AI + mutation | ❌ | Partial | ❌ | Tamper scripts |
 | **WAF detection** | 25 vendors + mode | Via templates | Basic | 150+ vendors | Basic |
 | **Recon pipeline** | 27 checks | Separate tools | Crawl only | ❌ | ❌ |
-| **Payload database** | 6,300+ built-in | Community templates | XSS only | ❌ | SQLi only |
+| **Payload database** | 2,900+ built-in | Community templates | XSS only | ❌ | SQLi only |
 | **OWASP hardening** | ✅ A-F grade | ❌ | ❌ | ❌ | ❌ |
 | **MCP / AI agent** | 14 tools | ❌ | ❌ | ❌ | ❌ |
 | **Zero dependencies** | ✅ stdlib only | Go binary | pip | pip | pip |
@@ -64,7 +64,7 @@ If Fray helped your recon workflow, please [⭐ star the repo](https://github.co
 | **`fray bypass`** | 5-phase WAF evasion scorer with mutation feedback loop |
 | **`fray harden`** | Security headers (A-F grade) + OWASP Top 10 misconfig checks + fix snippets |
 | **`fray detect`** | Fingerprint 25 WAF vendors (signature / anomaly / hybrid) |
-| **`fray test`** | 6,300+ payloads across 24 categories with adaptive throttling |
+| **`fray test`** | 2,900+ payloads across 23 categories with adaptive throttling |
 | **`fray graph`** | Visual attack surface tree |
 
 <p align="center">
@@ -106,7 +106,7 @@ Ask: *"What XSS payloads bypass Cloudflare?"* → Fray's 14 MCP tools are called
 |------|-------------|
 | `suggest_payloads_for_waf` | Best bypass payloads for a specific WAF |
 | `generate_bypass_strategy` | Mutation strategies for blocked payloads |
-| `search_payloads` | Full-text search across 6,300+ payloads |
+| `search_payloads` | Full-text search across 2,900+ payloads |
 | `analyze_response` | False negative detection: soft blocks, challenges |
 | `hardening_check` | Security headers audit with grade + rate-limit check |
 
@@ -114,16 +114,18 @@ Ask: *"What XSS payloads bypass Cloudflare?"* → Fray's 14 MCP tools are called
 
 ---
 
-## 6,300+ Payloads · 24 Categories · 162 CVEs
+## 2,900+ Payloads · 23 Categories · 175 CVEs
 
 The largest open-source WAF payload database — curated for real-world penetration testing and bug bounty hunting.
 
 | Category | Count | Category | Count |
 |----------|-------|----------|-------|
-| XSS (Cross-Site Scripting) | 851 | SSRF | 71 |
-| SQL Injection | 141 | SSTI | 205 |
-| Command Injection (RCE) | 118 | XXE | 151 |
-| Path Traversal (LFI/RFI) | 277 | AI/LLM Prompt Injection | 370 |
+| XSS (Cross-Site Scripting) | 989 | SSRF | 72 |
+| SQL Injection | 148 | SSTI | 62 |
+| Command Injection (RCE) | 125 | XXE | 34 |
+| AI/LLM Prompt Injection | 370 | Path Traversal (LFI/RFI) | 59 |
+| Modern Bypasses | 137 | CSP Bypass | 64 |
+| API Security | 80 | Prototype Pollution | 75 |
 
 [Payload database →](docs/payload-database-coverage.md) · [CVE coverage →](docs/cve-real-world-bypasses.md)
 
