@@ -7,6 +7,10 @@ CLI arguments always override config file values.
 
 Example .fray.toml:
 
+    [env]
+    GITHUB_TOKEN = "ghp_xxxx..."
+    OPENAI_API_KEY = "sk-..."
+
     [test]
     timeout = 10
     delay = 0.3
@@ -28,6 +32,7 @@ Example .fray.toml:
     url = "https://hooks.slack.com/services/..."
 """
 
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -66,6 +71,26 @@ def load_config(path: Optional[Path] = None) -> Dict[str, Any]:
             return tomllib.load(f)
     except Exception:
         return {}
+
+
+def load_env_from_config(config: Optional[Dict[str, Any]] = None) -> None:
+    """Load env vars from .fray.toml [env] section.
+
+    Only sets variables that are NOT already in the environment,
+    so real env vars always take precedence.
+    Also checks GH_TOKEN as a fallback for GITHUB_TOKEN.
+    """
+    if config is None:
+        config = load_config()
+    env_section = config.get("env", {})
+    if isinstance(env_section, dict):
+        for key, value in env_section.items():
+            if key not in os.environ and isinstance(value, str):
+                os.environ[key] = value
+
+    # GH_TOKEN → GITHUB_TOKEN fallback (GitHub CLI convention)
+    if not os.environ.get("GITHUB_TOKEN") and os.environ.get("GH_TOKEN"):
+        os.environ["GITHUB_TOKEN"] = os.environ["GH_TOKEN"]
 
 
 def apply_config_defaults(args, config: Dict[str, Any], section: str) -> None:

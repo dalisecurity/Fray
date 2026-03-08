@@ -372,7 +372,7 @@ info:
     WAF bypass detected by Fray security scanner.
     Category: {category}
     Technique: {technique or 'direct'}
-    Evasion Score: {evasion}/10
+    Evasion Score: {evasion}%
   reference:
     - https://github.com/dalisecurity/Fray
   tags: fray,waf-bypass,{category}

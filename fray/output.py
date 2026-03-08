@@ -62,14 +62,15 @@ def warn_text(text: str = "WARNING") -> Text:
     return Text(f" {text} ", style="bold white on yellow")
 
 
-def score_style(score: float) -> str:
-    if score >= 7.0:
+def score_style(score) -> str:
+    s = float(score)
+    if s >= 90:
         return "score.critical"
-    elif score >= 5.0:
+    elif s >= 70:
         return "score.high"
-    elif score >= 3.0:
+    elif s >= 40:
         return "score.medium"
-    elif score > 0:
+    elif s > 0:
         return "score.low"
     return "score.none"
 
@@ -87,14 +88,15 @@ def severity_style(severity: str) -> str:
     return "dim"
 
 
-def grade_label(score: float) -> str:
-    if score >= 7.0:
+def grade_label(score) -> str:
+    s = float(score)
+    if s >= 90:
         return "CRITICAL"
-    elif score >= 5.0:
+    elif s >= 70:
         return "HIGH"
-    elif score >= 3.0:
+    elif s >= 40:
         return "MEDIUM"
-    elif score > 0:
+    elif s > 0:
         return "LOW"
     return "NONE"
 

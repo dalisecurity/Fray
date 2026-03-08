@@ -4113,9 +4113,10 @@ Documentation: https://github.com/dalisecurity/fray
         cmd_help(None)
         sys.exit(0)
 
-    # Load .fray.toml and apply defaults for the active subcommand
-    from fray.config import load_config, apply_config_defaults
+    # Load .fray.toml: env vars first, then apply defaults for the active subcommand
+    from fray.config import load_config, apply_config_defaults, load_env_from_config
     config = load_config()
+    load_env_from_config(config)
     if config:
         apply_config_defaults(args, config, args.command)
 
