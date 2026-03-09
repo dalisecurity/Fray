@@ -27,9 +27,11 @@ Environment variables:
 Zero dependencies — stdlib only.
 """
 
+import html as _html_mod
 import http.client
 import json
 import os
+import random as _random
 import re
 import socket
 import ssl
@@ -526,6 +528,311 @@ def github_org_recon(domain: str, timeout: int = 10) -> Dict[str, Any]:
     return result
 
 
+# ── Search Engine Dorking (LinkedIn / email OSINT) ───────────────────
+
+_SEARCH_USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+]
+
+_SEARCH_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+    "DNT": "1",
+}
+
+
+def _search_request(url: str, timeout: int = 12) -> Optional[str]:
+    """Send a search engine request with browser-like headers.
+
+    Returns decoded HTML body or None on failure.
+    Includes automatic gzip decompression.
+    """
+    headers = dict(_SEARCH_HEADERS)
+    headers["User-Agent"] = _random.choice(_SEARCH_USER_AGENTS)
+
+    req = urllib.request.Request(url, headers=headers)
+    ctx = ssl.create_default_context()
+    try:
+        resp = urllib.request.urlopen(req, timeout=timeout, context=ctx)
+        data = resp.read()
+        # Handle gzip
+        if resp.headers.get("Content-Encoding") == "gzip":
+            import gzip as _gzip
+            data = _gzip.decompress(data)
+        return data.decode("utf-8", errors="replace")
+    except Exception:
+        # Retry once with unverified SSL
+        try:
+            ctx2 = ssl.create_default_context()
+            ctx2.check_hostname = False
+            ctx2.verify_mode = ssl.CERT_NONE
+            resp = urllib.request.urlopen(req, timeout=timeout, context=ctx2)
+            data = resp.read()
+            if resp.headers.get("Content-Encoding") == "gzip":
+                import gzip as _gzip
+                data = _gzip.decompress(data)
+            return data.decode("utf-8", errors="replace")
+        except Exception:
+            return None
+
+
+def _startpage_search(query: str, max_results: int = 30,
+                      timeout: int = 12) -> List[str]:
+    """Search Startpage (Google proxy) and return matching URLs.
+
+    Startpage doesn't require API keys and serves as a Google proxy.
+    Returns a list of URLs found in the search results.
+    """
+    encoded_q = urllib.parse.quote_plus(query)
+    url = f"https://www.startpage.com/do/search?q={encoded_q}"
+
+    body = _search_request(url, timeout=timeout)
+    if not body:
+        return []
+
+    # Extract all URLs from the page
+    urls = re.findall(r'https?://(?:www\.)?linkedin\.com/in/[a-zA-Z0-9_-]+', body)
+    # Deduplicate while preserving order
+    seen: set = set()
+    unique: List[str] = []
+    for u in urls:
+        clean = u.rstrip("\\").split("&")[0]
+        if clean not in seen:
+            seen.add(clean)
+            unique.append(clean)
+    return unique[:max_results]
+
+
+def _linkedin_public_profile(url: str, timeout: int = 10) -> Optional[Dict[str, str]]:
+    """Fetch name, title, and description from a public LinkedIn profile.
+
+    Uses og:title and meta description — no login required.
+    LinkedIn public profiles expose: name, current company, title,
+    education, location, and connection count.
+    """
+    body = _search_request(url, timeout=timeout)
+    if not body:
+        return None
+
+    result: Dict[str, str] = {"url": url}
+
+    # og:title: "FirstName LastName - Company | LinkedIn"
+    og_title = re.search(
+        r'<meta[^>]*property=["\']og:title["\'][^>]*content="([^"]+)"', body)
+    if not og_title:
+        og_title = re.search(
+            r'<meta[^>]*content="([^"]+)"[^>]*property=["\']og:title["\']', body)
+
+    if og_title:
+        raw = _html_mod.unescape(og_title.group(1))
+        # Format: "FirstName LastName - Title at Company | LinkedIn"
+        # or:     "FirstName LastName - Company | LinkedIn"
+        clean = re.sub(r'\s*\|\s*LinkedIn\s*$', '', raw).strip()
+        parts = re.split(r'\s+-\s+|\s+–\s+|\s+—\s+', clean, maxsplit=2)
+        result["name"] = parts[0].strip() if parts else ""
+        if len(parts) >= 2:
+            result["title"] = parts[1].strip()
+        else:
+            result["title"] = ""
+    else:
+        # Fallback: <title> tag
+        title_match = re.search(r'<title>([^<]+)</title>', body)
+        if title_match:
+            raw = _html_mod.unescape(title_match.group(1))
+            clean = re.sub(r'\s*\|\s*LinkedIn\s*$', '', raw).strip()
+            parts = re.split(r'\s+-\s+', clean, maxsplit=2)
+            result["name"] = parts[0].strip() if parts else ""
+            result["title"] = parts[1].strip() if len(parts) >= 2 else ""
+        else:
+            return None
+
+    # meta description: "Experience: X · Education: Y · Location: Z · N connections"
+    desc = re.search(
+        r'<meta[^>]*name=["\']description["\'][^>]*content="([^"]+)"', body)
+    if not desc:
+        desc = re.search(
+            r'<meta[^>]*content="([^"]+)"[^>]*name=["\']description["\']', body)
+    if desc:
+        result["description"] = _html_mod.unescape(desc.group(1))
+        # Extract location
+        loc_match = re.search(r'Location:\s*([^·]+)', result["description"])
+        if loc_match:
+            result["location"] = loc_match.group(1).strip()
+    else:
+        result["description"] = ""
+
+    # Extract slug
+    slug_match = re.search(r'linkedin\.com/in/([^/?#]+)', url, re.IGNORECASE)
+    result["linkedin_slug"] = slug_match.group(1) if slug_match else ""
+
+    return result if result.get("name") and len(result["name"]) >= 3 else None
+
+
+def _name_from_linkedin_slug(slug: str) -> Optional[str]:
+    """Extract a human name from a LinkedIn vanity URL slug.
+
+    Handles: 'william-gaybrick-5730347' → 'William Gaybrick'
+             'katie-steadman1' → 'Katie Steadman'
+    Returns None for single-word ambiguous slugs like 'egsands'.
+    """
+    # Remove trailing numeric IDs (LinkedIn appends hex/random digits)
+    clean = re.sub(r'-[0-9a-f]{5,}$', '', slug)
+    clean = re.sub(r'[0-9]+$', '', clean).rstrip('-')
+    parts = clean.split('-')
+    # Filter out single-char noise (middle initials OK if >1 real parts)
+    real_parts = [p for p in parts if len(p) >= 2]
+    if len(real_parts) >= 2:
+        return ' '.join(p.capitalize() for p in parts if p)
+    return None  # ambiguous single-word slug — needs profile fetch
+
+
+def linkedin_employee_search(company: str, domain: str, max_pages: int = 3,
+                             timeout: int = 12) -> Dict[str, Any]:
+    """Discover employees via Startpage dorking + LinkedIn slug/profile parsing.
+
+    Strategy (hybrid — fast + accurate):
+      1. Search Startpage for: site:linkedin.com/in <company>
+      2. Collect unique LinkedIn profile URLs from search results
+      3. Extract names from URL slugs (instant, no extra requests)
+      4. For ambiguous single-word slugs, fetch LinkedIn public og:title
+
+    No LinkedIn login. No API key. No rate limiting.
+    Startpage = Google proxy with no CAPTCHA.
+
+    Args:
+        company: Company name (e.g. "Sansan" or "Stripe")
+        domain: Company domain for email generation
+        max_pages: Number of Startpage queries (different role keywords each)
+        timeout: Per-request timeout
+
+    Returns:
+        Dict with people list, count, and LinkedIn-specific data.
+    """
+    result: Dict[str, Any] = {
+        "company": company,
+        "domain": domain,
+        "people": [],
+        "total": 0,
+        "profiles_fetched": 0,
+        "sources_queried": [],
+        "error": None,
+    }
+
+    # Phase 1: Discover LinkedIn profile URLs via Startpage
+    # NOTE: Startpage returns 0 results with quoted company names — use unquoted
+    queries = [
+        f'site:linkedin.com/in {company}',
+        f'site:linkedin.com/in {company} engineer OR developer OR manager',
+        f'site:linkedin.com/in {company} security OR devops OR director',
+        f'site:linkedin.com/in {company} VP OR CEO OR CTO OR founder',
+        f'site:linkedin.com/in {company} sales OR marketing OR design',
+    ]
+
+    all_slugs: List[tuple] = []  # (url, slug)
+    seen_slugs: set = set()
+
+    for i, query in enumerate(queries[:max_pages]):
+        result["sources_queried"].append(query)
+        urls = _startpage_search(query, max_results=25, timeout=timeout)
+        for u in urls:
+            slug_match = re.search(r'linkedin\.com/in/([a-zA-Z0-9_-]+)', u)
+            if slug_match:
+                slug = slug_match.group(1)
+                if slug not in seen_slugs:
+                    seen_slugs.add(slug)
+                    all_slugs.append((u, slug))
+        # Polite delay between Startpage requests — 1.5-2.5s
+        if i < len(queries) - 1:
+            time.sleep(1.5 + _random.random())
+
+    # Phase 2: Extract names — fast path from slugs, slow path from profile fetch
+    people: List[Dict] = []
+    seen_names: set = set()
+    ambiguous: List[tuple] = []  # slugs that need profile fetch
+
+    for url, slug in all_slugs:
+        name = _name_from_linkedin_slug(slug)
+        if name:
+            nkey = name.strip().lower()
+            if nkey not in seen_names:
+                seen_names.add(nkey)
+                people.append({
+                    "name": name,
+                    "title": "",
+                    "linkedin_url": url,
+                    "linkedin_slug": slug,
+                    "location": "",
+                    "source": "linkedin_dork",
+                })
+        else:
+            ambiguous.append((url, slug))
+
+    # Phase 3: Fetch profiles only for ambiguous slugs (max 10 to stay fast)
+    for url, slug in ambiguous[:10]:
+        try:
+            profile = _linkedin_public_profile(url, timeout=timeout)
+            if profile and profile.get("name"):
+                nkey = profile["name"].strip().lower()
+                if nkey not in seen_names:
+                    seen_names.add(nkey)
+                    people.append({
+                        "name": profile["name"],
+                        "title": profile.get("title", ""),
+                        "linkedin_url": url,
+                        "linkedin_slug": slug,
+                        "location": profile.get("location", ""),
+                        "source": "linkedin_dork",
+                    })
+            result["profiles_fetched"] += 1
+        except Exception:
+            pass
+        time.sleep(0.5 + _random.random() * 0.7)
+
+    result["people"] = people
+    result["total"] = len(people)
+
+    return result
+
+
+def google_email_dork(domain: str, timeout: int = 12) -> List[str]:
+    """Find emails via Startpage dorking for a domain.
+
+    Queries: "@domain.com" to find exposed emails in search results.
+    Startpage proxies Google results without CAPTCHA.
+    """
+    query = f'"@{domain}"'
+    encoded_q = urllib.parse.quote_plus(query)
+    url = f"https://www.startpage.com/do/search?q={encoded_q}"
+
+    body = _search_request(url, timeout=timeout)
+    if not body:
+        return []
+
+    emails: set = set()
+    email_re = re.compile(r'[a-zA-Z0-9._%+-]+@' + re.escape(domain), re.IGNORECASE)
+
+    for match in email_re.finditer(body):
+        email = match.group().lower()
+        # Filter out obvious non-person emails
+        if not any(email.startswith(x) for x in (
+            "noreply@", "no-reply@", "donotreply@", "mailer-daemon@",
+            "postmaster@", "abuse@", "webmaster@",
+        )):
+            emails.add(email)
+
+    return sorted(emails)
+
+
 # ── Employee & Email Enumeration ─────────────────────────────────────
 
 # Common corporate email patterns
@@ -584,6 +891,8 @@ def enumerate_employees(domain: str, github_data: Optional[Dict] = None,
                     "emails": [],
                     "sources": [],
                     "github_login": None,
+                    "title": "",
+                    "linkedin_url": "",
                 }
             if email and email not in seen_names[nkey]["emails"]:
                 seen_names[nkey]["emails"].append(email)
@@ -607,6 +916,8 @@ def enumerate_employees(domain: str, github_data: Optional[Dict] = None,
                         "emails": [],
                         "sources": [],
                         "github_login": login,
+                        "title": "",
+                        "linkedin_url": "",
                     }
                 else:
                     seen_names[nkey]["github_login"] = login
@@ -620,6 +931,62 @@ def enumerate_employees(domain: str, github_data: Optional[Dict] = None,
         a for a in (github_data or {}).get("commit_authors", [])])
     result["sources"]["github_members"] = len([
         m for m in (github_data or {}).get("members", [])])
+
+    # Source 3: LinkedIn employee discovery via DuckDuckGo dorking
+    try:
+        li_data = linkedin_employee_search(brand, domain, max_pages=3, timeout=timeout)
+        li_people = li_data.get("people", [])
+        result["sources"]["linkedin_dork"] = len(li_people)
+        for person in li_people:
+            name = person.get("name", "")
+            nkey = name.strip().lower()
+            if nkey not in seen_names:
+                seen_names[nkey] = {
+                    "name": name.strip(),
+                    "emails": [],
+                    "sources": ["linkedin_dork"],
+                    "github_login": None,
+                    "title": person.get("title", ""),
+                    "linkedin_url": person.get("linkedin_url", ""),
+                }
+            else:
+                if "linkedin_dork" not in seen_names[nkey]["sources"]:
+                    seen_names[nkey]["sources"].append("linkedin_dork")
+                if person.get("title") and not seen_names[nkey].get("title"):
+                    seen_names[nkey]["title"] = person["title"]
+                if person.get("linkedin_url") and not seen_names[nkey].get("linkedin_url"):
+                    seen_names[nkey]["linkedin_url"] = person["linkedin_url"]
+    except Exception:
+        result["sources"]["linkedin_dork"] = 0
+
+    # Source 4: Email dorking — find exposed emails for this domain
+    try:
+        dorked_emails = google_email_dork(domain, timeout=timeout)
+        result["sources"]["email_dork"] = len(dorked_emails)
+        for email in dorked_emails:
+            real_emails.append(email)
+            # Try to extract name from email local part
+            local = email.split("@")[0]
+            name_parts = re.split(r'[._-]', local)
+            if len(name_parts) >= 2:
+                guessed_name = " ".join(p.capitalize() for p in name_parts[:2])
+                nkey = guessed_name.strip().lower()
+                if nkey not in seen_names:
+                    seen_names[nkey] = {
+                        "name": guessed_name,
+                        "emails": [email],
+                        "sources": ["email_dork"],
+                        "github_login": None,
+                        "title": "",
+                        "linkedin_url": "",
+                    }
+                else:
+                    if email not in seen_names[nkey]["emails"]:
+                        seen_names[nkey]["emails"].append(email)
+                    if "email_dork" not in seen_names[nkey]["sources"]:
+                        seen_names[nkey]["sources"].append("email_dork")
+    except Exception:
+        result["sources"]["email_dork"] = 0
 
     # Detect email pattern from real corporate emails
     detected_pattern = None
@@ -1321,15 +1688,18 @@ def print_osint(result: Dict[str, Any]) -> None:
         people = emp.get("people", [])
         if people:
             console.print(f"\n    [bold]People[/bold]")
-            for p in people[:20]:
+            for p in people[:30]:
                 login = f"  @{p['github_login']}" if p.get("github_login") else ""
                 known = ", ".join(p.get("emails", [])[:2])
                 src_tags = "/".join(p.get("sources", []))
-                console.print(f"    👤 {p['name']:<25} [dim]{src_tags}{login}[/dim]")
+                title_str = f"  [italic]{p['title']}[/italic]" if p.get("title") else ""
+                console.print(f"    👤 {p['name']:<25} [dim]{src_tags}{login}[/dim]{title_str}")
                 if known:
                     console.print(f"       Known: [green]{known}[/green]")
-            if len(people) > 20:
-                console.print(f"    [dim]... and {len(people) - 20} more[/dim]")
+                if p.get("linkedin_url"):
+                    console.print(f"       LinkedIn: [blue]{p['linkedin_url']}[/blue]")
+            if len(people) > 30:
+                console.print(f"    [dim]... and {len(people) - 30} more[/dim]")
 
         console.print()
 

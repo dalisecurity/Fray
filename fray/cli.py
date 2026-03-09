@@ -41,6 +41,189 @@ from pathlib import Path
 from fray import __version__, PAYLOADS_DIR
 
 
+def _local_summarize_recon(target: str, recon: dict) -> str:
+    """Generate a rule-based actionable summary when no LLM is available.
+
+    Parses the recon results and produces prioritized findings + next commands.
+    No API key required — works offline.
+    """
+    lines = []
+    atk = recon.get("attack_surface", {})
+    risk = atk.get("risk_level", "?")
+    score = atk.get("risk_score", 0)
+    waf = atk.get("waf_vendor") or "Unknown"
+    findings = atk.get("findings", [])
+
+    # TL;DR
+    lines.append(f"**TL;DR** — {target} is behind {waf} WAF with a {risk} risk score ({score}/100).")
+    if not findings:
+        lines.append("No significant findings from reconnaissance.")
+        lines.append("")
+        lines.append(f"**Recommended Next Steps**")
+        lines.append(f"  `fray test {target} --smart` — Run payload tests with auto-category selection")
+        lines.append(f"  `fray detect {target}` — Confirm WAF vendor identification")
+        return "\n".join(lines)
+
+    lines.append("")
+
+    # Top Findings — sorted by severity
+    sev_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+    sev_emoji = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🔵", "info": "⚪"}
+    sorted_findings = sorted(findings, key=lambda f: sev_order.get(f.get("severity", "info"), 4))
+
+    lines.append("**Top Findings**")
+    for f in sorted_findings[:5]:
+        sev = f.get("severity", "info")
+        emoji = sev_emoji.get(sev, "⚪")
+        lines.append(f"  {emoji} [{sev.upper()}] {f.get('finding', '?')}")
+    lines.append("")
+
+    # Recommended Next Steps
+    lines.append("**Recommended Next Steps**")
+    recs = recon.get("recommended_categories", [])
+    top_cat = recs[0] if recs else "xss"
+
+    # Always suggest test with top category
+    lines.append(f"  `fray test {target} -c {top_cat} --smart` — Test top priority category")
+
+    # If WAF found, suggest bypass
+    if waf and waf != "Unknown":
+        lines.append(f"  `fray bypass {target} -c {top_cat}` — Attempt WAF bypass ({waf})")
+
+    # If critical/high findings exist, suggest deeper scan
+    crit_high = [f for f in findings if f.get("severity") in ("critical", "high")]
+    if crit_high:
+        lines.append(f"  `fray scan {target} --deep` — Deep scan to enumerate all injection points")
+
+    # If exposed files or admin panels found
+    exposed = recon.get("exposed_files", {})
+    if exposed and exposed.get("found"):
+        lines.append(f"  `fray recon {target} --deep` — Deep recon on exposed files")
+
+    # Always suggest hardening check
+    lines.append(f"  `fray harden {target}` — Check security headers and configuration")
+    lines.append("")
+
+    # Quick Wins
+    sec = recon.get("security_headers", {})
+    missing = sec.get("missing", []) if sec else []
+    if missing:
+        lines.append("**Quick Wins**")
+        lines.append(f"  Add missing headers: {', '.join(missing[:4])}")
+        cookies = recon.get("cookies", {})
+        if cookies and cookies.get("issues"):
+            lines.append(f"  Fix cookie flags: {', '.join(str(i) for i in cookies['issues'][:2])}")
+
+    return "\n".join(lines)
+
+
+def _ai_summarize_recon(target: str, recon: dict) -> str:
+    """Send recon results to LLM and get an actionable security summary.
+
+    Returns a formatted string with prioritized findings and next commands.
+    Falls back to rule-based summary if no API key is available.
+    """
+    from fray.ai_bypass import _call_llm, _llm_available
+
+    provider = _llm_available()
+    if not provider:
+        return _local_summarize_recon(target, recon)
+
+    # Build a compact summary to minimize tokens
+    compact = {"target": target}
+    atk = recon.get("attack_surface", {})
+    if atk:
+        compact["risk_score"] = atk.get("risk_score", 0)
+        compact["risk_level"] = atk.get("risk_level", "?")
+        compact["findings"] = atk.get("findings", [])
+        compact["waf"] = atk.get("waf_vendor")
+        compact["cdn"] = atk.get("cdn")
+        compact["technologies"] = atk.get("technologies", [])
+
+    sec = recon.get("security_headers", {})
+    if sec:
+        compact["header_score"] = sec.get("score")
+        compact["missing_headers"] = sec.get("missing", [])
+
+    tls = recon.get("tls", {})
+    if tls:
+        compact["tls_version"] = tls.get("version")
+        compact["cert_expires_days"] = tls.get("expires_days")
+
+    cors = recon.get("cors", {})
+    if cors and cors.get("misconfigured"):
+        compact["cors_issues"] = cors.get("issues", [])
+
+    exposed = recon.get("exposed_files", {})
+    if exposed and exposed.get("found"):
+        compact["exposed_files"] = exposed["found"]
+
+    cookies = recon.get("cookies", {})
+    if cookies and cookies.get("issues"):
+        compact["cookie_issues"] = cookies["issues"]
+
+    graphql = recon.get("graphql", {})
+    if graphql and graphql.get("introspection_enabled"):
+        compact["graphql_introspection_open"] = True
+        compact["graphql_endpoint"] = graphql.get("endpoint", "")
+
+    api = recon.get("api_discovery", {})
+    if api and api.get("endpoints_found"):
+        compact["api_endpoints"] = api["endpoints_found"]
+
+    admin = recon.get("admin_panels", {})
+    if admin and admin.get("panels_found"):
+        compact["admin_panels"] = [
+            {"path": p["path"], "status": p["status"], "open": not p.get("protected", True)}
+            for p in admin["panels_found"]
+        ]
+
+    host_inj = recon.get("host_header_injection", {})
+    if host_inj and host_inj.get("vulnerable"):
+        compact["host_header_injectable"] = True
+
+    recs = recon.get("recommended_categories", [])
+    if recs:
+        compact["recommended_categories"] = recs
+
+    fp = recon.get("fingerprint", {})
+    if fp:
+        compact["server"] = fp.get("server")
+        compact["powered_by"] = fp.get("x_powered_by")
+
+    system_prompt = """\
+You are Fray, a senior penetration tester reviewing reconnaissance results.
+
+Given the recon JSON below, produce a concise actionable summary:
+
+1. **TL;DR** — One sentence: what is this target and its overall security posture?
+2. **Top Findings** — Bullet list of the 3-5 most important findings, ranked by severity. Each bullet: severity emoji (🔴 critical, 🟠 high, 🟡 medium, 🔵 low), finding, and why it matters.
+3. **Recommended Next Steps** — 3-5 exact fray commands the user should run next, with a one-line explanation each. Use the actual target URL.
+4. **Quick Wins** — 1-3 things the target owner could fix immediately to improve security.
+
+Rules:
+- Be specific, not generic. Reference actual findings from the data.
+- If no significant findings, say so clearly.
+- Keep the entire response under 400 words.
+- Do NOT use markdown headers (#). Use the bold labels shown above.
+- Format commands as: `fray <command>` (with backtick code formatting)."""
+
+    user_msg = json.dumps(compact, indent=2, ensure_ascii=False)
+
+    try:
+        response = _call_llm(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_msg},
+            ],
+            temperature=0.3,
+            max_tokens=800,
+        )
+        return response.strip()
+    except Exception:
+        return ""
+
+
 def _build_ai_output(target: str, results: list = None, recon: dict = None,
                      scan_summary: dict = None, crawl: dict = None) -> dict:
     """Build LLM-optimized JSON output for AI agent consumption.
@@ -1701,6 +1884,30 @@ def cmd_recon(args):
             print(json.dumps(result, indent=2, ensure_ascii=False))
         else:
             print_recon(result)
+
+        # --ai-summary: LLM-powered (or local fallback) actionable summary
+        if getattr(args, 'ai_summary', False):
+            from fray.ai_bypass import _llm_available
+            provider = _llm_available()
+            if not getattr(args, 'json', False):
+                if provider:
+                    label = f"🤖 AI Summary (powered by {provider.capitalize()})"
+                else:
+                    label = "🤖 AI Summary"
+                pad = max(0, 44 - len(label))
+                print(f"\n  ┌{'─' * 46}┐")
+                print(f"  │  {label}{' ' * pad}│")
+                print(f"  └{'─' * 46}┘\n")
+                sys.stdout.flush()
+            summary = _ai_summarize_recon(target, result)
+            if summary:
+                for line in summary.split("\n"):
+                    print(f"  {line}")
+                if not provider:
+                    print(f"\n  💡 Set OPENAI_API_KEY or ANTHROPIC_API_KEY for richer AI analysis")
+                print()
+            else:
+                print("  ⚠ AI summary failed.\n")
 
         # --compare: diff against previous scan
         recon_diff = None
@@ -4039,6 +4246,8 @@ Documentation: https://github.com/dalisecurity/fray
                           help="Export structured results to DIR (default: ~/.fray/recon/{domain}/)")
     p_recon.add_argument("--no-export", dest="no_export", action="store_true",
                           help="Disable auto-export of structured results")
+    p_recon.add_argument("--ai-summary", dest="ai_summary", action="store_true",
+                          help="AI-powered summary: prioritized findings + recommended next fray commands (needs OPENAI_API_KEY or ANTHROPIC_API_KEY)")
     p_recon.set_defaults(func=cmd_recon)
 
     # detect
