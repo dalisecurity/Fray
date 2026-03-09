@@ -884,6 +884,13 @@ def run_scan(target: str, category: str = "xss", max_payloads: int = 5,
         scan.duration = f"{int(elapsed.total_seconds())}s"
         return scan
 
+    # ── Adaptive sort: proven bypasses first, known-blocked last ──────────
+    try:
+        from fray.adaptive_cache import smart_sort_payloads
+        payloads = smart_sort_payloads(payloads, domain=target)
+    except Exception:
+        pass  # Never break scans due to cache errors
+
     # Limit payloads per injection point
     test_payloads = payloads[:max_payloads]
 
@@ -969,6 +976,14 @@ def run_scan(target: str, category: str = "xss", max_payloads: int = 5,
     minutes = int(elapsed.total_seconds() // 60)
     seconds = int(elapsed.total_seconds() % 60)
     scan.duration = f"{minutes}m {seconds}s" if minutes > 0 else f"{seconds}s"
+
+    # ── Persist results to adaptive cache (async D1 share included) ───────
+    if all_results:
+        try:
+            from fray.adaptive_cache import save_scan_results
+            save_scan_results(all_results, domain=target)
+        except Exception:
+            pass
 
     return scan
 

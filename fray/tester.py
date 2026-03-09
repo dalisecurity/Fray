@@ -779,12 +779,30 @@ class WAFTester:
             return data['payloads']
         return data if isinstance(data, list) else []
     
-    def test_payloads(self, payloads: List[Dict], method: str = 'GET', param: str = 'input', 
-                     max_payloads: Optional[int] = None, quiet: bool = False) -> List[Dict]:
-        """Test multiple payloads"""
+    def test_payloads(self, payloads: List[Dict], method: str = 'GET', param: str = 'input',
+                     max_payloads: Optional[int] = None, quiet: bool = False,
+                     smart_sort: bool = True, waf_vendor: str = '') -> List[Dict]:
+        """Test multiple payloads.
+
+        Args:
+            smart_sort:  If True, reorder payloads using the adaptive cache so
+                         proven bypasses run first and known-blocked payloads
+                         are deprioritised. Default: True.
+            waf_vendor:  Detected WAF vendor — passed to smart_sort for future
+                         cross-vendor filtering (Phase 2).
+        """
+        # ── Adaptive sort: put proven bypasses first, known-blocked last ──
+        if smart_sort:
+            try:
+                from fray.adaptive_cache import smart_sort_payloads
+                payloads = smart_sort_payloads(payloads, domain=self.target,
+                                               waf_vendor=waf_vendor)
+            except Exception:
+                pass  # Never break scans due to cache errors
+
         results = []
         total = min(len(payloads), max_payloads) if max_payloads else len(payloads)
-        
+
         self.start_time = datetime.now()
 
         if quiet:
@@ -798,6 +816,13 @@ class WAFTester:
                 result['description'] = desc
                 results.append(result)
                 self._stealth_delay()
+
+            # ── Persist results to adaptive cache (async D1 share included) ──
+            try:
+                from fray.adaptive_cache import save_scan_results
+                save_scan_results(results, domain=self.target, waf_vendor=waf_vendor)
+            except Exception:
+                pass
             return results
 
         from fray.output import console, blocked_text, passed_text, make_progress
@@ -839,9 +864,16 @@ class WAFTester:
                 )
                 progress.advance(task)
                 self._stealth_delay()
-        
+
+        # ── Persist results to adaptive cache (async D1 share included) ──
+        try:
+            from fray.adaptive_cache import save_scan_results
+            save_scan_results(results, domain=self.target, waf_vendor=waf_vendor)
+        except Exception:
+            pass
+
         return results
-    
+
     def generate_report(self, results: List[Dict], output: str = 'report.json', html: bool = False):
         """Generate test report"""
         total = len(results)

@@ -612,16 +612,26 @@ def d1_share_test_results(cfg: CloudConfig, results: List[Dict],
 
     count = 0
     for r in results:
+        # Compute hash from raw payload string if not already present
+        payload_str = r.get("payload", "")
+        ph = r.get("payload_hash") or (
+            hashlib.sha256(payload_str.encode("utf-8", errors="replace")).hexdigest()[:16]
+            if payload_str else ""
+        )
+        if not ph:
+            continue  # Skip rows with no identifiable payload
+
         sql = """INSERT OR REPLACE INTO test_results
-                 (payload_hash, target_domain, category, cve, blocked, status_code, tested_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)"""
+                 (payload_hash, target_domain, category, cve, blocked, status_code, bypass_confidence, tested_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)"""
         params = [
-            r.get("payload_hash", ""),
+            ph,
             target_domain,
             r.get("category", ""),
             r.get("cve", ""),
             1 if r.get("blocked") else 0,
-            r.get("status_code", 0),
+            r.get("status_code", r.get("status", 0)),
+            int(r.get("bypass_confidence", 0)),
             datetime.now(timezone.utc).isoformat(),
         ]
         if d1_query(cfg, sql, params) is not None:

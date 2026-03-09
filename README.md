@@ -25,6 +25,7 @@ Fray is the missing link between [wafw00f](https://github.com/EnableSecurity/waf
 | **WAF detection** | 25 vendors + mode | Via templates | Basic | 150+ vendors | Basic |
 | **Recon pipeline** | 27 checks | Separate tools | Crawl only | ❌ | ❌ |
 | **Payload database** | 4,000+ built-in | Community templates | XSS only | ❌ | SQLi only |
+| **Adaptive cache** | ✅ Cross-domain WAF learning | ❌ | ❌ | ❌ | ❌ |
 | **OWASP hardening** | ✅ A-F grade | ❌ | ❌ | ❌ | ❌ |
 | **MCP / AI agent** | 14 tools | ❌ | ❌ | ❌ | ❌ |
 | **Zero dependencies** | ✅ stdlib only | Go binary | pip | pip | pip |
@@ -66,7 +67,8 @@ If Fray helped your recon workflow, please [⭐ star the repo](https://github.co
 | **`fray bypass`** | 5-phase WAF evasion scorer with mutation feedback loop |
 | **`fray harden`** | Security headers (A-F grade) + OWASP Top 10 misconfig checks + fix snippets |
 | **`fray detect`** | Fingerprint 25 WAF vendors (signature / anomaly / hybrid) |
-| **`fray test`** | 4,000+ payloads across 23 categories with adaptive throttling |
+| **`fray test`** | 4,000+ payloads across 23 categories with adaptive throttling and cross-domain WAF learning |
+| **`fray cache`** | Inspect, manage, and clear the adaptive payload cache per domain |
 | **`fray graph`** | Visual attack surface tree |
 
 <p align="center">
@@ -76,6 +78,45 @@ If Fray helped your recon workflow, please [⭐ star the repo](https://github.co
 **Built-in options:** `--scope` (scope enforcement) · `--stealth` (randomized UA, jitter) · `-w 4` (concurrent) · `--cookie` / `--bearer` (auth) · `--sarif` (GitHub Security tab) · `--json` · `--ai` (LLM output)
 
 [Scan guide →](docs/scanning-guide.md) · [Recon guide →](docs/quickstart.md) · [Auth guide →](docs/authentication-guide.md) · [CI/CD guide →](docs/quickstart.md)
+
+---
+
+## Adaptive Cache — Cross-Domain WAF Intelligence
+
+Fray learns from every scan and shares that intelligence across hosts automatically.
+
+**The problem:** If you scan `staging.example.com` and Cloudflare blocks 10 payloads, running the same 10 payloads against `prod.example.com` (same WAF config) is wasted time.
+
+**How it works:**
+
+```
+Scan 1: 3test.example.com  →  10 XSS payloads → all BLOCKED (Cloudflare)
+                                ↓
+                         Cache learns: these 10 payloads are blocked on Cloudflare
+                                ↓
+Scan 2: httpbin.example.com →  smart sort kicks in
+                               Slots  1-10: FRESH payloads never seen on Cloudflare
+                               Slots 11-20: known-blocked payloads (deprioritised)
+```
+
+**Three tiers on every scan:**
+
+| Slot | Payload type | Why |
+|------|-------------|-----|
+| Front | Confirmed bypasses (highest confidence first) | Exploit-ready — run these first |
+| Middle | Unknown payloads | Never tested on this WAF vendor |
+| End | Confirmed blocked on this or any sibling zone | Skip wasting early attempts |
+
+**Community sharing (opt-in):** With `share_patterns: true` in `~/.fray/cloud.json`, results sync asynchronously to a shared Cloudflare D1 database — so the community's bypass discoveries improve your first scan against a new target.
+
+```bash
+fray cache show                        # See what's been learned per domain
+fray cache show httpbin.example.com    # Inspect a specific domain
+fray cache clear 3test.example.com     # Reset a domain's cache
+fray cache stats                       # Raw JSON dump
+```
+
+No extra setup required — adaptive cache is on by default, local only, zero network calls.
 
 ---
 

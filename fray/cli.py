@@ -1161,8 +1161,15 @@ def cmd_test(args):
             tester, all_payloads, max_payloads=args.max or 50
         )
     else:
+        # Detect WAF vendor for smart sort cross-domain intelligence
+        _waf_vendor = ""
+        try:
+            from fray.adaptive_cache import _detect_vendor, _extract_domain
+            _waf_vendor = _detect_vendor(_extract_domain(args.target))
+        except Exception:
+            pass
         results = tester.test_payloads(all_payloads, max_payloads=args.max,
-                                       quiet=json_mode)
+                                       quiet=json_mode, waf_vendor=_waf_vendor)
 
     # --mutate: auto-mutate blocked payloads and re-test
     mutate_n = getattr(args, 'mutate', 0)
@@ -4134,6 +4141,53 @@ def _cmd_update_legacy(args):
     cmd_update(args)
 
 
+def cmd_cache(args):
+    """Manage the adaptive payload cache (fray cache)."""
+    from fray.adaptive_cache import (
+        print_cache_summary, clear_domain_cache, get_domain_stats, load_cache,
+    )
+
+    sub = getattr(args, "cache_cmd", None) or "show"
+
+    if sub == "show":
+        domain = getattr(args, "domain", "") or ""
+        print()
+        print("  Fray Adaptive Cache")
+        print("  -------------------")
+        print_cache_summary(domain)
+        print()
+
+    elif sub == "clear":
+        domain = getattr(args, "domain", "") or ""
+        removed = clear_domain_cache(domain)
+        if removed:
+            target = domain if domain else "all domains"
+            print(f"  Cache cleared for {target} ({removed} entr{'y' if removed == 1 else 'ies'} removed).")
+        else:
+            print("  Nothing to clear.")
+
+    elif sub == "stats":
+        domain = getattr(args, "domain", "")
+        if not domain:
+            cache = load_cache()
+            if not cache:
+                print("  No cache data yet.")
+                return
+            import json as _json
+            print(_json.dumps(cache, indent=2))
+        else:
+            stats = get_domain_stats(domain)
+            if not stats:
+                print(f"  No cache data for {domain}")
+            else:
+                import json as _json
+                print(_json.dumps(stats, indent=2))
+
+    else:
+        print(f"  Unknown cache subcommand: {sub}")
+        print("  Usage: fray cache [show|clear|stats] [domain]")
+
+
 def cmd_init_config(args):
     """Create a sample .fray.toml in the current directory"""
     target = Path.cwd() / ".fray.toml"
@@ -4862,6 +4916,25 @@ Documentation: https://github.com/dalisecurity/fray
     p_demo.add_argument("target", nargs="?", default=None,
                          help="Target URL (default: http://testphp.vulnweb.com)")
     p_demo.set_defaults(func=cmd_demo)
+
+    # cache — adaptive payload cache management
+    p_cache = subparsers.add_parser("cache",
+        help="Adaptive payload cache — show stats, clear, or inspect learned data")
+    p_cache_sub = p_cache.add_subparsers(dest="cache_cmd")
+
+    p_cache_show = p_cache_sub.add_parser("show", help="Show cache summary (default)")
+    p_cache_show.add_argument("domain", nargs="?", default="",
+                               help="Filter to a specific domain (optional)")
+
+    p_cache_clear = p_cache_sub.add_parser("clear", help="Clear cache for a domain or all")
+    p_cache_clear.add_argument("domain", nargs="?", default="",
+                                help="Domain to clear, or blank to clear everything")
+
+    p_cache_stats = p_cache_sub.add_parser("stats", help="Dump raw cache JSON")
+    p_cache_stats.add_argument("domain", nargs="?", default="",
+                                help="Filter to a specific domain (optional)")
+
+    p_cache.set_defaults(func=cmd_cache, cache_cmd="show")
 
     # help
     p_help = subparsers.add_parser("help",
