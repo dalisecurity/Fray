@@ -41,6 +41,19 @@ from pathlib import Path
 from fray import __version__, PAYLOADS_DIR
 
 
+def _json_print(obj, **kwargs):
+    """Print JSON to stdout: compact JSONL when piped, pretty when interactive.
+
+    Always uses ensure_ascii=False. Extra kwargs passed to json.dumps.
+    When stdout is a TTY (interactive terminal), prints with indent=2.
+    When piped (not a TTY), prints compact single-line JSONL for automation.
+    """
+    if sys.stdout.isatty():
+        print(json.dumps(obj, indent=2, ensure_ascii=False, **kwargs))
+    else:
+        print(json.dumps(obj, ensure_ascii=False, **kwargs))
+
+
 def _local_summarize_recon(target: str, recon: dict) -> str:
     """Generate a rule-based actionable summary when no LLM is available.
 
@@ -1273,7 +1286,7 @@ def cmd_test(args):
         recon = run_recon(args.target, timeout=args.timeout,
                           headers=custom_headers or None)
         ai_out = _build_ai_output(target=args.target, results=results, recon=recon)
-        print(json.dumps(ai_out, indent=2, ensure_ascii=False))
+        _json_print(ai_out)
         if args.output:
             _validate_output_path(args.output)
             with open(args.output, 'w', encoding='utf-8') as f:
@@ -1282,7 +1295,7 @@ def cmd_test(args):
 
     # JSON output to stdout
     if getattr(args, 'json', False):
-        print(json.dumps(report, indent=2, ensure_ascii=False))
+        _json_print(report)
     else:
         # Auto-detect HTML output
         out = args.output or "fray_results.json"
@@ -1498,7 +1511,7 @@ def cmd_scan(args):
             recon=recon,
             crawl=scan_dict.get("crawl", {}),
         )
-        print(json.dumps(ai_out, indent=2, ensure_ascii=False))
+        _json_print(ai_out)
         if getattr(args, 'output', None):
             _validate_output_path(args.output)
             with open(args.output, 'w', encoding='utf-8') as f:
@@ -1506,7 +1519,7 @@ def cmd_scan(args):
         return
 
     if json_mode:
-        print(json.dumps(scan.to_dict(), indent=2, ensure_ascii=False))
+        _json_print(scan.to_dict())
     else:
         print_scan_result(scan)
 
@@ -1580,7 +1593,7 @@ def cmd_stats(args):
     from fray.stats import collect_stats, print_stats
     stats = collect_stats()
     if args.json:
-        print(json.dumps(stats.to_dict(), indent=2))
+        _json_print(stats.to_dict())
     else:
         print_stats(stats)
 
@@ -1658,7 +1671,7 @@ def cmd_graph(args):
                         historical=historical)
 
     if getattr(args, 'json', False):
-        print(json.dumps(graph.to_dict(), indent=2, ensure_ascii=False))
+        _json_print(graph.to_dict())
     else:
         print_graph(graph)
 
@@ -1880,7 +1893,7 @@ def cmd_recon(args):
         ai_mode = getattr(args, 'ai', False)
         if ai_mode:
             ai_out = _build_ai_output(target=target, recon=result)
-            print(json.dumps(ai_out, indent=2, ensure_ascii=False))
+            _json_print(ai_out)
             if getattr(args, 'output', None):
                 _validate_output_path(args.output)
                 with open(args.output, "w", encoding="utf-8") as f:
@@ -1888,7 +1901,7 @@ def cmd_recon(args):
             return
 
         if getattr(args, 'json', False):
-            print(json.dumps(result, indent=2, ensure_ascii=False))
+            _json_print(result)
         else:
             print_recon(result)
 
@@ -1933,7 +1946,7 @@ def cmd_recon(args):
             if previous and previous.get("timestamp") != result.get("timestamp"):
                 recon_diff = diff_recon(result, previous)
                 if getattr(args, 'json', False):
-                    print(json.dumps({"diff": recon_diff}, indent=2, ensure_ascii=False))
+                    _json_print({"diff": recon_diff})
                 else:
                     print_recon_diff(recon_diff)
             elif not previous:
@@ -2004,7 +2017,7 @@ def cmd_smuggle(args):
     )
 
     if getattr(args, 'json', False):
-        print(json.dumps(asdict(report), indent=2, ensure_ascii=False))
+        _json_print(asdict(report))
     else:
         print_smuggle_report(report)
 
@@ -2027,7 +2040,7 @@ def cmd_diff(args):
     diff = run_diff(args.before, args.after)
 
     if getattr(args, 'json', False):
-        print(json.dumps(asdict(diff), indent=2, ensure_ascii=False))
+        _json_print(asdict(diff))
     else:
         print_diff(diff)
 
@@ -2329,7 +2342,7 @@ def cmd_agent(args):
             "techniques": sorted(stats.unique_bypass_techniques),
             "results": [r for r in results if not r.get("blocked")],
         }
-        print(json.dumps(output, indent=2, ensure_ascii=False, default=str))
+        _json_print(output, default=str)
 
     # Save output
     output_file = getattr(args, 'output', None)
@@ -2389,7 +2402,7 @@ def cmd_feed(args):
     # List available sources
     if getattr(args, 'list_sources', False):
         if json_mode:
-            print(json.dumps({"sources": list(_SOURCES.keys())}, indent=2))
+            _json_print({"sources": list(_SOURCES.keys())})
         else:
             print("\n  Available threat intelligence sources:\n")
             for key, src in _SOURCES.items():
@@ -2425,7 +2438,7 @@ def cmd_feed(args):
             "errors": stats.errors,
             "payloads": [p.to_fray_format(i) for i, p in enumerate(payloads)],
         }
-        print(json.dumps(output, indent=2, ensure_ascii=False, default=str))
+        _json_print(output, default=str)
 
     # Save output
     output_file = getattr(args, 'output', None)
@@ -2468,7 +2481,7 @@ def cmd_update(args):
 
     if json_mode:
         output = manifest or {"status": "up_to_date"}
-        print(json.dumps(output, indent=2, ensure_ascii=False, default=str))
+        _json_print(output, default=str)
 
 
 def cmd_sync(args):
@@ -2537,7 +2550,7 @@ def cmd_sync(args):
                       verbose=not json_mode)
 
     if json_mode:
-        print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+        _json_print(result, default=str)
 
 
 def cmd_todo(args):
@@ -2572,7 +2585,7 @@ def cmd_todo(args):
         if not json_mode:
             print(f"  Added #{new_id}: {' '.join(text)} [{priority}]")
         else:
-            print(json.dumps(items[-1], indent=2))
+            _json_print(items[-1])
         return
 
     # --- done ---
@@ -2605,7 +2618,7 @@ def cmd_todo(args):
 
     # --- list (default) ---
     if json_mode:
-        print(json.dumps(items, indent=2, ensure_ascii=False))
+        _json_print(items)
         return
 
     show_all = getattr(args, 'all', False)
@@ -2760,7 +2773,7 @@ def cmd_harden(args):
             "risk_score": atk.get("risk_score", 0),
             "risk_level": atk.get("risk_level", "?"),
         }
-        print(json.dumps(report, indent=2, ensure_ascii=False))
+        _json_print(report)
         if getattr(args, 'output', None):
             _validate_output_path(args.output)
             with open(args.output, 'w', encoding='utf-8') as f:
@@ -3126,7 +3139,7 @@ def cmd_auto(args):
         console.print()
 
     if json_mode:
-        print(json.dumps(full_report, indent=2, ensure_ascii=False))
+        _json_print(full_report)
 
     output_file = getattr(args, 'output', None)
     if output_file:
@@ -3177,7 +3190,7 @@ def cmd_scope(args):
         sys.exit(0 if in_scope else 1)
 
     if args.json:
-        print(json.dumps(scope, indent=2, ensure_ascii=False))
+        _json_print(scope)
     else:
         print_scope(scope, filepath=args.scope_file)
 
@@ -3690,7 +3703,7 @@ def cmd_explain(args):
                 json.dump(output, f, indent=2, ensure_ascii=False)
             print(f"\n  JSON saved to {args.output}")
         else:
-            print(json.dumps(output, indent=2, ensure_ascii=False))
+            _json_print(output)
 
 
 def cmd_demo(args):
