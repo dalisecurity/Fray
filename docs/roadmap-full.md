@@ -1,6 +1,6 @@
 # Fray Full Roadmap — 222 Items Across 27 Layers
 
-**Status:** 70 done · 152 pending  
+**Status:** 75 done · 147 pending  
 **Last updated:** 2026-03-11
 
 ---
@@ -74,7 +74,7 @@
 | 40 | R2 payload bundle distribution | HIGH | done |
 | 41 | D1 community bypass sharing | MEDIUM | done |
 | 42 | Cache invalidation on WAF config change | MEDIUM | pending |
-| 43 | Cache size limits + eviction policy | LOW | pending |
+| 43 | Cache size limits + eviction policy | LOW | done |
 | 44 | Cache export/import for offline use | LOW | done |
 | 45 | Community leaderboard from D1 data | MEDIUM | pending |
 | 46 | Cache warming from threat intel feed | LOW | pending |
@@ -122,11 +122,11 @@
 | 72 | Industry-level security posture comparison | MEDIUM | pending |
 | 73 | Automated report generation per company | MEDIUM | pending |
 | 74 | DNS hygiene scoring | LOW | done |
-| 75 | Certificate transparency monitoring | MEDIUM | pending |
+| 75 | Certificate transparency monitoring | MEDIUM | done |
 | 76 | Subdomain sprawl detection | LOW | done |
 | 77 | Cloud provider distribution analysis | LOW | done |
-| 78 | WAF market share from scan data | MEDIUM | pending |
-| 79 | Historical trend tracking | LOW | pending |
+| 78 | WAF market share from scan data | MEDIUM | done |
+| 79 | Historical trend tracking | LOW | done |
 
 ## L12 — Integrations (4 items)
 | # | Item | Priority | Status |
@@ -332,7 +332,7 @@
 | 218 | Parallel/async request execution (asyncio + aiohttp) | HIGH | pending |
 | 219 | Response diffing / false positive reduction | MEDIUM | done |
 | 220 | Redirect chain following in testing | MEDIUM | pending |
-| 221 | --resume flag for interrupted scan checkpoint | MEDIUM | pending |
+| 221 | --resume flag for interrupted scan checkpoint | MEDIUM | done |
 | 222 | Test coverage expansion (pytest, >80%) | LOW | pending |
 
 ---
@@ -347,11 +347,11 @@
 | L4 New Attack Classes | 10 | 0 | 10 |
 | L5 Supply Chain | 3 | 2 | 1 |
 | L6 OSINT | 6 | 6 | 0 |
-| L7 Cache + D1 Sync | 8 | 4 | 4 |
+| L7 Cache + D1 Sync | 8 | 5 | 3 |
 | L8 DNS Recon Phase 2 | 5 | 5 | 0 |
 | L9 Bot Detection | 5 | 1 | 4 |
 | L10 Dashboard / Web UI | 13 | 0 | 13 |
-| L11 Nikkei 225 | 10 | 3 | 7 |
+| L11 Nikkei 225 | 10 | 6 | 4 |
 | L12 Integrations | 4 | 4 | 0 |
 | L13 GitHub Repos | 12 | 6 | 6 |
 | L14 Growth / Stars | 16 | 3 | 13 |
@@ -367,5 +367,5 @@
 | L24 Monitoring | 3 | 2 | 1 |
 | L25 AI Intelligence | 5 | 0 | 5 |
 | L26 CF Workers AI Gateway | 7 | 0 | 7 |
-| L27 Architecture + Quality | 5 | 1 | 4 |
-| **TOTAL** | **222** | **70** | **152** |
+| L27 Architecture + Quality | 5 | 2 | 3 |
+| **TOTAL** | **222** | **75** | **147** |
