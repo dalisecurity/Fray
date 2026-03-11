@@ -412,7 +412,19 @@ def build(rd: Dict[str, Any]) -> str:
             for bp in csp_bypasses[:5]:
                 csp_html_sec += f'<div class="finding" style="border-left:4px solid #f97316;"><span class="sev-badge" style="background:#f9731620;color:#f97316;">BYPASS</span> {_esc(str(bp))}</div>'
     else:
-        csp_html_sec = '<div class="finding" style="border-left:4px solid #ef4444;"><span class="sev-badge" style="background:#ef444420;color:#ef4444;">CRITICAL</span> No Content-Security-Policy header — all inline scripts execute freely</div>'
+        csp_html_sec = ('<div class="finding" style="border-left:4px solid #ef4444;">'
+            '<span class="sev-badge" style="background:#ef444420;color:#ef4444;">CRITICAL</span> '
+            'No Content-Security-Policy header — all inline scripts execute freely</div>')
+        csp_html_sec += '''<div style="margin-top:14px;background:var(--surface2);border-radius:10px;padding:14px 18px;border-left:3px solid #ef4444;">
+  <p style="font-size:0.9em;font-weight:600;color:var(--red);margin-bottom:8px;">Risks without CSP:</p>
+  <ul style="padding-left:18px;font-size:0.85em;line-height:1.9;color:var(--text);">
+    <li><strong>Reflected &amp; Stored XSS</strong> — attacker-injected scripts execute in user browsers, stealing sessions and credentials</li>
+    <li><strong>Data exfiltration</strong> — malicious inline scripts can send form data, cookies, and tokens to attacker servers</li>
+    <li><strong>Clickjacking via iframes</strong> — page can be embedded in attacker-controlled frames without restriction</li>
+    <li><strong>Cryptojacking</strong> — injected scripts can run cryptocurrency miners in visitor browsers</li>
+    <li><strong>Magecart / skimming</strong> — third-party scripts can be injected to capture payment card data</li>
+  </ul>
+</div>'''
     parts.append(f'''
 <div class="sec" id="csp">
   <h2>CSP Analysis <span class="count">({csp_score}/100)</span></h2>
@@ -425,22 +437,62 @@ def build(rd: Dict[str, Any]) -> str:
     for h, info in missing_hdrs.items():
         sev = info.get('severity', 'low') if isinstance(info, dict) else 'low'
         mt += f'<span class="tag tag-miss">{_esc(h)} <small>({_esc(sev)})</small></span> '
+    _HDR_RISKS = {
+        'HSTS': 'SSL stripping attacks — attacker downgrades HTTPS to HTTP and intercepts traffic',
+        'CSP': 'XSS and code injection — no restrictions on inline scripts or loaded resources',
+        'X-Frame-Options': 'Clickjacking — page can be embedded in malicious iframes to trick user clicks',
+        'X-Content-Type-Options': 'MIME-type sniffing — browsers may execute uploaded files as scripts',
+        'X-XSS-Protection': 'Legacy XSS filter disabled — reflected XSS in older browsers',
+        'Referrer-Policy': 'URL leakage — sensitive query parameters exposed to third-party sites',
+        'Permissions-Policy': 'Unrestricted browser APIs — camera, microphone, geolocation accessible to any script',
+        'COOP': 'Cross-origin attacks — Spectre-class side-channel leaks via shared browsing context',
+        'CORP': 'Cross-origin resource theft — sensitive resources loadable by attacker pages',
+    }
+    hdr_risk_html = ''
+    if hdr_score < 30 and missing_hdrs:
+        risk_items = ''
+        for h in list(missing_hdrs.keys())[:6]:
+            risk = _HDR_RISKS.get(h, '')
+            if risk:
+                risk_items += f'<li><strong>{_esc(h)}</strong> — {_esc(risk)}</li>'
+        if risk_items:
+            hdr_risk_html = f'''<div style="margin-top:14px;background:var(--surface2);border-radius:10px;padding:14px 18px;border-left:3px solid #ef4444;">
+  <p style="font-size:0.9em;font-weight:600;color:var(--red);margin-bottom:8px;">Risks from missing headers:</p>
+  <ul style="padding-left:18px;font-size:0.85em;line-height:1.9;color:var(--text);">{risk_items}</ul>
+</div>'''
     parts.append(f'''
 <div class="sec" id="headers">
   <h2>Security Headers <span class="count">({hdr_score}/100)</span></h2>
   <p style="margin-bottom:10px;"><strong>Present:</strong> {pt or '<span class="muted">None</span>'}</p>
   <p><strong>Missing:</strong> {mt or '<span style="color:var(--green);">None — all present</span>'}</p>
+  {hdr_risk_html}
 </div>''')
 
     # Technologies
+    _CAT_COLORS = {
+        'WAF': 'var(--green)', 'CDN': 'var(--blue)', 'Cloud': 'var(--purple)',
+        'Web Server': 'var(--cyan)', 'Application Server': 'var(--orange)',
+        'Framework': 'var(--yellow)', 'CMS': 'var(--yellow)',
+        'Hosting Panel': 'var(--muted)', 'Container': 'var(--cyan)',
+        'CI/CD': 'var(--orange)', 'DevOps': 'var(--purple)',
+        'Database': 'var(--red)', 'Search Engine': 'var(--blue)',
+        'API': 'var(--accent2)', 'Container Orchestration': 'var(--cyan)',
+    }
     tr_html = ''
-    for name, ver in sorted(techs.items()):
-        if isinstance(ver, (int, float)):
+    tech_items = sorted(techs.items(), key=lambda x: -(x[1].get('confidence', 0) if isinstance(x[1], dict) else (x[1] * 100 if isinstance(x[1], (int, float)) and x[1] <= 1 else x[1] if isinstance(x[1], (int, float)) else 0)))
+    for name, ver in tech_items:
+        if isinstance(ver, dict):
+            cat = ver.get('category', '')
+            conf = ver.get('confidence', 50)
+            cat_col = _CAT_COLORS.get(cat, 'var(--muted)')
+            cat_badge = f'<span class="type-badge" style="background:{cat_col}20;color:{cat_col};font-size:0.8em;">{_esc(cat)}</span>' if cat else ''
+            tr_html += f'<tr><td><strong>{_esc(name)}</strong> {cat_badge}</td><td><div class="bar-wrap"><div class="bar-fill" style="width:{conf}%"></div></div></td><td class="num">{conf}%</td></tr>'
+        elif isinstance(ver, (int, float)):
             pct = max(1, int(ver * 100)) if ver <= 1 else int(ver)
-            tr_html += f'<tr><td>{_esc(name)}</td><td><div class="bar-wrap"><div class="bar-fill" style="width:{pct}%"></div></div></td><td class="num">{pct}%</td></tr>'
+            tr_html += f'<tr><td><strong>{_esc(name)}</strong></td><td><div class="bar-wrap"><div class="bar-fill" style="width:{pct}%"></div></div></td><td class="num">{pct}%</td></tr>'
         else:
             v = ver if isinstance(ver, str) else str(ver) if ver else '—'
-            tr_html += f'<tr><td>{_esc(name)}</td><td colspan="2">{_esc(str(v))}</td></tr>'
+            tr_html += f'<tr><td><strong>{_esc(name)}</strong></td><td colspan="2">{_esc(str(v))}</td></tr>'
     parts.append(f'''
 <div class="sec" id="tech">
   <h2>Technologies <span class="count">({len(techs)})</span></h2>

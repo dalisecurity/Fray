@@ -979,6 +979,95 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
 
     atk["attack_vectors"] = vectors
 
+    # ── Enrich Technologies (when fingerprinting returns empty) ──
+    fp = result.get("fingerprint", {})
+    techs = fp.get("technologies", {}) if isinstance(fp, dict) else {}
+    if not techs:
+        inferred = {}
+        # WAF vendors
+        waf_dist = cloud_dist.get("waf_distribution", {})
+        for name in waf_dist:
+            inferred[name] = {"category": "WAF", "confidence": 90}
+        # CDN vendors
+        cdn_dist_d = cloud_dist.get("cdn_distribution", {})
+        for name in cdn_dist_d:
+            inferred[name] = {"category": "CDN", "confidence": 90}
+        # DNS-level CDN
+        dns_data = result.get("dns", {})
+        dns_cdn = dns_data.get("cdn_detected") if isinstance(dns_data, dict) else None
+        if dns_cdn and dns_cdn not in inferred:
+            inferred[dns_cdn.title()] = {"category": "CDN", "confidence": 80}
+        # Server headers from per-subdomain data
+        for s in per_sub:
+            sv = s.get("server")
+            if sv and sv != "-":
+                sv_clean = sv.split("/")[0].strip().title()
+                if sv_clean and sv_clean not in inferred:
+                    inferred[sv_clean] = {"category": "Web Server", "confidence": 70}
+        # Admin panel categories → technology hints
+        admin_data = result.get("admin_panels", {})
+        admin_panels_list = (admin_data.get("panels_found", []) or
+                             admin_data.get("found", []) or []) if isinstance(admin_data, dict) else []
+        _admin_tech_map = {
+            "tomcat": ("Apache Tomcat", "Application Server"),
+            "spring": ("Spring Framework", "Framework"),
+            "drupal": ("Drupal", "CMS"),
+            "wordpress": ("WordPress", "CMS"),
+            "joomla": ("Joomla", "CMS"),
+            "nginx": ("Nginx", "Web Server"),
+            "apache": ("Apache HTTP Server", "Web Server"),
+            "cpanel": ("cPanel", "Hosting Panel"),
+            "docker": ("Docker", "Container"),
+            "grafana": ("Grafana", "Monitoring"),
+            "jenkins": ("Jenkins", "CI/CD"),
+            "gitlab": ("GitLab", "DevOps"),
+        }
+        admin_cats = set()
+        for p in admin_panels_list:
+            cat = p.get("category", "") if isinstance(p, dict) else ""
+            if cat:
+                admin_cats.add(cat.lower())
+        for cat in admin_cats:
+            if cat in _admin_tech_map:
+                name, role = _admin_tech_map[cat]
+                if name not in inferred:
+                    inferred[name] = {"category": role, "confidence": 50}
+        # Subdomain name hints
+        subs_data = result.get("subdomains", {})
+        sub_list_raw = subs_data.get("subdomains", []) if isinstance(subs_data, dict) else []
+        _sub_tech_hints = {
+            "graphql": ("GraphQL", "API"),
+            "redis": ("Redis", "Database"),
+            "mongo": ("MongoDB", "Database"),
+            "postgres": ("PostgreSQL", "Database"),
+            "mysql": ("MySQL", "Database"),
+            "elastic": ("Elasticsearch", "Search Engine"),
+            "jenkins": ("Jenkins", "CI/CD"),
+            "gitlab": ("GitLab", "DevOps"),
+            "github": ("GitHub", "DevOps"),
+            "k8s": ("Kubernetes", "Container Orchestration"),
+            "kubernetes": ("Kubernetes", "Container Orchestration"),
+            "docker": ("Docker", "Container"),
+            "gcp": ("Google Cloud Platform", "Cloud"),
+            "azure": ("Microsoft Azure", "Cloud"),
+        }
+        all_subs_lower = " ".join(s.lower() for s in sub_list_raw[:500])
+        for kw, (name, role) in _sub_tech_hints.items():
+            if kw in all_subs_lower and name not in inferred:
+                inferred[name] = {"category": role, "confidence": 40}
+        # Cloud provider from WAF/CDN
+        if any("aws" in n.lower() or "cloudfront" in n.lower() for n in list(waf_dist) + list(cdn_dist_d)):
+            if "Amazon Web Services" not in inferred:
+                inferred["Amazon Web Services"] = {"category": "Cloud", "confidence": 85}
+        if any("azure" in n.lower() for n in list(waf_dist) + list(cdn_dist_d)):
+            if "Microsoft Azure" not in inferred:
+                inferred["Microsoft Azure"] = {"category": "Cloud", "confidence": 85}
+        if inferred:
+            if not isinstance(fp, dict):
+                fp = {}
+                result["fingerprint"] = fp
+            fp["technologies"] = inferred
+
     # ── Attack Targets (union of all vector targets, deduped, sorted by priority) ──
     seen = set()
     targets_list = []
@@ -2182,10 +2271,17 @@ def print_recon(result: Dict[str, Any]) -> None:
     console.print("  [bold]Detected Technologies[/bold]")
     if techs:
         for tech, conf in techs.items():
-            bar_len = int(conf * 20)
+            if isinstance(conf, dict):
+                pct = conf.get("confidence", 50) / 100.0
+                cat = conf.get("category", "")
+                cat_suffix = f" [dim]({cat})[/dim]" if cat else ""
+            else:
+                pct = float(conf) if isinstance(conf, (int, float)) else 0.5
+                cat_suffix = ""
+            bar_len = int(pct * 20)
             bar = "\u2588" * bar_len + "\u2591" * (20 - bar_len)
-            bc = "green" if conf >= 0.7 else ("yellow" if conf >= 0.4 else "dim")
-            console.print(f"    {tech:<16} [{bc}]{bar} {conf:.0%}[/{bc}]")
+            bc = "green" if pct >= 0.7 else ("yellow" if pct >= 0.4 else "dim")
+            console.print(f"    {tech:<30} [{bc}]{bar} {pct:.0%}[/{bc}]{cat_suffix}")
     else:
         console.print("    [dim]No technologies identified[/dim]")
 
