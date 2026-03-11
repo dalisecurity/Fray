@@ -668,6 +668,100 @@ def print_waf_leaderboard() -> None:
     console.print()
 
 
+def export_cache(output_path: str, domain: str = "") -> Dict:
+    """Export adaptive cache to a portable JSON file.
+
+    Args:
+        output_path: Destination file path.
+        domain: If set, export only this domain. Otherwise export all.
+
+    Returns:
+        Dict with 'domains', 'entries', 'path'.
+    """
+    cache = load_cache()
+
+    if domain:
+        domain = _extract_domain(domain)
+        export_data = {domain: cache[domain]} if domain in cache else {}
+    else:
+        export_data = cache
+
+    meta = {
+        "_fray_cache_export": True,
+        "_version": 1,
+        "_exported_at": _now_iso(),
+        "_domains": len(export_data),
+        "data": export_data,
+    }
+
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False)
+
+    return {"domains": len(export_data), "entries": sum(1 for _ in export_data), "path": str(out)}
+
+
+def import_cache(input_path: str, merge: bool = True) -> Dict:
+    """Import adaptive cache from a previously exported JSON file.
+
+    Args:
+        input_path: Source file path.
+        merge: If True, merge with existing cache (default). If False, replace.
+
+    Returns:
+        Dict with 'imported_domains', 'merged', 'total_domains'.
+    """
+    inp = Path(input_path)
+    if not inp.exists():
+        raise FileNotFoundError(f"Cache file not found: {input_path}")
+
+    with open(inp, "r", encoding="utf-8") as f:
+        raw = json.load(f)
+
+    # Support both wrapped (with _fray_cache_export header) and raw formats
+    if isinstance(raw, dict) and raw.get("_fray_cache_export"):
+        import_data = raw.get("data", {})
+    elif isinstance(raw, dict):
+        import_data = raw
+    else:
+        raise ValueError("Invalid cache file format")
+
+    with _cache_lock:
+        if merge:
+            cache = load_cache()
+            for domain, entry in import_data.items():
+                if domain in cache:
+                    # Merge: combine blocked/passed sets, keep higher counts
+                    existing = cache[domain]
+                    existing_blocked = set(existing.get("blocked", []))
+                    existing_passed = set(existing.get("passed", []))
+                    new_blocked = set(entry.get("blocked", []))
+                    new_passed = set(entry.get("passed", []))
+                    existing["blocked"] = list(existing_blocked | new_blocked)
+                    existing["passed"] = list(existing_passed | new_passed)
+                    existing["total_scans"] = max(
+                        existing.get("total_scans", 0),
+                        entry.get("total_scans", 0))
+                    # Keep newer timestamp
+                    if entry.get("updated_at", "") > existing.get("updated_at", ""):
+                        existing["updated_at"] = entry["updated_at"]
+                    if entry.get("waf_vendor") and not existing.get("waf_vendor"):
+                        existing["waf_vendor"] = entry["waf_vendor"]
+                else:
+                    cache[domain] = entry
+        else:
+            cache = import_data
+
+        _save_cache(cache)
+
+    return {
+        "imported_domains": len(import_data),
+        "merged": merge,
+        "total_domains": len(cache),
+    }
+
+
 def clear_domain_cache(domain: str = "") -> int:
     """Clear cache for one domain, or wipe all. Returns number of entries removed."""
     with _cache_lock:

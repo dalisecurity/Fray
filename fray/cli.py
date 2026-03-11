@@ -4230,6 +4230,7 @@ def cmd_cache(args):
     """Manage the adaptive payload cache (fray cache)."""
     from fray.adaptive_cache import (
         print_cache_summary, clear_domain_cache, get_domain_stats, load_cache,
+        export_cache, import_cache,
     )
 
     sub = getattr(args, "cache_cmd", None) or "show"
@@ -4268,9 +4269,25 @@ def cmd_cache(args):
                 import json as _json
                 print(_json.dumps(stats, indent=2))
 
+    elif sub == "export":
+        output = getattr(args, "output", "") or "fray-cache-export.json"
+        domain = getattr(args, "domain", "") or ""
+        result = export_cache(output, domain=domain)
+        print(f"  Exported {result['domains']} domain(s) to {result['path']}")
+
+    elif sub == "import":
+        input_path = getattr(args, "file", "")
+        if not input_path:
+            print("  Error: specify a file to import.  Usage: fray cache import <file>")
+            return
+        merge = not getattr(args, "replace", False)
+        result = import_cache(input_path, merge=merge)
+        mode = "merged" if result["merged"] else "replaced"
+        print(f"  Imported {result['imported_domains']} domain(s) ({mode}). Total: {result['total_domains']} domain(s).")
+
     else:
         print(f"  Unknown cache subcommand: {sub}")
-        print("  Usage: fray cache [show|clear|stats] [domain]")
+        print("  Usage: fray cache [show|clear|stats|export|import] [domain]")
 
 
 def cmd_init_config(args):
@@ -5050,6 +5067,17 @@ Documentation: https://github.com/dalisecurity/fray
     p_cache_stats = p_cache_sub.add_parser("stats", help="Dump raw cache JSON")
     p_cache_stats.add_argument("domain", nargs="?", default="",
                                 help="Filter to a specific domain (optional)")
+
+    p_cache_export = p_cache_sub.add_parser("export", help="Export cache to portable JSON file")
+    p_cache_export.add_argument("-o", "--output", default="fray-cache-export.json",
+                                 help="Output file path (default: fray-cache-export.json)")
+    p_cache_export.add_argument("domain", nargs="?", default="",
+                                 help="Export only this domain (optional)")
+
+    p_cache_import = p_cache_sub.add_parser("import", help="Import cache from JSON file")
+    p_cache_import.add_argument("file", help="Path to exported cache JSON")
+    p_cache_import.add_argument("--replace", action="store_true",
+                                 help="Replace existing cache instead of merging")
 
     p_cache.set_defaults(func=cmd_cache, cache_cmd="show")
 

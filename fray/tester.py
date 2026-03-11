@@ -1012,6 +1012,15 @@ class WAFTester:
                         pass
                 self._stealth_delay()
 
+            # ── Filter noise via response diffing (#219) ──
+            try:
+                from fray.differ import ResponseDiffer
+                _confirmed, _noise = ResponseDiffer().filter_noise(results, fp_threshold=60)
+                for r in _noise:
+                    r["filtered"] = "noise"
+            except Exception:
+                pass
+
             # ── Persist results to adaptive cache (async D1 share included) ──
             try:
                 from fray.adaptive_cache import save_scan_results
@@ -1083,6 +1092,15 @@ class WAFTester:
                     except Exception:
                         pass
                 self._stealth_delay()
+
+        # ── Filter noise via response diffing (#219) ──
+        try:
+            from fray.differ import ResponseDiffer
+            _confirmed, _noise = ResponseDiffer().filter_noise(results, fp_threshold=60)
+            for r in _noise:
+                r["filtered"] = "noise"
+        except Exception:
+            pass
 
         # ── Persist results to adaptive cache (async D1 share included) ──
         try:
