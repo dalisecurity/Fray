@@ -1,5 +1,6 @@
 """v11 Recon Report HTML builder — called by SecurityReportGenerator._build_recon_html_v11()."""
 import html as _html
+import ipaddress as _ipaddr
 from typing import Dict, Any
 from fray._report_css import CSS, SEV_COLORS, risk_color, risk_grade, gauge_svg, donut_svg
 
@@ -576,22 +577,43 @@ def build(rd: Dict[str, Any]) -> str:
   {tech_html if tech_html else '<p class="muted">No technologies detected.</p>'}
 </div>''')
 
-    # DNS
-    a_recs = ', '.join(dns.get('a', [])) or '—'
-    aaaa_recs = ', '.join(dns.get('aaaa', [])) or '—'
-    cname = ', '.join(dns.get('cname', [])) if isinstance(dns.get('cname'), list) else (dns.get('cname') or '—')
+    # DNS — separate IPs from CNAME chain hostnames
+    def _is_ip(s):
+        try:
+            _ipaddr.ip_address(s)
+            return True
+        except (ValueError, TypeError):
+            return False
+    raw_a = dns.get('a', [])
+    raw_aaaa = dns.get('aaaa', [])
+    a_ips = [r for r in raw_a if _is_ip(r)]
+    aaaa_ips = [r for r in raw_aaaa if _is_ip(r)]
+    # Build CNAME chain: host → cname1 → cname2 → ... → IP
+    cname_list = dns.get('cname', [])
+    if isinstance(cname_list, str):
+        cname_list = [cname_list] if cname_list else []
+    # Also collect hostnames from A/AAAA that are actually CNAME chain entries
+    chain_hosts = [r for r in raw_a if not _is_ip(r)]
+    full_chain = []
+    if cname_list:
+        full_chain.extend(cname_list)
+    for h in chain_hosts:
+        if h not in full_chain:
+            full_chain.append(h)
+    cname_display = ' &rarr; '.join(f'<span class="mono">{_esc(h)}</span>' for h in full_chain) if full_chain else '—'
+    a_display = ', '.join(a_ips) if a_ips else '—'
+    aaaa_display = ', '.join(aaaa_ips) if aaaa_ips else '—'
     spf = dns.get('spf', '')
     dmarc = dns.get('dmarc', '')
     parts.append(f'''
 <div class="sec" id="dns">
   <h2>DNS Records</h2>
   <table>
-    <tr><td class="kv-key">A</td><td class="mono" style="word-break:break-all;">{_esc(a_recs)}</td></tr>
-    <tr><td class="kv-key">AAAA</td><td class="mono" style="word-break:break-all;">{_esc(aaaa_recs)}</td></tr>
-    <tr><td class="kv-key">CNAME</td><td class="mono" style="word-break:break-all;">{_esc(str(cname))}</td></tr>
-    <tr><td class="kv-key">CDN</td><td>{_esc(str(cdn_vendor))}</td></tr>
-    <tr><td class="kv-key">SPF</td><td>{'&#x2713; ' + _esc(spf[:60]) if spf else '&#x2717; Missing'}</td></tr>
-    <tr><td class="kv-key">DMARC</td><td>{'&#x2713; ' + _esc(dmarc[:60]) if dmarc else '&#x2717; Missing'}</td></tr>
+    <tr><td class="kv-key">A</td><td class="mono" style="word-break:break-all;">{_esc(a_display)}</td></tr>
+    <tr><td class="kv-key">AAAA</td><td class="mono" style="word-break:break-all;">{_esc(aaaa_display)}</td></tr>
+    <tr><td class="kv-key">CNAME Chain</td><td style="word-break:break-all;">{cname_display}</td></tr>
+    <tr><td class="kv-key">SPF</td><td>{'&#x2713; ' + _esc(spf[:80]) if spf else '&#x2717; Missing'}</td></tr>
+    <tr><td class="kv-key">DMARC</td><td>{'&#x2713; ' + _esc(dmarc[:80]) if dmarc else '&#x2717; Missing'}</td></tr>
   </table>
 </div>''')
 
