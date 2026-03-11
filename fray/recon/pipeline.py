@@ -82,7 +82,7 @@ from fray.recon.fingerprint import (
     fingerprint_app,
     recommend_categories,
 )
-from fray.recon.supply_chain import check_frontend_libs
+from fray.recon.supply_chain import check_frontend_libs, check_server_cves
 from fray.recon.history import _save_recon_history
 from fray.recon.dns import (
     _SUBDOMAIN_WORDLIST_DEEP,
@@ -1257,6 +1257,40 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
 
         if inferred:
             fp["technologies"] = inferred
+
+    # ── Enrich CVEs from server headers ──
+    fl = result.get("frontend_libs", {})
+    if isinstance(fl, dict):
+        server_hdrs = list({s.get("server", "") for s in per_sub if s.get("server") and s.get("server") != "-"})
+        resp_hdrs = result.get("headers", {})
+        x_powered = resp_hdrs.get("x-powered-by") if isinstance(resp_hdrs, dict) else None
+        tls_data = result.get("tls", {})
+        srv_vulns = check_server_cves(server_hdrs, x_powered_by=x_powered, tls_data=tls_data)
+        if srv_vulns:
+            existing_vulns = fl.get("vulnerabilities", [])
+            existing_ids = {(v.get("library"), v.get("id")) for v in existing_vulns}
+            for sv in srv_vulns:
+                key = (sv.get("library"), sv.get("id"))
+                if key not in existing_ids:
+                    existing_vulns.append(sv)
+                    existing_ids.add(key)
+            fl["vulnerabilities"] = existing_vulns
+            fl["vulnerable_libs"] = len({v.get("library") for v in existing_vulns})
+            # Also add server techs as detected libraries
+            existing_libs = fl.get("libraries", [])
+            seen_libs = {l.get("name") for l in existing_libs}
+            for sv in srv_vulns:
+                lib_name = sv.get("library", "")
+                if lib_name not in seen_libs:
+                    existing_libs.append({
+                        "name": lib_name,
+                        "version": sv.get("version", ""),
+                        "source": "server_header",
+                        "url": "",
+                        "cves": [sv["id"]],
+                    })
+                    seen_libs.add(lib_name)
+            fl["libraries"] = existing_libs
 
     # ── Attack Targets (union of all vector targets, deduped, sorted by priority) ──
     seen = set()

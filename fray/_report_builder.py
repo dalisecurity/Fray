@@ -381,31 +381,37 @@ def build(rd: Dict[str, Any]) -> str:
   <table><tr><th>#</th><th>Priority</th><th>Type</th><th>Target</th></tr>{at_rows}</table>
 </div>''')
 
-    # CVEs
+    # CVEs — both frontend libs and server-side technologies
     cve_items = ''
-    for v in fl_vulns[:20]:
-        cve_items += f'<tr><td><span style="color:{SEV_COLORS.get(v.get("severity","info"),"#64748b")};font-weight:700;">{_esc(v.get("id",""))}</span></td><td>{_esc(v.get("library",""))}</td><td>{_esc(v.get("severity",""))}</td><td class="muted" style="font-size:0.85em;">{_esc(v.get("description","")[:100])}</td></tr>'
-    # Show detected libs even when 0 CVEs
+    # Sort: critical first, then high, medium, low
+    _sev_order = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3, 'info': 4}
+    sorted_vulns = sorted(fl_vulns, key=lambda v: _sev_order.get(v.get('severity', 'info'), 5))
+    for v in sorted_vulns[:30]:
+        sev = v.get('severity', 'info')
+        sc = SEV_COLORS.get(sev, '#64748b')
+        src = v.get('source', 'frontend')
+        src_badge = f'<span class="type-badge" style="background:#64748b20;color:#64748b;font-size:0.75em;">{_esc(src)}</span>' if src == 'server_header' else ''
+        cve_items += f'<tr><td><span style="color:{sc};font-weight:700;">{_esc(v.get("id",""))}</span></td><td class="mono">{_esc(v.get("library",""))} {src_badge}</td><td><span style="color:{sc};">{_esc(sev)}</span></td><td class="muted" style="font-size:0.85em;">{_esc(v.get("description", v.get("summary",""))[:120])}</td></tr>'
+    # Show detected libs table
     detected_libs = fl.get('libraries', []) if isinstance(fl, dict) else []
     libs_html = ''
-    if detected_libs and not cve_items:
-        lib_rows = ''.join(f'<tr><td class="mono">{_esc(l.get("name",""))}</td><td>{_esc(l.get("version",""))}</td><td>{_esc(l.get("source",""))}</td><td style="color:var(--green);">No known CVEs</td></tr>' for l in detected_libs[:15])
-        libs_html = f'<table><tr><th>Library</th><th>Version</th><th>Source</th><th>Status</th></tr>{lib_rows}</table>'
-    elif not detected_libs and not cve_items:
-        # Provide context on what the scan checks
-        libs_html = '''<div style="margin-top:8px;background:var(--surface2);border-radius:10px;padding:14px 18px;border-left:3px solid var(--muted);">
-  <p style="font-size:0.85em;line-height:1.7;">Frontend CVE detection scans for vulnerable versions of jQuery, Bootstrap, Angular, Vue, React, Lodash, Axios, and 15+ other libraries loaded via CDN or inline. 
-  No versioned libraries were detected in the response body. This may indicate:
-  <ul style="padding-left:18px;margin-top:6px;">
-    <li>JavaScript is loaded dynamically (SPA/client-side rendering)</li>
-    <li>Libraries are bundled/minified without version strings</li>
-    <li>Run <code>fray recon {_esc(host)} --deep</code> to probe subdomains for additional library exposure</li>
-  </ul></p>
+    if detected_libs:
+        lib_rows = ''
+        for l in detected_libs[:20]:
+            cves = l.get('cves', [])
+            status = f'<span style="color:var(--red);font-weight:600;">{len(cves)} CVE(s)</span>' if cves else '<span style="color:var(--green);">No known CVEs</span>'
+            lib_rows += f'<tr><td class="mono">{_esc(l.get("name",""))}</td><td>{_esc(l.get("version",""))}</td><td>{_esc(l.get("source",""))}</td><td>{status}</td></tr>'
+        libs_html = f'<details style="margin-top:12px;"><summary style="cursor:pointer;font-size:0.85em;color:var(--accent);">Detected libraries & technologies ({len(detected_libs)})</summary><table style="margin-top:8px;"><tr><th>Technology</th><th>Version</th><th>Source</th><th>Status</th></tr>{lib_rows}</table></details>'
+    elif not cve_items:
+        libs_html = f'''<div style="margin-top:8px;background:var(--surface2);border-radius:10px;padding:14px 18px;border-left:3px solid var(--muted);">
+  <p style="font-size:0.85em;line-height:1.7;">Scans 35+ frontend libraries (jQuery, Bootstrap, Angular, Vue, React, Lodash, D3, etc.) and server technologies (Apache, Nginx, IIS, Tomcat, PHP, OpenSSL) for known CVEs.
+  Run <code>fray recon {_esc(host)} --deep</code> for deeper subdomain-level version detection.</p>
 </div>'''
+    cve_table = f'<table><tr><th>CVE</th><th>Technology</th><th>Severity</th><th>Description</th></tr>{cve_items}</table>' if cve_items else ''
     parts.append(f'''
 <div class="sec" id="cves">
-  <h2>CVE / Frontend Vulnerabilities <span class="count">({len(fl_vulns)} CVEs, {n_vuln_libs} vulnerable lib(s))</span></h2>
-  {f'<table><tr><th>CVE</th><th>Library</th><th>Severity</th><th>Description</th></tr>{cve_items}</table>' if cve_items else libs_html}
+  <h2>Known Vulnerabilities <span class="count">({len(fl_vulns)} CVEs, {n_vuln_libs} vulnerable component(s))</span></h2>
+  {cve_table}{libs_html}
 </div>''')
 
     # Security Checks
