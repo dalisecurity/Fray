@@ -537,6 +537,11 @@ def build(rd: Dict[str, Any]) -> str:
         'Collaboration': 'var(--blue)', 'Wiki': 'var(--blue)',
         'Project Management': 'var(--blue)', 'Code Quality': 'var(--orange)',
         'API Gateway': 'var(--cyan)', 'Icon Library': 'var(--yellow)',
+        'AI / LLM': '#a855f7', 'AI / ML': '#a855f7',
+        'AI Chatbot': '#a855f7', 'Chatbot': '#a855f7',
+        'AI Framework': '#a855f7', 'AI Gateway': '#a855f7',
+        'AI Search': '#a855f7', 'AI Support': '#a855f7',
+        'Vector DB': '#a855f7',
     }
     # Group technologies by category
     _CAT_ORDER = [
@@ -562,6 +567,9 @@ def build(rd: Dict[str, Any]) -> str:
         # DevOps & Monitoring
         'Container', 'Container Orchestration', 'CI/CD', 'DevOps', 'Code Quality',
         'Monitoring', 'SIEM', 'Directory',
+        # AI / LLM / Chatbot
+        'AI / LLM', 'AI / ML', 'AI Chatbot', 'Chatbot', 'AI Framework',
+        'AI Gateway', 'AI Search', 'AI Support', 'Vector DB',
         # API & Infra
         'API', 'TLS', 'Cipher Suite', 'Certificate Authority', 'Infrastructure',
     ]

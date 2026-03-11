@@ -907,10 +907,39 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
         surfaces = s.get("surfaces", []) if isinstance(s.get("surfaces"), list) else []
         if any(k in str(surfaces).lower() for k in ("llm", "chatbot", "ai_assistant")):
             ai_subs.append(sub)
+
+    # Check fingerprinted technologies for AI indicators (body/header/cookie detections)
+    _AI_TECH_CATEGORIES = {"AI / LLM", "AI / ML", "AI Chatbot", "Chatbot", "AI Framework",
+                           "AI Gateway", "AI Search", "AI Support", "Vector DB"}
+    _AI_TECH_NAMES = {
+        "botpress", "voiceflow", "ada_chatbot", "tidio", "kommunicate", "customerly",
+        "chatbase", "landbot", "chatgpt_embed", "botsonic", "dialogflow", "watson_assistant",
+        "amazon_lex", "rasa", "manychat", "chatfuel", "tiledesk", "yellow_ai", "haptik",
+        "verloop", "engati", "gorgias", "kore_ai", "openai", "openai_api", "anthropic",
+        "anthropic_api", "cohere", "huggingface", "replicate", "together_ai", "groq",
+        "mistral", "perplexity", "fireworks_ai", "deepinfra", "ollama", "llm_api",
+        "llm_streaming", "langchain", "llamaindex", "pinecone", "weaviate", "chromadb",
+        "qdrant", "milvus", "algolia_ai", "vectara", "mendable", "inkeep", "docsbot",
+        "copilot", "github_copilot", "google_gemini", "google_vertex_ai", "aws_bedrock",
+        "aws_sagemaker", "azure_openai", "azure_ml", "cloudflare_ai_gateway",
+    }
+    ai_techs_detected = []
+    _fp_data = result.get("fingerprint", {})
+    fp_techs = _fp_data.get("technologies", {}) if isinstance(_fp_data, dict) else {}
+    for tech_name, tech_info in fp_techs.items():
+        cat = tech_info.get("category", "") if isinstance(tech_info, dict) else ""
+        if cat in _AI_TECH_CATEGORIES or tech_name.lower() in _AI_TECH_NAMES:
+            ai_techs_detected.append(tech_name)
+    # If AI techs detected on main host but no AI subs found, add the main host
+    if ai_techs_detected and not ai_subs:
+        ai_subs.append(host)
+
     if ai_subs:
-        ai_detail = f"{len(ai_subs)} AI/chatbot subdomain(s): {', '.join(ai_subs[:5])}"
+        ai_detail = f"{len(ai_subs)} AI/chatbot endpoint(s): {', '.join(ai_subs[:5])}"
         if len(ai_subs) > 5:
             ai_detail += f" … and {len(ai_subs) - 5} more"
+        if ai_techs_detected:
+            ai_detail += f". Detected AI technologies: {', '.join(ai_techs_detected[:8])}"
         ai_detail += ". Test for prompt injection, jailbreaking, system prompt leakage, and indirect prompt injection via user-supplied content."
         vectors.append({
             "type": "LLM / AI Prompt Injection", "severity": "high", "count": len(ai_subs),
@@ -1499,6 +1528,77 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
             "Sffe": ("Google SFFE", "Web Server"),
             "Ats": ("Apache Traffic Server", "Proxy"),
             "ovh": ("OVH", "Cloud"),
+            # AI / LLM / Chatbot platforms
+            "botpress": ("Botpress", "AI Chatbot"),
+            "voiceflow": ("Voiceflow", "AI Chatbot"),
+            "ada_chatbot": ("Ada", "AI Chatbot"),
+            "tidio": ("Tidio", "AI Chatbot"),
+            "kommunicate": ("Kommunicate", "AI Chatbot"),
+            "customerly": ("Customerly", "AI Chatbot"),
+            "chatbase": ("Chatbase", "AI Chatbot"),
+            "landbot": ("Landbot", "AI Chatbot"),
+            "chatgpt_embed": ("ChatGPT Embed", "AI / LLM"),
+            "botsonic": ("Botsonic", "AI Chatbot"),
+            "dialogflow": ("Google Dialogflow", "AI Chatbot"),
+            "watson_assistant": ("IBM Watson Assistant", "AI Chatbot"),
+            "amazon_lex": ("Amazon Lex", "AI Chatbot"),
+            "rasa": ("Rasa", "AI Chatbot"),
+            "manychat": ("ManyChat", "Chatbot"),
+            "chatfuel": ("Chatfuel", "Chatbot"),
+            "collectchat": ("Collect.chat", "Chatbot"),
+            "flowxo": ("Flow XO", "Chatbot"),
+            "tiledesk": ("Tiledesk", "AI Chatbot"),
+            "yellow_ai": ("Yellow.ai", "AI Chatbot"),
+            "haptik": ("Haptik", "AI Chatbot"),
+            "verloop": ("Verloop", "AI Chatbot"),
+            "engati": ("Engati", "AI Chatbot"),
+            "gorgias": ("Gorgias", "AI Support"),
+            "kore_ai": ("Kore.ai", "AI Chatbot"),
+            # AI Platforms & LLM Providers
+            "openai": ("OpenAI", "AI / LLM"),
+            "openai_api": ("OpenAI API", "AI / LLM"),
+            "anthropic": ("Anthropic", "AI / LLM"),
+            "anthropic_api": ("Anthropic API", "AI / LLM"),
+            "cohere": ("Cohere", "AI / LLM"),
+            "huggingface": ("Hugging Face", "AI / ML"),
+            "replicate": ("Replicate", "AI / ML"),
+            "together_ai": ("Together AI", "AI / LLM"),
+            "groq": ("Groq", "AI / LLM"),
+            "mistral": ("Mistral AI", "AI / LLM"),
+            "perplexity": ("Perplexity AI", "AI / LLM"),
+            "fireworks_ai": ("Fireworks AI", "AI / LLM"),
+            "anyscale": ("Anyscale", "AI / ML"),
+            "deepinfra": ("DeepInfra", "AI / LLM"),
+            "ollama": ("Ollama", "AI / LLM"),
+            "llm_api": ("LLM API", "AI / LLM"),
+            "llm_streaming": ("LLM Streaming", "AI / LLM"),
+            # AI Frameworks & Orchestration
+            "langchain": ("LangChain", "AI Framework"),
+            "llamaindex": ("LlamaIndex", "AI Framework"),
+            # Vector Databases
+            "pinecone": ("Pinecone", "Vector DB"),
+            "weaviate": ("Weaviate", "Vector DB"),
+            "chromadb": ("ChromaDB", "Vector DB"),
+            "qdrant": ("Qdrant", "Vector DB"),
+            "milvus": ("Milvus", "Vector DB"),
+            # AI Search & RAG
+            "algolia_ai": ("Algolia AI", "AI Search"),
+            "vectara": ("Vectara", "AI Search"),
+            "mendable": ("Mendable", "AI Search"),
+            "inkeep": ("Inkeep", "AI Search"),
+            "docsbot": ("DocsBot", "AI Chatbot"),
+            # Cloud AI Services
+            "copilot": ("Microsoft Copilot", "AI / LLM"),
+            "github_copilot": ("GitHub Copilot", "AI / LLM"),
+            "google_gemini": ("Google Gemini", "AI / LLM"),
+            "google_vertex_ai": ("Google Vertex AI", "AI / ML"),
+            "aws_bedrock": ("AWS Bedrock", "AI / LLM"),
+            "aws_sagemaker": ("AWS SageMaker", "AI / ML"),
+            "azure_openai": ("Azure OpenAI", "AI / LLM"),
+            "azure_ml": ("Azure ML", "AI / ML"),
+            "cloudflare_ai_gateway": ("Cloudflare AI Gateway", "AI Gateway"),
+            # API Gateway (detected via headers)
+            "kong": ("Kong", "API Gateway"),
         }
         for old_key, (proper_name, cat) in _NORMALIZE.items():
             if old_key in inferred:

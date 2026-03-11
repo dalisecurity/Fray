@@ -66,6 +66,49 @@ _HEADER_FINGERPRINTS: Dict[str, Dict[str, str]] = {
     "x-azure-ref": {
         r".*": "azure",
     },
+    # AI / LLM specific headers
+    "openai-organization": {
+        r".*": "openai",
+    },
+    "openai-model": {
+        r".*": "openai",
+    },
+    "openai-processing-ms": {
+        r".*": "openai",
+    },
+    "x-ratelimit-limit-tokens": {
+        r".*": "llm_api",
+    },
+    "x-ratelimit-remaining-tokens": {
+        r".*": "llm_api",
+    },
+    "anthropic-ratelimit-tokens-limit": {
+        r".*": "anthropic",
+    },
+    "x-model-id": {
+        r".*": "llm_api",
+    },
+    "x-inference-time": {
+        r".*": "llm_api",
+    },
+    "x-groq-id": {
+        r".*": "groq",
+    },
+    "cf-aig-cache-status": {
+        r".*": "cloudflare_ai_gateway",
+    },
+    "x-kong-upstream-latency": {
+        r".*": "kong",
+    },
+    "x-kong-proxy-latency": {
+        r".*": "kong",
+    },
+    "x-bedrock-request-id": {
+        r".*": "aws_bedrock",
+    },
+    "x-ms-azureml-model-group": {
+        r".*": "azure_ml",
+    },
     "cf-ray": {
         r".*": "cloudflare",
     },
@@ -242,6 +285,78 @@ _BODY_FINGERPRINTS: List[Tuple[str, str]] = [
     (r'powered by apache', "apache"),
     (r'x-aspnet-version', ".net"),
     (r'php\.net|powered by PHP', "php"),
+    # ── AI / LLM / Chatbot Widget SDKs ──────────────────────────────────
+    # Chatbot platforms (embedded widget scripts)
+    (r'cdn\.botpress\.cloud|inject\.js.*botpress', "botpress"),
+    (r'widget\.botpress\.cloud', "botpress"),
+    (r'voiceflow\.com/widget|vf-widget|voiceflow\.com/runtime', "voiceflow"),
+    (r'cdn\.ada\.support|ada\.support/embed|__ada', "ada_chatbot"),
+    (r'code\.tidio\.co|tidio\.co/ltidio', "tidio"),
+    (r'widget\.kommunicate\.io|kommunicate', "kommunicate"),
+    (r'cdn\.customerly\.io|customerly', "customerly"),
+    (r'chatbase\.co/embed|chatbase\.co/chatbot', "chatbase"),
+    (r'cdn\.landbot\.io|landbot\.io/v3', "landbot"),
+    (r'web\.chatgpt\.com|chat\.openai\.com/share', "chatgpt_embed"),
+    (r'widget\.writesonic\.com|botsonic', "botsonic"),
+    (r'cdn\.dialogflow\.com|dialogflow\.cloud\.google', "dialogflow"),
+    (r'watson-assistant|watsonassistant|watson\.ai', "watson_assistant"),
+    (r'lex\.amazonaws\.com|aws-lex', "amazon_lex"),
+    (r'rasa\.com|rasa-webchat|rasa\.io', "rasa"),
+    (r'manychat\.com', "manychat"),
+    (r'chatfuel\.com', "chatfuel"),
+    (r'collect\.chat|collectchat', "collectchat"),
+    (r'flowxo\.com|flow\.xo', "flowxo"),
+    (r'tiledesk\.com', "tiledesk"),
+    (r'yellow\.ai|yellowmessenger', "yellow_ai"),
+    (r'haptik\.ai|haptik\.co', "haptik"),
+    (r'verloop\.io', "verloop"),
+    (r'engati\.com', "engati"),
+    (r'gorgias\.chat|gorgias\.io', "gorgias"),
+    (r'kore\.ai|korebots', "kore_ai"),
+    # AI platform JS SDKs & embeds
+    (r'platform\.openai\.com|cdn\.openai\.com|openai-api', "openai"),
+    (r'anthropic\.com|claude\.ai', "anthropic"),
+    (r'cohere\.ai|cohere\.com/embed', "cohere"),
+    (r'huggingface\.co/api|hf\.space|gradio\.app', "huggingface"),
+    (r'replicate\.com/api|replicate\.delivery', "replicate"),
+    (r'together\.ai|api\.together\.xyz', "together_ai"),
+    (r'groq\.com|api\.groq\.com', "groq"),
+    (r'mistral\.ai|api\.mistral\.ai', "mistral"),
+    (r'perplexity\.ai', "perplexity"),
+    (r'fireworks\.ai|api\.fireworks\.ai', "fireworks_ai"),
+    (r'anyscale\.com|api\.anyscale\.com', "anyscale"),
+    (r'deepinfra\.com', "deepinfra"),
+    (r'ollama\.ai|ollama\.com', "ollama"),
+    (r'langchain|langserve|langsmith', "langchain"),
+    (r'llamaindex|llama-index|llama_index', "llamaindex"),
+    (r'pinecone\.io|pinecone-client', "pinecone"),
+    (r'weaviate\.io|weaviate\.cloud', "weaviate"),
+    (r'chroma\.run|chromadb', "chromadb"),
+    (r'qdrant\.io|qdrant\.tech', "qdrant"),
+    (r'milvus\.io', "milvus"),
+    # AI-powered search & RAG
+    (r'algolia\.com/ai|algolia.*NeuralSearch', "algolia_ai"),
+    (r'vectara\.com', "vectara"),
+    (r'mendable\.ai', "mendable"),
+    (r'inkeep\.com', "inkeep"),
+    (r'docsbot\.ai', "docsbot"),
+    # AI response content patterns (SSE streaming, model references)
+    (r'data:\s*\{"id":"chatcmpl-', "openai_api"),
+    (r'data:\s*\{"model":"gpt-', "openai_api"),
+    (r'data:\s*\{"model":"claude-', "anthropic_api"),
+    (r'"usage":\s*\{"prompt_tokens":', "llm_api"),
+    (r'"choices":\s*\[\{"message":', "llm_api"),
+    (r'"completion_tokens":\s*\d+', "llm_api"),
+    (r'text/event-stream.*\{"model":', "llm_streaming"),
+    # Copilot / AI assistant indicators
+    (r'copilot|microsoft\.com/copilot', "copilot"),
+    (r'github\.com/copilot|copilot\.github', "github_copilot"),
+    (r'gemini\.google\.com|generativelanguage\.googleapis', "google_gemini"),
+    (r'ai\.google\.dev|vertex\.ai|aiplatform\.googleapis', "google_vertex_ai"),
+    (r'bedrock.*amazonaws|bedrock-runtime', "aws_bedrock"),
+    (r'sagemaker.*amazonaws|sagemaker-runtime', "aws_sagemaker"),
+    (r'azure\.ai|cognitiveservices\.azure|openai\.azure\.com', "azure_openai"),
+    (r'ml\.azure\.com|azureml', "azure_ml"),
 ]
 
 _COOKIE_FINGERPRINTS: Dict[str, str] = {
@@ -292,6 +407,17 @@ _COOKIE_FINGERPRINTS: Dict[str, str] = {
     "SERVERID": "haproxy",
     "BIGipServer": "f5",
     "citrix_ns_id": "netscaler",
+    # AI / Chatbot platforms
+    "__bp_chat": "botpress",
+    "__ada_chat": "ada_chatbot",
+    "tidio_state_": "tidio",
+    "kommunicate": "kommunicate",
+    "vf-session": "voiceflow",
+    "chatbase": "chatbase",
+    "df-messenger": "dialogflow",
+    "watsonAssistant": "watson_assistant",
+    "intercom-session-": "intercom",
+    "crisp-client": "crisp",
 }
 
 # ── Security header checklist ────────────────────────────────────────────
