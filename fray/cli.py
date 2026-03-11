@@ -1182,7 +1182,8 @@ def cmd_test(args):
         except Exception:
             pass
         results = tester.test_payloads(all_payloads, max_payloads=args.max,
-                                       quiet=json_mode, waf_vendor=_waf_vendor)
+                                       quiet=json_mode, waf_vendor=_waf_vendor,
+                                       resume=getattr(args, 'resume', False))
 
     # --mutate: auto-mutate blocked payloads and re-test
     mutate_n = getattr(args, 'mutate', 0)
@@ -4375,6 +4376,8 @@ Documentation: https://github.com/dalisecurity/fray
                          help="OOB callback server for blind detection (e.g. oast.fun, interact.sh)")
     p_test.add_argument("--auth-profile", default=None, metavar="FILE",
                          help="Auth profile JSON file (~/.fray/auth/*.json) — OAuth2, form login, multi-step")
+    p_test.add_argument("--resume", action="store_true",
+                         help="Resume an interrupted scan from checkpoint (~/.fray/checkpoints/)")
     p_test.add_argument("--notify", default=None, metavar="WEBHOOK_URL",
                          help="Send Slack/Discord/Teams notification on completion")
     p_test.set_defaults(func=cmd_test)

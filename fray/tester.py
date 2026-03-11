@@ -309,26 +309,76 @@ class WAFTester:
         return status, resp_str, headers, elapsed_ms
 
     def _measure_baseline(self, param: str = 'input') -> Dict:
-        """Send a benign request to establish baseline response characteristics."""
+        """Send multiple benign requests to establish stable baseline characteristics.
+
+        Sends 3 different benign values to capture:
+        - Average response length and timing (reduces noise)
+        - Body hash for identity comparison (detect "param ignored" FPs)
+        - Structural token count (HTML tag count for structural diffing)
+        - Content-Type of the response
+        """
         if self._baseline is not None:
             return self._baseline
-        try:
-            benign = 'test123'
-            enc = urllib.parse.quote(benign, safe='')
-            query_string = f"{self.query}&{param}={enc}" if self.query else f"{param}={enc}"
-            req = (f"GET {self.path}?{query_string} HTTP/1.1\r\n"
-                   f"Host: {self.host}\r\n"
-                   f"Connection: close\r\n\r\n")
-            status, resp_str, headers, elapsed_ms = self._raw_request(
-                self.host, self.port, self.use_ssl, req)
-            resp_body = resp_str.split('\r\n\r\n', 1)[1] if '\r\n\r\n' in resp_str else ''
+
+        import hashlib
+
+        benign_values = ['test123', 'hello', 'fray_baseline']
+        samples = []
+
+        for benign in benign_values:
+            try:
+                enc = urllib.parse.quote(benign, safe='')
+                query_string = f"{self.query}&{param}={enc}" if self.query else f"{param}={enc}"
+                req = (f"GET {self.path}?{query_string} HTTP/1.1\r\n"
+                       f"Host: {self.host}\r\n"
+                       f"Connection: close\r\n\r\n")
+                status, resp_str, headers, elapsed_ms = self._raw_request(
+                    self.host, self.port, self.use_ssl, req)
+                resp_body = resp_str.split('\r\n\r\n', 1)[1] if '\r\n\r\n' in resp_str else ''
+                body_hash = hashlib.md5(resp_body.encode('utf-8', errors='replace')).hexdigest()
+                ct = headers.get('content-type', '')
+                # Count HTML structural tokens (rough tag count)
+                tag_count = resp_body.count('<') if resp_body else 0
+                samples.append({
+                    'status': status,
+                    'length': len(resp_body),
+                    'elapsed_ms': elapsed_ms,
+                    'body_hash': body_hash,
+                    'content_type': ct,
+                    'tag_count': tag_count,
+                })
+            except Exception:
+                continue
+
+        if not samples:
             self._baseline = {
-                'status': status,
-                'response_length': len(resp_body),
-                'elapsed_ms': elapsed_ms,
+                'status': 0, 'response_length': 0, 'elapsed_ms': 500.0,
+                'body_hashes': set(), 'content_type': '', 'tag_count': 0,
+                'length_min': 0, 'length_max': 0, 'stable_body': False,
             }
-        except Exception:
-            self._baseline = {'status': 0, 'response_length': 0, 'elapsed_ms': 500.0}
+            return self._baseline
+
+        lengths = [s['length'] for s in samples]
+        timings = [s['elapsed_ms'] for s in samples]
+        hashes = {s['body_hash'] for s in samples}
+        statuses = [s['status'] for s in samples]
+        tag_counts = [s['tag_count'] for s in samples]
+
+        # Body is "stable" if all samples produced the same hash
+        # (meaning the benign value doesn't affect response body)
+        stable_body = len(hashes) == 1
+
+        self._baseline = {
+            'status': max(set(statuses), key=statuses.count),  # mode
+            'response_length': int(sum(lengths) / len(lengths)),
+            'elapsed_ms': sum(timings) / len(timings),
+            'body_hashes': hashes,
+            'content_type': samples[0]['content_type'],
+            'tag_count': int(sum(tag_counts) / len(tag_counts)),
+            'length_min': min(lengths),
+            'length_max': max(lengths),
+            'stable_body': stable_body,
+        }
         return self._baseline
 
     @staticmethod
@@ -401,12 +451,19 @@ class WAFTester:
         if blocked:
             return {"fp_score": 0, "fp_reasons": [], "confidence_label": "confirmed_block"}
 
+        import hashlib as _hl
+
         fp = 0.0
         reasons = []
 
         bl_status = baseline.get('status', 200)
         bl_len = baseline.get('response_length', 0)
         bl_time = baseline.get('elapsed_ms', 500.0)
+        bl_hashes = baseline.get('body_hashes', set())
+        bl_stable = baseline.get('stable_body', False)
+        bl_tag_count = baseline.get('tag_count', 0)
+        bl_len_min = baseline.get('length_min', 0)
+        bl_len_max = baseline.get('length_max', 0)
 
         # 1. Generic error page masquerading as bypass (30 pts)
         body_lower = resp_body.lower() if resp_body else ""
@@ -435,17 +492,42 @@ class WAFTester:
             fp += 15
             reasons.append(f"status_{status}_differs_from_baseline_{bl_status}")
 
-        # 4. Response body identical to baseline (15 pts) — param was ignored
-        if bl_len > 100 and resp_body and abs(len(resp_body) - bl_len) < 10:
+        # 4. Body hash identity — response identical to a benign baseline (20 pts)
+        #    If the body is stable (all benign probes got same hash) AND our payload
+        #    response matches that hash, the param was ignored → likely FP.
+        if bl_stable and bl_hashes and resp_body:
+            resp_hash = _hl.md5(resp_body.encode('utf-8', errors='replace')).hexdigest()
+            if resp_hash in bl_hashes:
+                fp += 20
+                reasons.append("body_identical_to_baseline_hash")
+        elif bl_len > 100 and resp_body and abs(len(resp_body) - bl_len) < 10:
+            # Fallback: length-based identity check
             fp += 15
             reasons.append("response_identical_to_baseline")
 
-        # 5. No reflection when payload should reflect (10 pts)
+        # 5. Response length outside baseline range (10 pts)
+        #    If body length is wildly different from any baseline sample,
+        #    likely a different page (error, redirect, etc.)
+        if bl_len_max > 0 and len(resp_body) > 0:
+            margin = max(100, int(bl_len_max * 0.15))  # 15% tolerance
+            if len(resp_body) < bl_len_min - margin or len(resp_body) > bl_len_max + margin:
+                fp += 10
+                reasons.append("response_length_outside_baseline_range")
+
+        # 6. Structural divergence — HTML tag count differs significantly (10 pts)
+        if bl_tag_count > 10 and resp_body:
+            resp_tags = resp_body.count('<')
+            tag_ratio = min(resp_tags, bl_tag_count) / max(resp_tags, bl_tag_count) if max(resp_tags, bl_tag_count) > 0 else 1.0
+            if tag_ratio < 0.5:
+                fp += 10
+                reasons.append(f"structural_divergence_tags_{resp_tags}_vs_{bl_tag_count}")
+
+        # 7. No reflection when payload should reflect (10 pts)
         if not reflected and status == 200 and bl_status == 200:
             fp += 10
             reasons.append("no_reflection")
 
-        # 6. Suspiciously fast response (WAF fast-reject leaked through?) (10 pts)
+        # 8. Suspiciously fast response (WAF fast-reject leaked through?) (10 pts)
         if bl_time > 0 and elapsed_ms > 0:
             if elapsed_ms < bl_time * 0.3:
                 fp += 10
@@ -795,7 +877,8 @@ class WAFTester:
     
     def test_payloads(self, payloads: List[Dict], method: str = 'GET', param: str = 'input',
                      max_payloads: Optional[int] = None, quiet: bool = False,
-                     smart_sort: bool = True, waf_vendor: str = '') -> List[Dict]:
+                     smart_sort: bool = True, waf_vendor: str = '',
+                     resume: bool = False) -> List[Dict]:
         """Test multiple payloads.
 
         Args:
@@ -804,6 +887,7 @@ class WAFTester:
                          are deprioritised. Default: True.
             waf_vendor:  Detected WAF vendor — passed to smart_sort for future
                          cross-vendor filtering (Phase 2).
+            resume:      If True, load checkpoint and skip already-tested payloads.
         """
         # ── Adaptive sort: put proven bypasses first, known-blocked last ──
         if smart_sort:
@@ -817,18 +901,52 @@ class WAFTester:
         results = []
         total = min(len(payloads), max_payloads) if max_payloads else len(payloads)
 
+        # ── Resume: load checkpoint and skip already-tested payloads ──
+        tested_hashes: set = set()
+        started_at = datetime.now().isoformat()
+        if resume:
+            try:
+                from fray.checkpoint import (load_checkpoint, get_tested_set,
+                                             _payload_hash as _cp_hash)
+                cp = load_checkpoint(self.target)
+                if cp:
+                    tested_hashes = get_tested_set(cp)
+                    results = cp.get('results', [])
+                    started_at = cp.get('started_at', started_at)
+                    n_skip = len(tested_hashes)
+                    if not quiet:
+                        sys.stderr.write(
+                            f"  \033[36m↻ Resuming: {n_skip} payloads already tested, "
+                            f"{total - n_skip} remaining\033[0m\n")
+            except Exception:
+                pass
+
         self.start_time = datetime.now()
 
         if quiet:
             # Silent mode for --json: no rich output
             for idx, payload_data in enumerate(payloads[:total], 1):
                 payload = payload_data.get('payload', payload_data) if isinstance(payload_data, dict) else payload_data
+                # Skip already-tested on resume
+                if tested_hashes:
+                    from fray.checkpoint import _payload_hash as _cp_hash
+                    if _cp_hash(payload) in tested_hashes:
+                        continue
                 desc = payload_data.get('description', '') if isinstance(payload_data, dict) else ''
                 category = payload_data.get('category', 'unknown') if isinstance(payload_data, dict) else 'unknown'
                 result = self.test_payload(payload, method, param)
                 result['category'] = category
                 result['description'] = desc
                 results.append(result)
+                # Checkpoint after each payload
+                if resume:
+                    try:
+                        from fray.checkpoint import save_checkpoint, _payload_hash as _cp_hash2
+                        tested_hashes.add(_cp_hash2(payload))
+                        save_checkpoint(self.target, method, param, waf_vendor,
+                                        total, list(tested_hashes), results, started_at)
+                    except Exception:
+                        pass
                 self._stealth_delay()
 
             # ── Persist results to adaptive cache (async D1 share included) ──
@@ -837,6 +955,13 @@ class WAFTester:
                 save_scan_results(results, domain=self.target, waf_vendor=waf_vendor)
             except Exception:
                 pass
+            # Clear checkpoint on successful completion
+            if resume:
+                try:
+                    from fray.checkpoint import clear_checkpoint
+                    clear_checkpoint(self.target)
+                except Exception:
+                    pass
             return results
 
         from fray.output import console, blocked_text, passed_text, make_progress
@@ -845,10 +970,18 @@ class WAFTester:
         console.rule(f"[bold]Testing {total} payloads against [cyan]{self.target}[/cyan][/bold]")
         console.print()
 
+        skipped = 0
         with make_progress() as progress:
             task = progress.add_task("Testing", total=total)
             for idx, payload_data in enumerate(payloads[:total], 1):
                 payload = payload_data.get('payload', payload_data) if isinstance(payload_data, dict) else payload_data
+                # Skip already-tested on resume
+                if tested_hashes:
+                    from fray.checkpoint import _payload_hash as _cp_hash
+                    if _cp_hash(payload) in tested_hashes:
+                        progress.advance(task)
+                        skipped += 1
+                        continue
                 desc = payload_data.get('description', '') if isinstance(payload_data, dict) else ''
                 category = payload_data.get('category', 'unknown') if isinstance(payload_data, dict) else 'unknown'
                 
@@ -877,6 +1010,15 @@ class WAFTester:
                     highlight=False,
                 )
                 progress.advance(task)
+                # Checkpoint after each payload
+                if resume:
+                    try:
+                        from fray.checkpoint import save_checkpoint, _payload_hash as _cp_hash2
+                        tested_hashes.add(_cp_hash2(payload))
+                        save_checkpoint(self.target, method, param, waf_vendor,
+                                        total, list(tested_hashes), results, started_at)
+                    except Exception:
+                        pass
                 self._stealth_delay()
 
         # ── Persist results to adaptive cache (async D1 share included) ──
@@ -885,6 +1027,13 @@ class WAFTester:
             save_scan_results(results, domain=self.target, waf_vendor=waf_vendor)
         except Exception:
             pass
+        # Clear checkpoint on successful completion
+        if resume:
+            try:
+                from fray.checkpoint import clear_checkpoint
+                clear_checkpoint(self.target)
+            except Exception:
+                pass
 
         return results
 
