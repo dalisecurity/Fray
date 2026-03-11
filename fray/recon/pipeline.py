@@ -2,6 +2,7 @@
 pretty-print output."""
 
 import asyncio
+import os
 import random
 import sys
 import time
@@ -589,15 +590,61 @@ def run_recon(url: str, timeout: int = 8,
     # Merge active subdomain discoveries into passive list (dedup)
     passive_subs = set(result["subdomains"].get("subdomains", []))
     active_subs = {e["subdomain"] for e in result["subdomains_active"].get("discovered", [])}
-    merged = sorted(passive_subs | active_subs)
-    result["subdomains"]["subdomains"] = merged[:500]
-    result["subdomains"]["count"] = len(passive_subs | active_subs)
+
+    # Load subdomain cache (learned from previous scans)
+    cached_subs: set = set()
+    try:
+        import json as _json
+        _cache_path = os.path.join(os.path.expanduser("~"), ".fray", "subdomain_cache.json")
+        if os.path.exists(_cache_path):
+            with open(_cache_path, "r", encoding="utf-8") as _cf:
+                _cache = _json.load(_cf)
+            search_domain = host.lstrip("www.") if host.startswith("www.") else host
+            _domain_cache = _cache.get("domains", {}).get(search_domain, {})
+            cached_subs = set(_domain_cache.get("subdomains", []))
+            if cached_subs and not quiet:
+                sys.stderr.write(f"\r  ⏳ Loaded {len(cached_subs)} cached subdomain(s) for {search_domain}          \n")
+                sys.stderr.flush()
+    except Exception:
+        pass
+
+    # Save newly discovered subdomains back to cache
+    new_discovered = passive_subs | active_subs
+    if new_discovered:
+        try:
+            import json as _json
+            _cache_path = os.path.join(os.path.expanduser("~"), ".fray", "subdomain_cache.json")
+            if os.path.exists(_cache_path):
+                with open(_cache_path, "r", encoding="utf-8") as _cf:
+                    _cache = _json.load(_cf)
+            else:
+                _cache = {"domains": {}, "common_prefixes": {}, "total_scans": 0}
+            search_domain = host.lstrip("www.") if host.startswith("www.") else host
+            if search_domain not in _cache["domains"]:
+                _cache["domains"][search_domain] = {"subdomains": [], "last_scan": ""}
+            existing = set(_cache["domains"][search_domain].get("subdomains", []))
+            merged_cache = sorted(existing | new_discovered)
+            _cache["domains"][search_domain]["subdomains"] = merged_cache
+            _cache["domains"][search_domain]["last_scan"] = result.get("timestamp", "")
+            _cache["total_scans"] = _cache.get("total_scans", 0) + 1
+            os.makedirs(os.path.dirname(_cache_path), exist_ok=True)
+            with open(_cache_path, "w", encoding="utf-8") as _cf:
+                _json.dump(_cache, _cf, ensure_ascii=False)
+        except Exception:
+            pass
+
+    merged_all = sorted(passive_subs | active_subs | cached_subs)
+    result["subdomains"]["subdomains"] = merged_all[:500]
+    result["subdomains"]["count"] = len(passive_subs | active_subs | cached_subs)
     result["subdomains"]["passive_count"] = len(passive_subs)
     result["subdomains"]["active_count"] = len(active_subs)
+    result["subdomains"]["cached_count"] = len(cached_subs)
     # Preserve per-source counts from multi-source enumeration
     if "sources" not in result["subdomains"]:
         result["subdomains"]["sources"] = {}
     result["subdomains"]["sources"]["dns_brute"] = len(active_subs)
+    if cached_subs:
+        result["subdomains"]["sources"]["cache"] = len(cached_subs)
 
     # Subdomain takeover detection (runs on merged subdomain list)
     all_subs = result["subdomains"].get("subdomains", [])
