@@ -1750,7 +1750,8 @@ _CLOUD_PROVIDERS = {
 _WAF_CDN_SIGNATURES = [
     # ── Cloudflare (WAF + CDN) ──
     {"name": "Cloudflare", "waf": "Cloudflare", "cdn": "Cloudflare",
-     "headers": {"server": "cloudflare", "cf-ray": "", "cf-cache-status": ""},
+     "headers": {"server": "cloudflare", "cf-ray": "", "cf-cache-status": "",
+                 "cf-team": "", "cf-connecting-ip": ""},
      "cname_hints": ["cloudflare"]},
 
     # ── Akamai (Kona Site Defender / App & API Protector + CDN) ──
@@ -1971,6 +1972,15 @@ def _fingerprint_waf_cdn(fqdn: str, timeout: float = 3.0) -> Dict[str, Any]:
                     matched = True
                     result["headers_matched"].append(f"{sig['name']}:cname={hint}")
                     break
+        # Check server-timing for CDN/WAF hints (e.g., cfReqDur → Cloudflare)
+        if not matched and "server-timing" in resp_headers:
+            st_val = resp_headers["server-timing"]
+            for st_hint, st_name in [("cfreqdur", "Cloudflare"), ("cdn-cache", "CDN"),
+                                      ("fastly", "Fastly"), ("akamai", "Akamai")]:
+                if st_hint in st_val and sig["name"] == st_name:
+                    matched = True
+                    result["headers_matched"].append(f"{sig['name']}:server-timing~{st_hint}")
+                    break
 
         if matched:
             if sig["waf"] and sig["waf"] not in detected_wafs:
@@ -2019,8 +2029,8 @@ def analyze_cloud_distribution(subdomains: List[str],
     waf_counts: Dict[str, int] = {}
     cdn_counts: Dict[str, int] = {}
 
-    # Resolve subdomains in parallel (cap at 60)
-    candidates = list(subdomains)[:60]
+    # Resolve subdomains in parallel (cap at 200 for better coverage)
+    candidates = list(subdomains)[:200]
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
         futures = {pool.submit(_fingerprint_waf_cdn, s, timeout): s

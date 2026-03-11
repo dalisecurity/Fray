@@ -378,17 +378,34 @@ def build(rd: Dict[str, Any]) -> str:
         parts.append(f'''
 <div class="sec" id="priorities">
   <h2>Attack Priorities <span class="count">({n_attack_targets} targets)</span></h2>
-  <table><tr><th>#</th><th>P</th><th>Type</th><th>Target</th></tr>{at_rows}</table>
+  <table><tr><th>#</th><th>Priority</th><th>Type</th><th>Target</th></tr>{at_rows}</table>
 </div>''')
 
     # CVEs
     cve_items = ''
     for v in fl_vulns[:20]:
         cve_items += f'<tr><td><span style="color:{SEV_COLORS.get(v.get("severity","info"),"#64748b")};font-weight:700;">{_esc(v.get("id",""))}</span></td><td>{_esc(v.get("library",""))}</td><td>{_esc(v.get("severity",""))}</td><td class="muted" style="font-size:0.85em;">{_esc(v.get("description","")[:100])}</td></tr>'
+    # Show detected libs even when 0 CVEs
+    detected_libs = fl.get('libraries', []) if isinstance(fl, dict) else []
+    libs_html = ''
+    if detected_libs and not cve_items:
+        lib_rows = ''.join(f'<tr><td class="mono">{_esc(l.get("name",""))}</td><td>{_esc(l.get("version",""))}</td><td>{_esc(l.get("source",""))}</td><td style="color:var(--green);">No known CVEs</td></tr>' for l in detected_libs[:15])
+        libs_html = f'<table><tr><th>Library</th><th>Version</th><th>Source</th><th>Status</th></tr>{lib_rows}</table>'
+    elif not detected_libs and not cve_items:
+        # Provide context on what the scan checks
+        libs_html = '''<div style="margin-top:8px;background:var(--surface2);border-radius:10px;padding:14px 18px;border-left:3px solid var(--muted);">
+  <p style="font-size:0.85em;line-height:1.7;">Frontend CVE detection scans for vulnerable versions of jQuery, Bootstrap, Angular, Vue, React, Lodash, Axios, and 15+ other libraries loaded via CDN or inline. 
+  No versioned libraries were detected in the response body. This may indicate:
+  <ul style="padding-left:18px;margin-top:6px;">
+    <li>JavaScript is loaded dynamically (SPA/client-side rendering)</li>
+    <li>Libraries are bundled/minified without version strings</li>
+    <li>Run <code>fray recon {_esc(host)} --deep</code> to probe subdomains for additional library exposure</li>
+  </ul></p>
+</div>'''
     parts.append(f'''
 <div class="sec" id="cves">
   <h2>CVE / Frontend Vulnerabilities <span class="count">({len(fl_vulns)} CVEs, {n_vuln_libs} vulnerable lib(s))</span></h2>
-  {f'<table><tr><th>CVE</th><th>Library</th><th>Severity</th><th>Description</th></tr>{cve_items}</table>' if cve_items else '<p class="muted">No frontend CVEs detected.</p>'}
+  {f'<table><tr><th>CVE</th><th>Library</th><th>Severity</th><th>Description</th></tr>{cve_items}</table>' if cve_items else libs_html}
 </div>''')
 
     # Security Checks
