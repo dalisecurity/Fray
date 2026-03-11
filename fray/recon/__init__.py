@@ -25,6 +25,7 @@ from fray.recon.fingerprint import (  # noqa: F401
     check_security_headers,
     check_clickjacking,
     check_captcha,
+    check_favicon,
     check_cookies,
     fingerprint_app,
     recommend_categories,

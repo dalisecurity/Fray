@@ -1125,6 +1125,115 @@ def check_auth_endpoints(host: str, port: int, use_ssl: bool,
     }
 
 
+_COMMON_WEB_PORTS = [
+    (21, "FTP"),
+    (22, "SSH"),
+    (25, "SMTP"),
+    (53, "DNS"),
+    (80, "HTTP"),
+    (110, "POP3"),
+    (143, "IMAP"),
+    (443, "HTTPS"),
+    (445, "SMB"),
+    (993, "IMAPS"),
+    (995, "POP3S"),
+    (1433, "MSSQL"),
+    (1521, "Oracle"),
+    (2082, "cPanel"),
+    (2083, "cPanel SSL"),
+    (2086, "WHM"),
+    (2087, "WHM SSL"),
+    (3000, "Dev (Node/Grafana)"),
+    (3306, "MySQL"),
+    (3389, "RDP"),
+    (4443, "HTTPS Alt"),
+    (5432, "PostgreSQL"),
+    (5900, "VNC"),
+    (6379, "Redis"),
+    (8000, "Dev/Django"),
+    (8008, "HTTP Alt"),
+    (8080, "HTTP Proxy"),
+    (8443, "HTTPS Alt"),
+    (8888, "HTTP Alt/Jupyter"),
+    (9090, "Prometheus/Cockpit"),
+    (9200, "Elasticsearch"),
+    (9443, "HTTPS Alt"),
+    (27017, "MongoDB"),
+]
+
+
+def check_open_ports(host: str, timeout: float = 2.0,
+                     ports: Optional[List[Tuple[int, str]]] = None,
+                     ) -> Dict[str, Any]:
+    """Lightweight TCP port scan — connect() probe against common web ports.
+
+    Returns:
+      - open: list of {port, service, banner?}
+      - closed: count of closed ports
+      - filtered: count of filtered (timeout) ports
+      - total_scanned: total ports probed
+    """
+    import concurrent.futures
+
+    target_ports = ports or _COMMON_WEB_PORTS
+    open_ports = []
+    filtered = 0
+    closed = 0
+
+    def _probe_port(port_num: int, service_name: str):
+        try:
+            sock = socket.create_connection((host, port_num), timeout=timeout)
+            # Try to grab a banner (50ms read timeout)
+            banner = None
+            try:
+                sock.settimeout(0.3)
+                data = sock.recv(1024)
+                if data:
+                    banner = data.decode("utf-8", errors="replace").strip()[:200]
+            except (socket.timeout, OSError):
+                pass
+            sock.close()
+            return {"port": port_num, "service": service_name, "state": "open",
+                    "banner": banner}
+        except socket.timeout:
+            return {"port": port_num, "service": service_name, "state": "filtered"}
+        except (ConnectionRefusedError, OSError):
+            return {"port": port_num, "service": service_name, "state": "closed"}
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as pool:
+        futures = {pool.submit(_probe_port, p, s): p for p, s in target_ports}
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                result = future.result()
+                if result["state"] == "open":
+                    open_ports.append(result)
+                elif result["state"] == "filtered":
+                    filtered += 1
+                else:
+                    closed += 1
+            except Exception:
+                closed += 1
+
+    # Sort by port number
+    open_ports.sort(key=lambda x: x["port"])
+
+    # Classify risk
+    risky_ports = []
+    _RISKY = {21, 22, 445, 1433, 1521, 3306, 3389, 5432, 5900, 6379, 9200, 27017}
+    for op in open_ports:
+        if op["port"] in _RISKY:
+            risky_ports.append(op)
+
+    return {
+        "open": open_ports,
+        "open_count": len(open_ports),
+        "closed": closed,
+        "filtered": filtered,
+        "total_scanned": len(target_ports),
+        "risky_ports": risky_ports,
+    }
+
+
 _CRITICAL_PATHS = [
     "/admin", "/login", "/api", "/api/v1", "/graphql",
     "/wp-admin", "/wp-login.php", "/administrator",

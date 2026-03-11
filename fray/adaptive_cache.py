@@ -252,6 +252,7 @@ def save_scan_results(
                     "payload": payload[:500],
                     "count": 0,
                     "bypass_confidence": 0,
+                    "bypasses": [],
                     "last_seen": now,
                 })
                 rec["count"] = rec.get("count", 0) + 1
@@ -260,6 +261,12 @@ def save_scan_results(
                     int(r.get("bypass_confidence", 0)),
                 )
                 rec["last_seen"] = now
+                # Track which WAF vendors this payload bypasses
+                if waf_vendor:
+                    existing_bp = rec.get("bypasses", [])
+                    if waf_vendor not in existing_bp:
+                        existing_bp.append(waf_vendor)
+                        rec["bypasses"] = existing_bp
                 entry["passed"][ph] = rec
                 entry["blocked"].pop(ph, None)
 
@@ -398,8 +405,11 @@ def smart_sort_payloads(
         pass
 
     proven_bypasses: List[Dict] = []
+    vendor_tagged: List[Dict] = []  # payloads with matching "bypasses" metadata
     unknown: List[Dict] = []
     likely_blocked: List[Dict] = []
+
+    vendor_lower = vendor.lower() if vendor else ""
 
     for p in payloads:
         raw = p.get("payload", p) if isinstance(p, dict) else str(p)
@@ -415,6 +425,13 @@ def smart_sort_payloads(
             proven_bypasses.append(item)
         elif ph in blocked_counts and blocked_counts[ph] >= BLOCK_THRESHOLD:
             likely_blocked.append(p)
+        elif vendor_lower and isinstance(p, dict) and p.get("bypasses"):
+            # Payload declares which WAFs it bypasses — boost if vendor matches
+            bp_lower = [b.lower() for b in p.get("bypasses", [])]
+            if any(vendor_lower in b or b in vendor_lower for b in bp_lower):
+                vendor_tagged.append(p)
+            else:
+                unknown.append(p)
         else:
             unknown.append(p)
 
@@ -425,7 +442,8 @@ def smart_sort_payloads(
     for item in proven_bypasses:
         item.pop("_cached_confidence", None)
 
-    return proven_bypasses[:top_n] + unknown + proven_bypasses[top_n:] + likely_blocked
+    # Order: proven cache bypasses → vendor-tagged → unknown → likely blocked
+    return proven_bypasses[:top_n] + vendor_tagged + unknown + proven_bypasses[top_n:] + likely_blocked
 
 
 def get_domain_stats(domain: str) -> Optional[Dict]:

@@ -76,6 +76,7 @@ from fray.recon.fingerprint import (
     check_security_headers,
     check_clickjacking,
     check_captcha,
+    check_favicon,
     check_cookies,
     fingerprint_app,
     recommend_categories,
@@ -101,6 +102,7 @@ from fray.recon.checks import (
     check_host_header_injection,
     check_admin_panels,
     check_auth_endpoints,
+    check_open_ports,
     check_rate_limits,
     check_rate_limits_critical,
     check_differential_responses,
@@ -358,6 +360,9 @@ def run_recon(url: str, timeout: int = 8,
         t_subs    = asyncio.create_task(_run(
             lambda: check_subdomains_crt(host, timeout=timeout),
             "Subdomains (CT logs)"))
+        t_favicon = asyncio.create_task(_run(
+            lambda: check_favicon(host, port=port, use_ssl=use_ssl, timeout=timeout),
+            "Favicon fingerprint"))
         t_exposed = asyncio.create_task(_run(
             lambda: check_exposed_files(host, port, use_ssl, timeout=timeout),
             "Exposed files"))
@@ -382,7 +387,7 @@ def run_recon(url: str, timeout: int = 8,
             "Host header injection"))
 
         # Non-fast tasks
-        t_hist = t_admin = t_auth = t_rate = t_gql = t_leak = None
+        t_hist = t_admin = t_auth = t_ports = t_rate = t_gql = t_leak = None
         if not is_fast:
             t_hist  = asyncio.create_task(_run(
                 lambda: discover_historical_urls(url, timeout=timeout, verify_ssl=verify,
@@ -397,6 +402,9 @@ def run_recon(url: str, timeout: int = 8,
                 lambda: check_auth_endpoints(host, port, use_ssl, timeout=timeout,
                                               extra_headers=headers),
                 "Auth endpoints"))
+            t_ports = asyncio.create_task(_run(
+                lambda: check_open_ports(host, timeout=2.0),
+                "Port scan"))
             t_rate  = asyncio.create_task(_run(
                 lambda: check_rate_limits(host, port, use_ssl, timeout=timeout,
                                           extra_headers=headers),
@@ -469,6 +477,7 @@ def run_recon(url: str, timeout: int = 8,
         result["robots"]        = await _safe(t_robots, {})
         result["cors"]          = await _safe(t_cors, {})
         result["subdomains"]    = await _safe(t_subs, {})
+        result["favicon"]       = await _safe(t_favicon, {})
         result["exposed_files"] = await _safe(t_exposed, {})
         result["http_methods"]  = await _safe(t_methods, {})
         result["error_page"]    = await _safe(t_error, {})
@@ -482,6 +491,8 @@ def run_recon(url: str, timeout: int = 8,
             result["admin_panels"] = await _safe(t_admin, {})
         if t_auth:
             result["auth_endpoints"] = await _safe(t_auth, {})
+        if t_ports:
+            result["port_scan"] = await _safe(t_ports, {})
         if t_rate:
             result["rate_limits"] = await _safe(t_rate, {})
         if t_gql:
@@ -676,6 +687,12 @@ def _build_attack_surface_summary(r: Dict[str, Any]) -> Dict[str, Any]:
     n_historical = len(hist_urls)
     interesting_hist = [u for u in hist_urls if isinstance(u, dict) and u.get("interesting")]
 
+    # ── Favicon ──
+    fav = r.get("favicon", {})
+    favicon_found = fav.get("found", False) if isinstance(fav, dict) else False
+    favicon_tech = fav.get("technology") if isinstance(fav, dict) else None
+    favicon_mmh3 = fav.get("mmh3") if isinstance(fav, dict) else None
+
     # ── Technologies ──
     fp = r.get("fingerprint", {})
     techs = fp.get("technologies", {}) if isinstance(fp, dict) else {}
@@ -717,6 +734,11 @@ def _build_attack_surface_summary(r: Dict[str, Any]) -> Dict[str, Any]:
     captcha = r.get("captcha", {})
     captcha_detected = captcha.get("detected", False) if isinstance(captcha, dict) else False
     captcha_providers = [p["name"] for p in captcha.get("providers", [])] if isinstance(captcha, dict) else []
+
+    # ── Port Scan ──
+    ps = r.get("port_scan", {})
+    open_ports = ps.get("open_count", 0) if isinstance(ps, dict) else 0
+    risky_ports = ps.get("risky_ports", []) if isinstance(ps, dict) else []
 
     # ── CORS ──
     cors = r.get("cors", {})
@@ -785,6 +807,9 @@ def _build_attack_surface_summary(r: Dict[str, Any]) -> Dict[str, Any]:
         findings.append({"severity": "low", "finding": f"WAF ({waf_vendor}) detected on redirect target ({waf_redirect_target}), not the original domain"})
     if clickjack_vuln:
         findings.append({"severity": "medium", "finding": "Clickjacking vulnerable — no X-Frame-Options or CSP frame-ancestors"})
+    if risky_ports:
+        port_list = ", ".join(f"{p['port']}/{p['service']}" for p in risky_ports)
+        findings.append({"severity": "high", "finding": f"{len(risky_ports)} risky port(s) open: {port_list}"})
     if gql_introspection:
         findings.append({"severity": "high", "finding": "GraphQL introspection enabled"})
     if dangerous_methods:
@@ -866,6 +891,8 @@ def _build_attack_surface_summary(r: Dict[str, Any]) -> Dict[str, Any]:
         "high_risk_params": len(high_risk_params),
         "historical_urls": n_historical,
         "interesting_historical": len(interesting_hist),
+        "favicon_hash": favicon_mmh3,
+        "favicon_technology": favicon_tech,
         "technologies": tech_names,
         "waf_vendor": waf_vendor,
         "waf_redirect_target": waf_redirect_target,
@@ -882,6 +909,8 @@ def _build_attack_surface_summary(r: Dict[str, Any]) -> Dict[str, Any]:
         "clickjacking_vulnerable": clickjack_vuln,
         "captcha_detected": captcha_detected,
         "captcha_providers": captcha_providers,
+        "open_ports": open_ports,
+        "risky_ports": [{"port": p["port"], "service": p["service"]} for p in risky_ports],
         "host_header_injection": hhi_vuln,
         "dangerous_http_methods": dangerous_methods,
         "robots_interesting_paths": len(interesting_paths),
@@ -1522,6 +1551,18 @@ def print_recon(result: Dict[str, Any]) -> None:
             console.print(f"    {tech:<16} [{bc}]{bar} {conf:.0%}[/{bc}]")
     else:
         console.print("    [dim]No technologies identified[/dim]")
+
+    # Favicon fingerprint
+    fav = result.get("favicon", {})
+    if fav and fav.get("found"):
+        fav_tech = fav.get("technology")
+        fav_hash = fav.get("mmh3")
+        fav_md5 = fav.get("md5", "")[:16]
+        if fav_tech:
+            console.print(f"    Favicon: [cyan]{fav_tech}[/cyan] [dim](mmh3:{fav_hash}, md5:{fav_md5}…)[/dim]")
+        else:
+            console.print(f"    Favicon: [dim]unknown (mmh3:{fav_hash}, md5:{fav_md5}…)[/dim]")
+        console.print(f"    Shodan:  [dim]{fav.get('shodan_query', '')}[/dim]")
     console.print()
 
     # ── Frontend Libraries (Supply Chain) ──
@@ -1986,6 +2027,25 @@ def print_recon(result: Dict[str, Any]) -> None:
                 console.print(f"    [cyan]●[/cyan] {path} — {status} [dim]({cat})[/dim]{extra_str}")
         if not auth_ep.get("has_mfa"):
             console.print("    [yellow]⚠ No MFA/2FA endpoint detected[/yellow]")
+        console.print()
+
+    # ── Port Scan ──
+    ps = result.get("port_scan", {})
+    ps_open = ps.get("open", []) if isinstance(ps, dict) else []
+    if ps_open:
+        risky = ps.get("risky_ports", [])
+        if risky:
+            console.print(f"  [bold red]Open Ports[/bold red] ({len(ps_open)} open, [red]{len(risky)} risky[/red])")
+        else:
+            console.print(f"  [bold]Open Ports[/bold] ({len(ps_open)} open)")
+        for op in ps_open:
+            port_num = op["port"]
+            svc = op["service"]
+            banner = op.get("banner")
+            is_risky = any(r["port"] == port_num for r in risky)
+            col = "red" if is_risky else "cyan"
+            banner_str = f" [dim]{banner[:60]}[/dim]" if banner else ""
+            console.print(f"    [{col}]{port_num:>5}/tcp[/{col}]  {svc}{banner_str}")
         console.print()
 
     # ── Rate Limits ──

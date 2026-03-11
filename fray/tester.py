@@ -769,7 +769,7 @@ class WAFTester:
                 for line in f:
                     stripped = line.strip()
                     if stripped and not stripped.startswith('#'):
-                        payloads.append({'payload': stripped, 'category': 'custom'})
+                        payloads.append({'payload': stripped, 'category': 'custom', 'bypasses': []})
             return payloads
 
         with open(filepath, 'r', encoding='utf-8') as f:

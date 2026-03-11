@@ -1,6 +1,9 @@
 """Fingerprinting — tech detection, security headers, cookies, payload recommendations."""
 
+import base64
+import hashlib
 import re
+import struct
 from typing import Any, Dict, List, Tuple
 
 from fray import PAYLOADS_DIR
@@ -481,6 +484,177 @@ def check_captcha(headers: Dict[str, str], body: str) -> Dict[str, Any]:
         result["challenge_on_load"] = any(
             p["type"] in ("interstitial", "invisible") for p in result["providers"]
         )
+
+    return result
+
+
+def _mmh3_hash32(data: bytes) -> int:
+    """Pure-Python MurmurHash3 32-bit (Shodan-compatible favicon hash).
+
+    Shodan computes: mmh3.hash(base64.encodebytes(favicon_bytes))
+    We replicate this without the mmh3 dependency.
+    """
+    encoded = base64.encodebytes(data)
+    length = len(encoded)
+    nblocks = length // 4
+    h1 = 0
+    c1 = 0xcc9e2d51
+    c2 = 0x1b873593
+    M32 = 0xFFFFFFFF
+
+    for i in range(nblocks):
+        k1 = struct.unpack_from('<I', encoded, i * 4)[0]
+        k1 = (k1 * c1) & M32
+        k1 = ((k1 << 15) | (k1 >> 17)) & M32
+        k1 = (k1 * c2) & M32
+        h1 ^= k1
+        h1 = ((h1 << 13) | (h1 >> 19)) & M32
+        h1 = (h1 * 5 + 0xe6546b64) & M32
+
+    tail_idx = nblocks * 4
+    k1 = 0
+    tail_size = length & 3
+    if tail_size >= 3:
+        k1 ^= encoded[tail_idx + 2] << 16
+    if tail_size >= 2:
+        k1 ^= encoded[tail_idx + 1] << 8
+    if tail_size >= 1:
+        k1 ^= encoded[tail_idx]
+        k1 = (k1 * c1) & M32
+        k1 = ((k1 << 15) | (k1 >> 17)) & M32
+        k1 = (k1 * c2) & M32
+        h1 ^= k1
+
+    h1 ^= length
+    h1 ^= (h1 >> 16)
+    h1 = (h1 * 0x85ebca6b) & M32
+    h1 ^= (h1 >> 13)
+    h1 = (h1 * 0xc2b2ae35) & M32
+    h1 ^= (h1 >> 16)
+
+    # Convert to signed 32-bit (Shodan convention)
+    if h1 >= 0x80000000:
+        h1 -= 0x100000000
+    return h1
+
+
+# ── Known favicon hashes (Shodan mmh3 format) ──────────────────────────
+# Source: Shodan favicon hash lookups, OWASP favfreak, community lists
+_FAVICON_HASHES: Dict[int, str] = {
+    # Web servers
+    116323821: "Apache default",
+    -1137940464: "Apache Tomcat",
+    -297069493: "Apache Tomcat (alt)",
+    971615514: "Nginx default",
+    -28805239: "IIS 7/8/10 default",
+    -1293790851: "IIS default (alt)",
+    # CMS
+    -1585019720: "WordPress",
+    1485257654: "WordPress (alt)",
+    -1343027601: "Drupal",
+    -1395133075: "Joomla",
+    -1028703177: "Magento",
+    # Panels / Admin
+    -160298610: "cPanel",
+    988422585: "Plesk",
+    116927286: "phpMyAdmin",
+    -305179312: "Webmin",
+    708578229: "Grafana",
+    1331249234: "Jenkins",
+    81586312: "Jenkins (alt)",
+    -2057558656: "GitLab",
+    -1051252948: "Gitea",
+    -1293291900: "Kibana",
+    -759810094: "Elasticsearch",
+    442749392: "SonarQube",
+    -428790988: "Portainer",
+    # Infrastructure
+    -247388890: "Cisco ASA/AnyConnect",
+    362091310: "Fortinet FortiGate",
+    -1950415971: "Palo Alto",
+    2089645498: "SonicWall",
+    -305711853: "Sophos UTM",
+    -553656166: "MikroTik RouterOS",
+    -1588080585: "Ubiquiti UniFi",
+    1820085796: "Synology DSM",
+    -1123760091: "QNAP NAS",
+    # Cloud / CDN
+    1279567031: "Cloudflare",
+    -1022515040: "AWS S3 / CloudFront",
+    1936600898: "Azure Web App",
+    -350298590: "Heroku",
+    # Dev / Debug
+    -335242539: "Spring Boot (leaf)",
+    -1032603498: "Django default",
+    116323821: "Express/Node default",
+    1485257654: "React default (CRA)",
+    -281346917: "Next.js",
+    1936600898: "Vue CLI default",
+    -1840324437: "Swagger UI",
+    -442056: "Jupyter Notebook",
+    # Mail / Collab
+    -1626032521: "Outlook Web Access",
+    1407375746: "Zimbra",
+    -1913498791: "Roundcube",
+}
+
+
+def check_favicon(host: str, port: int = 443, use_ssl: bool = True,
+                   timeout: int = 8) -> Dict[str, Any]:
+    """Fetch /favicon.ico and compute Shodan-compatible mmh3 hash for fingerprinting.
+
+    Returns:
+      - found: bool
+      - md5: hex digest
+      - mmh3: signed 32-bit hash (Shodan format)
+      - size: bytes
+      - technology: matched name or None
+      - shodan_query: ready-to-use Shodan search query
+    """
+    from fray.recon.http import _fetch_url
+
+    result: Dict[str, Any] = {
+        "found": False,
+        "md5": None,
+        "mmh3": None,
+        "size": 0,
+        "technology": None,
+        "shodan_query": None,
+    }
+
+    scheme = "https" if use_ssl else "http"
+    port_str = "" if (use_ssl and port == 443) or (not use_ssl and port == 80) else f":{port}"
+    url = f"{scheme}://{host}{port_str}/favicon.ico"
+
+    try:
+        status, body, hdrs = _fetch_url(url, timeout=timeout, verify_ssl=True)
+        if status == 0 and use_ssl:
+            status, body, hdrs = _fetch_url(url, timeout=timeout, verify_ssl=False)
+    except Exception:
+        return result
+
+    if status != 200 or not body:
+        return result
+
+    # Must be a binary file, not an HTML error page
+    ct = hdrs.get("content-type", "")
+    if "html" in ct.lower():
+        return result
+
+    body_bytes = body.encode("latin-1") if isinstance(body, str) else body
+
+    if len(body_bytes) < 10 or len(body_bytes) > 1_000_000:
+        return result
+
+    result["found"] = True
+    result["size"] = len(body_bytes)
+    result["md5"] = hashlib.md5(body_bytes).hexdigest()
+    result["mmh3"] = _mmh3_hash32(body_bytes)
+    result["shodan_query"] = f"http.favicon.hash:{result['mmh3']}"
+
+    tech = _FAVICON_HASHES.get(result["mmh3"])
+    if tech:
+        result["technology"] = tech
 
     return result
 
