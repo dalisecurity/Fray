@@ -17,12 +17,42 @@ def _targets_chips(items, limit=5):
     return chips
 
 
+def _method_upgrade_tip(mode: str, target: str) -> str:
+    """Return a tip suggesting deeper scan profiles when applicable."""
+    if mode in ('deep', 'bounty', 'stealth'):
+        return ''
+    tips = {
+        'default':  ('deep', 'Deep scan includes historical URL crawling, JavaScript analysis, parameter discovery, and extended admin panel enumeration — recommended for thorough assessments.'),
+        'standard': ('deep', 'Deep scan includes historical URL crawling, JavaScript analysis, parameter discovery, and extended admin panel enumeration — recommended for thorough assessments.'),
+        'quick':    ('standard', 'Standard scan adds admin panel enumeration, rate-limit testing, and WAF gap analysis. For maximum coverage, use <code>--profile bounty</code>.'),
+        'fast':     ('standard', 'Standard scan adds admin panel enumeration, rate-limit testing, and WAF gap analysis. For maximum coverage, use <code>--profile bounty</code>.'),
+        'api':      ('bounty', 'Bounty profile adds full subdomain probing, admin panel enumeration, and extended attack surface analysis.'),
+    }
+    rec = tips.get(mode)
+    if not rec:
+        return ''
+    profile, desc = rec
+    cmd = f'fray recon {_esc(target)} --profile {profile}'
+    return (f'<div style="margin-top:14px;background:var(--surface2);border-radius:10px;padding:14px 18px;'
+            f'border-left:3px solid var(--accent);">'
+            f'<p style="font-size:0.88em;margin-bottom:6px;"><strong style="color:var(--accent2);">'
+            f'Want deeper results?</strong> {desc}</p>'
+            f'<code style="background:var(--surface);padding:6px 12px;border-radius:6px;font-size:0.88em;">'
+            f'{cmd}</code></div>')
+
+
 def build(rd: Dict[str, Any]) -> str:
     host = rd.get('host', 'Unknown')
     target = rd.get('target', f'https://{host}')
     ts = rd.get('timestamp', '')
     ts_short = ts[:16].replace('T', ' ') if ts else '—'
     scan_mode = rd.get('mode', 'default')
+    _PROFILE_LABELS = {
+        'default': 'Standard', 'standard': 'Standard', 'quick': 'Quick',
+        'deep': 'Deep', 'stealth': 'Stealth', 'api': 'API-Focused',
+        'bounty': 'Bounty (Max Coverage)', 'fast': 'Fast',
+    }
+    _profile_label = _PROFILE_LABELS.get(scan_mode, scan_mode.title())
 
     atk = rd.get('attack_surface', {})
     risk_score = atk.get('risk_score', 0)
@@ -137,7 +167,7 @@ def build(rd: Dict[str, Any]) -> str:
   <div>
     <div class="logo"><span class="logo-name">DALI</span><span class="logo-sub">SECURITY</span></div>
     <h1 style="margin-top:12px;">Reconnaissance Report</h1>
-    <div class="sub">{_esc(host)} — {_esc(ts_short)} — mode: {_esc(scan_mode)}</div>
+    <div class="sub">{_esc(host)} — {_esc(ts_short)} — Profile: {_esc(_profile_label)}</div>
   </div>
   <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap;">
     <div class="rbadge">{gauge_svg(risk_score)}</div>
@@ -271,7 +301,7 @@ def build(rd: Dict[str, Any]) -> str:
     <div><table>
       <tr><td class="kv-key">Target</td><td class="mono">{_esc(target)}</td></tr>
       <tr><td class="kv-key">Scan Date</td><td>{_esc(ts_short)}</td></tr>
-      <tr><td class="kv-key">Mode</td><td>{_esc(scan_mode)}</td></tr>
+      <tr><td class="kv-key">Profile</td><td>{_esc(_profile_label)}</td></tr>
     </table></div>
     <div><table>
       <tr><td class="kv-key">Subdomains Found</td><td>{n_subs}</td></tr>
@@ -282,6 +312,7 @@ def build(rd: Dict[str, Any]) -> str:
   <details><summary>Techniques Applied ({len(techs_list)})</summary><ol style="padding-left:20px;line-height:2.2;">{tl}</ol></details>
   {f'<p class="muted" style="margin-top:8px;font-size:0.85em;">Sources: {_esc(src_parts)}</p>' if src_parts else ''}
   <p class="muted" style="margin-top:12px;font-size:0.85em;">This assessment is non-intrusive reconnaissance only — no exploitation was performed.</p>
+{_method_upgrade_tip(scan_mode, target)}
 </div>''')
 
     # Findings
@@ -313,9 +344,7 @@ def build(rd: Dict[str, Any]) -> str:
             emoji = _VEC_EMOJI.get(vn_raw, '')
             emoji_html = f'<span style="font-size:1.4em;">{emoji}</span>' if emoji else ''
             detail = vec.get('detail', '')
-            if not detail and vt:
-                detail = f'{vn_raw}: {len(vt)} target(s)'
-            detail_html = f'<details style="margin-top:8px;"><summary style="font-size:0.82em;">Detail</summary><p class="muted" style="font-size:0.85em;margin-top:6px;">{_esc(detail[:200])}</p></details>' if detail else ''
+            detail_html = f'<details style="margin-top:8px;"><summary style="font-size:0.82em;">Detail</summary><p class="muted" style="font-size:0.85em;margin-top:6px;">{_esc(detail[:500])}</p></details>' if detail else ''
             vi += f'''<div style="background:var(--surface2);border-radius:12px;padding:20px 24px;margin-bottom:16px;border-left:4px solid {vc};">
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
     {emoji_html}
@@ -469,8 +498,9 @@ def build(rd: Dict[str, Any]) -> str:
 <div class="sec" id="waf-cdn">
   <h2>Per-Subdomain WAF / CDN Analysis <span class="count">({len(per_sub)} subdomains)</span></h2>
   <div style="margin-bottom:14px;">{badges}</div>
+  <details open><summary>Show per-subdomain table ({len(per_sub)} subdomains)</summary>
   <table><tr><th>Subdomain</th><th>WAF</th><th>CDN</th><th>Cache</th><th>HTTP</th><th>Server</th></tr>{sr}</table>
-  {overflow}
+  {overflow}</details>
 </div>''')
 
     # WAF Gap Analysis
@@ -501,18 +531,34 @@ def build(rd: Dict[str, Any]) -> str:
         src_line = f'<p class="muted" style="margin-bottom:10px;">Sources: {_esc(", ".join(f"{k}: {v}" for k, v in sub_sources.items()))}</p>' if sub_sources else ''
         waf_bypass_html = ''
         if waf_bypass_subs:
-            wb_rows = ''.join(f'<tr><td class="mono">{_esc(s.get("subdomain", str(s)) if isinstance(s, dict) else str(s))}</td></tr>' for s in waf_bypass_subs[:20])
-            waf_bypass_html = f'<p style="color:var(--red);font-weight:600;margin-bottom:12px;">&#x26a0; WAF Bypass — {len(waf_bypass_subs)} subdomain(s) skip {_esc(str(waf_vendor))}</p><details><summary>Show WAF bypass subdomains ({len(waf_bypass_subs)})</summary><table><tr><th>Subdomain</th></tr>{wb_rows}</table></details>'
+            wb_rows = ''
+            for s in waf_bypass_subs[:20]:
+                if isinstance(s, dict):
+                    sd = _esc(s.get('subdomain', ''))
+                    ips = _esc(', '.join(s.get('ips', []))) if s.get('ips') else '<span class="muted">—</span>'
+                    reason = _esc(s.get('reason', ''))
+                else:
+                    sd = _esc(str(s))
+                    ips = '<span class="muted">—</span>'
+                    reason = ''
+                wb_rows += f'<tr><td class="mono">{sd}</td><td class="mono">{ips}</td><td class="muted">{reason}</td></tr>'
+            waf_bypass_html = (
+                f'<p style="color:var(--red);font-weight:600;margin-bottom:12px;">&#x26a0; WAF Bypass — '
+                f'{len(waf_bypass_subs)} subdomain(s) skip {_esc(str(waf_vendor))}</p>'
+                f'<details><summary>Show WAF bypass subdomains ({len(waf_bypass_subs)})</summary>'
+                f'<table><tr><th>Subdomain</th><th>IPs</th><th>Reason</th></tr>{wb_rows}</table></details>'
+            )
 
         show_sub_limit = 200
-        sub_chips = ''.join(f'<code style="background:var(--surface2);padding:5px 12px;border-radius:5px;font-size:0.9em;border:1px solid var(--border);">{_esc(s)}</code>' for s in sub_list[:show_sub_limit])
+        sub_rows = ''.join(f'<tr><td class="mono">{_esc(s)}</td></tr>' for s in sub_list[:show_sub_limit])
         sub_overflow = f' (first {show_sub_limit} of {n_subs})' if n_subs > show_sub_limit else ''
 
         parts.append(f'''
 <div class="sec" id="subs">
   <h2>Subdomains <span class="count">({n_subs} unique)</span></h2>
   {src_line}{waf_bypass_html}
-  <details open><summary>Show subdomains{sub_overflow}</summary><div style="display:flex;flex-wrap:wrap;gap:6px;">{sub_chips}</div></details>
+  <details open><summary>Show subdomains{sub_overflow}</summary>
+  <table><tr><th>Subdomain</th></tr>{sub_rows}</table></details>
 </div>''')
 
     # Probes

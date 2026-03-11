@@ -780,12 +780,23 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
     waf_bypass = active.get("waf_bypass", []) if isinstance(active, dict) else []
     if waf_bypass:
         targets = [f"https://{e['subdomain']}" for e in waf_bypass if isinstance(e, dict)]
+        bypass_detail_parts = []
+        for e in waf_bypass[:5]:
+            if isinstance(e, dict):
+                sd = e.get('subdomain', '')
+                ips = ', '.join(e.get('ips', [])) if e.get('ips') else 'unknown IP'
+                bypass_detail_parts.append(f"{sd} → {ips}")
+        bypass_detail = f"Bypasses {waf_vendor} — {len(waf_bypass)} subdomain(s) resolve to non-CDN IPs (direct origin). "
+        bypass_detail += "Subdomains: " + "; ".join(bypass_detail_parts)
+        if len(waf_bypass) > 5:
+            bypass_detail += f" … and {len(waf_bypass) - 5} more"
         vectors.append({
             "type": "WAF Bypass", "severity": "critical", "count": len(waf_bypass),
             "priority": priority_counter, "targets": targets,
             "description": f"Subdomains that resolve to origin IPs outside the WAF/CDN, allowing attackers to send payloads directly to the origin server without any filtering.",
             "impact": f"Complete bypass of WAF rules — XSS, SQLi, and all OWASP attacks reach the application unfiltered.",
             "mitre": "T1190 — Exploit Public-Facing Application",
+            "detail": bypass_detail,
         })
         priority_counter -= 5
 
@@ -793,12 +804,19 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
     unprotected = [s for s in per_sub if not s.get("waf") and not s.get("cdn")]
     if unprotected:
         targets = [f"https://{s['subdomain']}" for s in unprotected[:20]]
+        sample = [s['subdomain'] for s in unprotected[:3]]
+        unprot_detail = f"{len(unprotected)} subdomain(s) have no WAF or CDN protection. "
+        unprot_detail += f"Examples: {', '.join(sample)}"
+        if len(unprotected) > 3:
+            unprot_detail += f" … and {len(unprotected) - 3} more"
+        unprot_detail += ". All traffic reaches origin servers directly — no DDoS scrubbing, bot filtering, or WAF inspection."
         vectors.append({
             "type": "Unprotected Subdomain", "severity": "high", "count": len(unprotected),
             "priority": priority_counter, "targets": targets,
             "description": "Subdomains with no CDN or WAF protection, directly exposed on the internet.",
             "impact": "No edge security — vulnerable to direct attacks, DDoS, and automated scanning.",
             "mitre": "T1595 — Active Scanning",
+            "detail": unprot_detail,
         })
         priority_counter -= 5
 
@@ -810,12 +828,23 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
             nm = s.get("subdomain", "").lower()
             if any(k in nm for k in ("auth", "sso", "login", "id", "account", "oauth")):
                 auth_subs.append(s["subdomain"])
+        auth_detail = f"Login/auth surface on {host}. "
+        if auth_subs:
+            auth_detail += f"Auth-related subdomains: {', '.join(auth_subs[:5])}"
+            if len(auth_subs) > 5:
+                auth_detail += f" … and {len(auth_subs) - 5} more"
+            auth_detail += ". "
+        login_url = auth_ep.get('login_url', '')
+        if login_url:
+            auth_detail += f"Login page: {login_url}. "
+        auth_detail += "Test for credential stuffing, brute-force (no rate limiting detected), session fixation, and OAuth misconfiguration."
         vectors.append({
-            "type": "Account Takeover", "severity": "critical", "count": 1,
-            "priority": priority_counter, "targets": [f"https://{host}"],
+            "type": "Account Takeover", "severity": "critical", "count": 1 + len(auth_subs),
+            "priority": priority_counter, "targets": [f"https://{host}"] + [f"https://{s}" for s in auth_subs[:5]],
             "description": "Authentication and identity endpoints discovered — login portals, SSO, OAuth flows, password reset, and session management surfaces.",
             "impact": "Credential stuffing, brute-force, session hijacking, and OAuth abuse can lead to full account compromise.",
             "mitre": "T1078 — Valid Accounts / T1110 — Brute Force",
+            "detail": auth_detail,
         })
         priority_counter -= 5
 
@@ -823,12 +852,22 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
     api = result.get("api_discovery", {})
     api_subs = [s["subdomain"] for s in per_sub if "api" in s.get("subdomain", "").lower()]
     if (isinstance(api, dict) and api.get("endpoints_found")) or api_subs:
+        api_detail = "API attack surface: "
+        if api_subs:
+            api_detail += f"{len(api_subs)} API subdomain(s): {', '.join(api_subs[:5])}"
+            if len(api_subs) > 5:
+                api_detail += f" … and {len(api_subs) - 5} more"
+            api_detail += ". "
+        if isinstance(api, dict) and api.get('endpoints_found'):
+            api_detail += f"{api.get('endpoints_found', 0)} endpoint(s) discovered. "
+        api_detail += "Test for BOLA/IDOR, broken auth, excessive data exposure, mass assignment, and rate limiting bypass."
         vectors.append({
-            "type": "API Vulnerability", "severity": "high", "count": 1,
-            "priority": priority_counter, "targets": [f"https://{host}"],
+            "type": "API Vulnerability", "severity": "high", "count": max(1, len(api_subs)),
+            "priority": priority_counter, "targets": [f"https://{host}"] + [f"https://{s}" for s in api_subs[:5]],
             "description": "API endpoints discovered — REST, GraphQL, or internal service APIs that may lack proper authentication, rate limiting, or input validation.",
             "impact": "Broken authentication, excessive data exposure, mass assignment, and SSRF via API abuse.",
             "mitre": "OWASP API1-API10",
+            "detail": api_detail,
         })
         priority_counter -= 5
 
@@ -836,12 +875,17 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
     ai_subs = [s["subdomain"] for s in per_sub
                if any(k in s.get("subdomain", "").lower() for k in ("ai", "llm", "chat", "bot", "gpt", "robot"))]
     if ai_subs:
+        ai_detail = f"{len(ai_subs)} AI/chatbot subdomain(s): {', '.join(ai_subs[:5])}"
+        if len(ai_subs) > 5:
+            ai_detail += f" … and {len(ai_subs) - 5} more"
+        ai_detail += ". Test for prompt injection, jailbreaking, system prompt leakage, and indirect prompt injection via user-supplied content."
         vectors.append({
-            "type": "LLM / AI Prompt Injection", "severity": "high", "count": 1,
-            "priority": priority_counter, "targets": [f"https://{host}"],
+            "type": "LLM / AI Prompt Injection", "severity": "high", "count": len(ai_subs),
+            "priority": priority_counter, "targets": [f"https://{s}" for s in ai_subs[:5]],
             "description": "AI/ML and chatbot endpoints discovered — LLM-powered services that may be vulnerable to prompt injection, jailbreaking, and data exfiltration.",
             "impact": "Prompt injection can bypass safety filters, leak system prompts, exfiltrate training data, or cause unintended actions.",
             "mitre": "OWASP LLM01 — Prompt Injection",
+            "detail": ai_detail,
         })
         priority_counter -= 5
 
@@ -849,12 +893,17 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
     pay_subs = [s["subdomain"] for s in per_sub
                 if any(k in s.get("subdomain", "").lower() for k in ("pay", "shop", "store", "cart", "order", "checkout"))]
     if pay_subs:
+        pay_detail = f"{len(pay_subs)} payment/commerce subdomain(s): {', '.join(pay_subs[:5])}"
+        if len(pay_subs) > 5:
+            pay_detail += f" … and {len(pay_subs) - 5} more"
+        pay_detail += ". Test for price manipulation, payment flow bypass, card testing, and PII exposure."
         vectors.append({
-            "type": "Payment / Financial Abuse", "severity": "critical", "count": 1,
-            "priority": priority_counter, "targets": [f"https://{host}"],
+            "type": "Payment / Financial Abuse", "severity": "critical", "count": len(pay_subs),
+            "priority": priority_counter, "targets": [f"https://{s}" for s in pay_subs[:5]],
             "description": "Payment processing, e-commerce, and financial transaction endpoints detected.",
             "impact": "Price manipulation, payment bypass, card testing, and financial fraud.",
             "mitre": "T1565 — Data Manipulation",
+            "detail": pay_detail,
         })
         priority_counter -= 5
 
@@ -862,12 +911,17 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
     staging_envs = atk.get("staging_envs", [])
     if staging_envs:
         targets = [f"https://{s}" for s in staging_envs[:10]]
+        staging_detail = f"{len(staging_envs)} staging/dev environment(s) publicly accessible: {', '.join(staging_envs[:3])}"
+        if len(staging_envs) > 3:
+            staging_detail += f" … and {len(staging_envs) - 3} more"
+        staging_detail += ". Staging/dev environments typically have weaker WAF rules, debug mode enabled, verbose errors, and default credentials."
         vectors.append({
             "type": "Staging / Dev Environment", "severity": "high", "count": len(staging_envs),
             "priority": priority_counter, "targets": targets,
             "description": "Non-production environments publicly accessible — often with debug mode, verbose errors, default credentials, and weaker WAF rules.",
             "impact": "Information disclosure, default credential access, code/config leakage, and pivot to production.",
             "mitre": "T1580 — Cloud Infrastructure Discovery",
+            "detail": staging_detail,
         })
         priority_counter -= 5
 
@@ -875,23 +929,33 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
     rate_limit = result.get("rate_limit", {})
     rl_type = rate_limit.get("type", "none") if isinstance(rate_limit, dict) else "none"
     if rl_type == "none" and len(unprotected) > 5:
+        no_cdn = [s['subdomain'] for s in per_sub if not s.get('cdn')]
+        ddos_detail = f"DDoS/L7 DoS surface: {len(no_cdn)} unprotected subdomain(s) (no CDN): {', '.join(no_cdn[:3])}"
+        if len(no_cdn) > 3:
+            ddos_detail += f" … and {len(no_cdn) - 3} more"
+        subs_data = result.get('subdomains', {})
+        n_subs = subs_data.get('count', 0) if isinstance(subs_data, dict) else 0
+        ddos_detail += f"; {n_subs} subdomains — large surface for distributed attacks. No rate limiting or scrubbing detected."
         vectors.append({
             "type": "DDoS / L7 Denial of Service", "severity": "high", "count": 1,
             "priority": priority_counter, "targets": [f"https://{host}"],
             "description": "Large number of unprotected subdomains without rate limiting — application-layer flood attacks possible.",
             "impact": "Service degradation or outage via slow HTTP, resource-intensive queries, or connection exhaustion.",
             "mitre": "T1499 — Endpoint Denial of Service",
+            "detail": ddos_detail,
         })
         priority_counter -= 5
 
     # Cache poisoning
     if cdn_vendor and auth_ep and isinstance(auth_ep, dict) and auth_ep.get("has_login"):
+        cache_detail = f"Web cache + auth surface: CDN detected: {cdn_vendor}. CDN caching + user-specific pages = cache deception risk."
         vectors.append({
             "type": "Web Cache Poisoning", "severity": "medium", "count": 1,
             "priority": priority_counter, "targets": [f"https://{host}"],
             "description": "CDN caching combined with user-specific pages creates cache deception and poisoning attack surface.",
             "impact": "Serve malicious content to other users, steal credentials via cached authenticated pages, or cause widespread XSS.",
             "mitre": "T1557 — Adversary-in-the-Middle",
+            "detail": cache_detail,
         })
         priority_counter -= 5
 
@@ -900,12 +964,17 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
     origin_candidates = origin_data.get("candidates", []) if isinstance(origin_data, dict) else []
     if origin_candidates and len(unprotected) > 0:
         targets = [f"https://{s['subdomain']}" for s in unprotected[:3]]
+        origin_detail = f"No CDN/WAF on {unprotected[0]['subdomain']} — direct volumetric flood possible, no rate limiting or scrubbing"
+        if len(origin_candidates) > 0:
+            ips = [c.get('ip', str(c)) if isinstance(c, dict) else str(c) for c in origin_candidates[:3]]
+            origin_detail += f". Origin IPs discovered: {', '.join(ips)}"
         vectors.append({
             "type": "DDoS — Direct Origin", "severity": "high", "count": len(unprotected[:3]),
             "priority": priority_counter, "targets": targets,
             "description": "Origin servers reachable without CDN protection — volumetric and application-layer DDoS attacks can target them directly.",
             "impact": "Service disruption, resource exhaustion, and potential complete outage.",
             "mitre": "T1499 — Endpoint Denial of Service",
+            "detail": origin_detail,
         })
 
     atk["attack_vectors"] = vectors
