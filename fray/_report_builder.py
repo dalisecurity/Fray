@@ -137,7 +137,7 @@ def build(rd: Dict[str, Any]) -> str:
 
     rec_cats = rd.get('recommended_categories', [])
     gap_findings = gap.get('findings', []) if isinstance(gap, dict) else []
-    rate_limit = rd.get('rate_limit', {}) or {}
+    rate_limit = rd.get('rate_limits', rd.get('rate_limit', {})) or {}
     remediation = atk.get('remediation', [])
     staging_envs = atk.get('staging_envs', [])
     checks = rd.get('security_checks', {}) or {}
@@ -572,15 +572,58 @@ def build(rd: Dict[str, Any]) -> str:
         parts.append(f'<div class="sec" id="gap"><h2>WAF Gap Analysis</h2>{gf}</div>')
 
     # Rate Limits
-    rl_type = rate_limit.get('type', 'none') if isinstance(rate_limit, dict) else 'none'
-    rl_thresh = rate_limit.get('threshold') if isinstance(rate_limit, dict) else None
+    rl_type = rate_limit.get('detection_type', rate_limit.get('type', 'none')) if isinstance(rate_limit, dict) else 'none'
+    rl_thresh = rate_limit.get('threshold_rps', rate_limit.get('threshold')) if isinstance(rate_limit, dict) else None
+    rl_headers = rate_limit.get('rate_limit_headers', {}) if isinstance(rate_limit, dict) else {}
+    rl_crit = rd.get('rate_limits_critical', {}) or {}
+    rl_crit_paths = rl_crit.get('rate_limited_paths', []) if isinstance(rl_crit, dict) else []
+    rl_crit_summary = rl_crit.get('summary', '') if isinstance(rl_crit, dict) else ''
+
+    # Infer rate limiting from WAF/CDN when detection returned 'none'
+    waf_dist_data = cloud_dist.get('waf_distribution', {})
+    cdn_dist_data = cloud_dist.get('cdn_distribution', {})
+    rl_inferred = ''
+    if rl_type == 'none' and (waf_dist_data or cdn_dist_data):
+        waf_names = ', '.join(waf_dist_data.keys())
+        cdn_names = ', '.join(cdn_dist_data.keys())
+        providers = [p for p in [waf_names, cdn_names] if p]
+        rl_inferred = (f'<div style="margin-top:12px;background:var(--surface2);border-radius:10px;padding:14px 18px;border-left:3px solid var(--orange);">'
+            f'<p style="font-size:0.9em;font-weight:600;color:var(--orange);margin-bottom:8px;">Inferred Rate Limiting</p>'
+            f'<p style="font-size:0.85em;line-height:1.7;">'
+            f'WAF/CDN providers detected: <strong>{", ".join(providers)}</strong>. '
+            f'These services typically enforce rate limiting at the edge (e.g., AWS WAF rate-based rules, '
+            f'Azure Front Door rate limiting, Akamai Bot Manager). '
+            f'Rate limits may not be visible via passive header inspection but are likely active.</p>'
+            f'<ul style="padding-left:18px;font-size:0.85em;line-height:1.9;margin-top:8px;">'
+            f'<li><strong>AWS WAF</strong> — rate-based rules (100-20,000 req/5min per IP), auto-block on threshold</li>'
+            f'<li><strong>Azure Front Door</strong> — rate limiting rules with custom thresholds per route</li>'
+            f'<li><strong>Akamai</strong> — Bot Manager + Client Reputation, adaptive rate controls</li>'
+            f'<li>Run <code>fray recon {_esc(host)} --deep</code> to actively probe rate limit thresholds</li>'
+            f'</ul></div>')
+
+    # Rate limit headers found
+    rl_hdr_html = ''
+    if rl_headers:
+        hdr_rows = ''.join(f'<tr><td class="mono">{_esc(k)}</td><td>{_esc(str(v))}</td></tr>' for k, v in rl_headers.items())
+        rl_hdr_html = f'<h3 style="margin-top:14px;font-size:0.95em;">Rate Limit Headers</h3><table><tr><th>Header</th><th>Value</th></tr>{hdr_rows}</table>'
+
+    # Critical path rate limiting
+    rl_crit_html = ''
+    if rl_crit_paths:
+        cp_rows = ''.join(f'<tr><td class="mono">{_esc(p.get("path",""))}</td><td>{p.get("status","")}</td><td class="muted">{_esc(p.get("type",""))}</td></tr>' for p in rl_crit_paths[:10])
+        rl_crit_html = f'<h3 style="margin-top:14px;font-size:0.95em;">Critical Path Rate Limiting</h3><table><tr><th>Path</th><th>Status</th><th>Type</th></tr>{cp_rows}</table>'
+    elif rl_crit_summary:
+        rl_crit_html = f'<p class="muted" style="margin-top:8px;font-size:0.85em;">{_esc(rl_crit_summary)}</p>'
+
+    rl_status_color = 'var(--green)' if rl_type != 'none' else 'var(--red)'
     parts.append(f'''
 <div class="sec" id="rl">
   <h2>Rate Limits</h2>
   <table>
-    <tr><td class="kv-key">Type</td><td>{_esc(str(rl_type))}</td></tr>
-    <tr><td class="kv-key">Threshold</td><td>{rl_thresh or 'None'} req/s</td></tr>
+    <tr><td class="kv-key">Detection</td><td style="color:{rl_status_color};font-weight:600;">{_esc(str(rl_type))}</td></tr>
+    <tr><td class="kv-key">Threshold</td><td>{rl_thresh or '<span class="muted">Not detected via headers</span>'}</td></tr>
   </table>
+  {rl_hdr_html}{rl_crit_html}{rl_inferred}
 </div>''')
 
     # Subdomains

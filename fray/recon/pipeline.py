@@ -979,11 +979,18 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
 
     atk["attack_vectors"] = vectors
 
-    # ── Enrich Technologies (when fingerprinting returns empty) ──
+    # ── Enrich Technologies (merge infrastructure signals into fingerprint) ──
     fp = result.get("fingerprint", {})
-    techs = fp.get("technologies", {}) if isinstance(fp, dict) else {}
-    if not techs:
-        inferred = {}
+    if not isinstance(fp, dict):
+        fp = {}
+        result["fingerprint"] = fp
+    techs = fp.get("technologies", {})
+    # Convert old float-style techs to dict format for consistency
+    for k, v in list(techs.items()):
+        if isinstance(v, (int, float)):
+            techs[k] = {"category": "Detected", "confidence": max(1, int(v * 100) if v <= 1 else int(v))}
+    inferred = dict(techs)  # start with existing detections
+    if True:  # always enrich
         # WAF vendors
         waf_dist = cloud_dist.get("waf_distribution", {})
         for name in waf_dist:
@@ -1014,24 +1021,25 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
             "drupal": ("Drupal", "CMS"),
             "wordpress": ("WordPress", "CMS"),
             "joomla": ("Joomla", "CMS"),
-            "nginx": ("Nginx", "Web Server"),
-            "apache": ("Apache HTTP Server", "Web Server"),
-            "cpanel": ("cPanel", "Hosting Panel"),
             "docker": ("Docker", "Container"),
             "grafana": ("Grafana", "Monitoring"),
             "jenkins": ("Jenkins", "CI/CD"),
             "gitlab": ("GitLab", "DevOps"),
         }
-        admin_cats = set()
+        # Count how many admin panel paths responded with non-404
+        admin_cats = {}
         for p in admin_panels_list:
             cat = p.get("category", "") if isinstance(p, dict) else ""
-            if cat:
-                admin_cats.add(cat.lower())
-        for cat in admin_cats:
+            status = p.get("status", 0) if isinstance(p, dict) else 0
+            if cat and status and status != 404:
+                admin_cats[cat.lower()] = admin_cats.get(cat.lower(), 0) + 1
+        for cat, count in admin_cats.items():
             if cat in _admin_tech_map:
                 name, role = _admin_tech_map[cat]
-                if name not in inferred:
-                    inferred[name] = {"category": role, "confidence": 50}
+                # Higher confidence if multiple paths respond (not just 301)
+                conf = min(70, 30 + count * 10)
+                if name not in inferred or inferred[name].get("confidence", 0) < conf:
+                    inferred[name] = {"category": role, "confidence": conf}
         # Subdomain name hints
         subs_data = result.get("subdomains", {})
         sub_list_raw = subs_data.get("subdomains", []) if isinstance(subs_data, dict) else []
@@ -1049,6 +1057,7 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
             "kubernetes": ("Kubernetes", "Container Orchestration"),
             "docker": ("Docker", "Container"),
             "gcp": ("Google Cloud Platform", "Cloud"),
+            "google-cloud": ("Google Cloud Platform", "Cloud"),
             "azure": ("Microsoft Azure", "Cloud"),
         }
         all_subs_lower = " ".join(s.lower() for s in sub_list_raw[:500])
@@ -1073,8 +1082,8 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
         all_dns_str = " ".join(str(r).lower() for r in (cname_chain + a_recs + aaaa_recs))
         _dns_tech_hints = {
             "akamai": ("Akamai", "CDN", 85),
-            "edgekey": ("Akamai Edge", "CDN", 80),
-            "akadns": ("Akamai DNS", "DNS", 80),
+            "edgekey": ("Akamai", "CDN", 80),
+            "akadns": ("Akamai", "CDN", 75),
             "cloudflare": ("Cloudflare", "CDN/WAF", 85),
             "fastly": ("Fastly", "CDN", 85),
             "incapsula": ("Imperva Incapsula", "CDN/WAF", 85),
@@ -1083,8 +1092,8 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
             "amazonaws.com": ("Amazon Web Services", "Cloud", 85),
             "azurewebsites": ("Microsoft Azure App Service", "PaaS", 80),
             "azure-dns": ("Microsoft Azure DNS", "DNS", 75),
-            "googleusercontent": ("Google Cloud", "Cloud", 85),
-            "googleapis": ("Google Cloud", "Cloud", 80),
+            "googleusercontent": ("Google Cloud Platform", "Cloud", 85),
+            "googleapis": ("Google Cloud Platform", "Cloud", 80),
             "github.io": ("GitHub Pages", "Hosting", 85),
             "heroku": ("Heroku", "PaaS", 80),
             "netlify": ("Netlify", "Hosting", 85),
@@ -1127,8 +1136,7 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
             "3.": "Amazon Web Services",
             "20.": "Microsoft Azure", "40.": "Microsoft Azure",
             "51.": "Microsoft Azure", "52.": "Amazon Web Services",
-            "104.": "Google Cloud", "35.": "Google Cloud",
-            "142.250.": "Google", "172.217.": "Google",
+            "142.250.": "Google Cloud Platform", "172.217.": "Google Cloud Platform",
             "151.101.": "Fastly", "199.232.": "Fastly",
             "198.41.": "Cloudflare", "104.16.": "Cloudflare",
             "104.17.": "Cloudflare", "104.18.": "Cloudflare",
@@ -1143,10 +1151,79 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
                     inferred[provider] = {"category": "Cloud/CDN", "confidence": 60}
                     break
 
+        # Normalize fingerprint-detected techs (lowercase keys → proper names + categories)
+        _NORMALIZE = {
+            "azure": ("Microsoft Azure", "Cloud"),
+            "cloudflare": ("Cloudflare", "CDN/WAF"),
+            "cloudfront": ("CloudFront", "CDN"),
+            "akamai": ("Akamai", "CDN"),
+            "fastly": ("Fastly", "CDN"),
+            "varnish": ("Varnish", "Cache"),
+            "jquery": ("jQuery", "JavaScript Library"),
+            "bootstrap": ("Bootstrap", "CSS Framework"),
+            "font_awesome": ("Font Awesome", "Icon Library"),
+            "swiper": ("Swiper", "JavaScript Library"),
+            "slick": ("Slick Carousel", "JavaScript Library"),
+            "react": ("React", "JavaScript Framework"),
+            "vue": ("Vue.js", "JavaScript Framework"),
+            "angular": ("Angular", "JavaScript Framework"),
+            "next.js": ("Next.js", "JavaScript Framework"),
+            "nuxt.js": ("Nuxt.js", "JavaScript Framework"),
+            "google_tag_manager": ("Google Tag Manager", "Analytics"),
+            "google_analytics": ("Google Analytics", "Analytics"),
+            "facebook_pixel": ("Facebook Pixel", "Analytics"),
+            "linkedin_insight": ("LinkedIn Insight", "Analytics"),
+            "microsoft_clarity": ("Microsoft Clarity", "Analytics"),
+            "recaptcha": ("Google reCAPTCHA", "Captcha"),
+            "hcaptcha": ("hCaptcha", "Captcha"),
+            "turnstile": ("Cloudflare Turnstile", "Captcha"),
+            "captcha": ("Captcha", "Security"),
+            "sitecore": ("Sitecore", "CMS"),
+            "adobe_experience_manager": ("Adobe Experience Manager", "CMS"),
+            "shopify": ("Shopify", "E-commerce"),
+            "php": ("PHP", "Language"),
+            "python": ("Python", "Language"),
+            "java": ("Java", "Language"),
+            ".net": (".NET", "Framework"),
+            "ruby": ("Ruby", "Language"),
+            "node.js": ("Node.js", "Runtime"),
+            "express": ("Express.js", "Framework"),
+            "nginx": ("Nginx", "Web Server"),
+            "apache": ("Apache", "Web Server"),
+            "iis": ("Microsoft IIS", "Web Server"),
+            "wordpress": ("WordPress", "CMS"),
+            "drupal": ("Drupal", "CMS"),
+            "joomla": ("Joomla", "CMS"),
+            "cdn": ("CDN", "Infrastructure"),
+            "api_json": ("JSON API", "API"),
+        }
+        for old_key, (proper_name, cat) in _NORMALIZE.items():
+            if old_key in inferred:
+                entry = inferred.pop(old_key)
+                if entry.get("category") == "Detected":
+                    entry["category"] = cat
+                if proper_name in inferred:
+                    existing = inferred[proper_name]
+                    if entry.get("confidence", 0) > existing.get("confidence", 0):
+                        inferred[proper_name] = entry
+                else:
+                    inferred[proper_name] = entry
+
+        # Deduplication pass: merge remaining aliases
+        _ALIASES = {
+            "Google Cloud": "Google Cloud Platform",
+            "Google": "Google Cloud Platform",
+            "Akamai Edge": "Akamai",
+            "Akamai DNS": "Akamai",
+            "Apache HTTP Server": "Apache",
+        }
+        for old_name, canonical in _ALIASES.items():
+            if old_name in inferred:
+                old_entry = inferred.pop(old_name)
+                if canonical not in inferred or inferred[canonical].get("confidence", 0) < old_entry.get("confidence", 0):
+                    inferred[canonical] = old_entry
+
         if inferred:
-            if not isinstance(fp, dict):
-                fp = {}
-                result["fingerprint"] = fp
             fp["technologies"] = inferred
 
     # ── Attack Targets (union of all vector targets, deduped, sorted by priority) ──

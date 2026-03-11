@@ -63,10 +63,46 @@ _HEADER_FINGERPRINTS: Dict[str, Dict[str, str]] = {
         r"WordPress": "wordpress",
         r"Joomla": "joomla",
     },
+    "x-azure-ref": {
+        r".*": "azure",
+    },
+    "cf-ray": {
+        r".*": "cloudflare",
+    },
+    "cf-team": {
+        r".*": "cloudflare",
+    },
+    "x-amz-cf-id": {
+        r".*": "cloudfront",
+    },
+    "x-amz-cf-pop": {
+        r".*": "cloudfront",
+    },
+    "x-cache": {
+        r"CloudFront": "cloudfront",
+        r"Varnish": "varnish",
+        r"HIT.*akamai": "akamai",
+    },
+    "x-served-by": {
+        r"cache-": "fastly",
+    },
+    "x-fastly-request-id": {
+        r".*": "fastly",
+    },
+    "via": {
+        r"varnish": "varnish",
+        r"akamai": "akamai",
+        r"cloudfront": "cloudfront",
+    },
+    "server-timing": {
+        r"cfReqDur": "cloudflare",
+        r"cdn-cache": "cdn",
+    },
 }
 
 _BODY_FINGERPRINTS: List[Tuple[str, str]] = [
     # (regex_pattern, tech_name)
+    # CMS
     (r'<meta\s+name=["\']generator["\']\s+content=["\']WordPress\s+[\d.]+', "wordpress"),
     (r'/wp-content/', "wordpress"),
     (r'/wp-includes/', "wordpress"),
@@ -77,12 +113,39 @@ _BODY_FINGERPRINTS: List[Tuple[str, str]] = [
     (r'<meta\s+name=["\']generator["\']\s+content=["\']Joomla', "joomla"),
     (r'/media/system/js/', "joomla"),
     (r'/administrator/', "joomla"),
+    # JS Frameworks
     (r'<div\s+id=["\']app["\']', "vue"),
     (r'<div\s+id=["\']root["\']', "react"),
-    (r'__NEXT_DATA__', "react"),
+    (r'__NEXT_DATA__', "next.js"),
+    (r'/_next/static/', "next.js"),
+    (r'data-nscript=', "next.js"),
+    (r'__NUXT__', "nuxt.js"),
     (r'ng-app=', "angular"),
     (r'ng-version=', "angular"),
     (r'<script\s+src=[^>]*angular', "angular"),
+    # Libraries
+    (r'jquery[.-]\d+\.\d+', "jquery"),
+    (r'/jquery\.min\.js', "jquery"),
+    (r'/jquery-\d', "jquery"),
+    (r'bootstrap\.min\.(?:js|css)', "bootstrap"),
+    (r'cdn\.jsdelivr\.net/npm/bootstrap', "bootstrap"),
+    (r'font-awesome|fontawesome', "font_awesome"),
+    (r'swiper\.min\.(?:js|css)', "swiper"),
+    (r'slick\.min\.(?:js|css)', "slick"),
+    # Analytics & Tag Managers
+    (r'googletagmanager\.com', "google_tag_manager"),
+    (r'gtag\s*\(', "google_analytics"),
+    (r'google-analytics\.com', "google_analytics"),
+    (r'GA_MEASUREMENT_ID|G-[A-Z0-9]+', "google_analytics"),
+    (r'connect\.facebook\.net', "facebook_pixel"),
+    (r'snap\.licdn\.com', "linkedin_insight"),
+    (r'bat\.bing\.com', "microsoft_clarity"),
+    # Captcha
+    (r'recaptcha|google\.com/recaptcha', "recaptcha"),
+    (r'hcaptcha\.com', "hcaptcha"),
+    (r'challenges\.cloudflare\.com/turnstile', "turnstile"),
+    (r'captcha', "captcha"),
+    # Server-side frameworks
     (r'csrfmiddlewaretoken', "python"),
     (r'__RequestVerificationToken', ".net"),
     (r'__VIEWSTATE', ".net"),
@@ -91,6 +154,11 @@ _BODY_FINGERPRINTS: List[Tuple[str, str]] = [
     (r'ci_session', "php"),
     (r'_rails', "ruby"),
     (r'X-Request-Id.*[a-f0-9-]{36}', "ruby"),
+    # Misc
+    (r'Sitecore', "sitecore"),
+    (r'AEM|experience-platform', "adobe_experience_manager"),
+    (r'Shopify\.', "shopify"),
+    (r'cdn\.shopify\.com', "shopify"),
 ]
 
 _COOKIE_FINGERPRINTS: Dict[str, str] = {
