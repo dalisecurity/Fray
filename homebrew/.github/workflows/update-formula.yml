@@ -1,0 +1,38 @@
+name: Update Homebrew Formula
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Fray version to update to (e.g. 3.5.0)'
+        required: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch PyPI metadata
+        id: pypi
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          DATA=$(curl -sL "https://pypi.org/pypi/fray/${VERSION}/json")
+          URL=$(echo "$DATA" | python3 -c "import sys,json; d=json.load(sys.stdin); sdist=[u for u in d['urls'] if u['packagetype']=='sdist']; print(sdist[0]['url'])")
+          SHA=$(echo "$DATA" | python3 -c "import sys,json; d=json.load(sys.stdin); sdist=[u for u in d['urls'] if u['packagetype']=='sdist']; print(sdist[0]['digests']['sha256'])")
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Update formula
+        run: |
+          sed -i "s|url \"https://files.pythonhosted.org/.*\"|url \"${{ steps.pypi.outputs.url }}\"|" Formula/fray.rb
+          sed -i "s|sha256 \"[a-f0-9]*\"|sha256 \"${{ steps.pypi.outputs.sha256 }}\"|" Formula/fray.rb
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/fray.rb
+          git commit -m "formula: update fray to ${{ steps.pypi.outputs.version }}"
+          git push

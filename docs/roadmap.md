@@ -18,7 +18,7 @@
 
 - [ ] `fray dashboard` — browser-based web UI for results, history, attack surface
 - [ ] `fray stats` leaderboard — payload effectiveness scoring per WAF vendor
-- [ ] Homebrew formula (`brew install fray`)
+- [x] Homebrew formula (`brew install fray`) — `homebrew/Formula/fray.rb`
 - [ ] docs.dalisec.io — hosted documentation site
 - [ ] Fray landing page on dalisec.io
 - [ ] HackerOne API integration (auto-submit findings)
