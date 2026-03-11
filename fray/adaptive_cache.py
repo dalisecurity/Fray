@@ -492,6 +492,182 @@ def get_domain_stats(domain: str) -> Optional[Dict]:
     }
 
 
+def get_waf_leaderboard() -> List[Dict]:
+    """Aggregate payload effectiveness stats per WAF vendor from the cache.
+
+    Returns a list of dicts sorted by block_rate descending:
+    [
+        {
+            "vendor": "Cloudflare",
+            "domains": 3,
+            "total_scans": 12,
+            "blocked": 847,
+            "passed": 23,
+            "block_rate": 97.4,
+            "top_bypasses": [...],
+        },
+        ...
+    ]
+    """
+    cache = load_cache()
+    if not cache:
+        return []
+
+    # Aggregate by vendor
+    vendors: Dict[str, Dict] = {}
+    for domain, entry in cache.items():
+        vendor = entry.get("waf_vendor", "").strip()
+        if not vendor:
+            vendor = "Unknown"
+
+        if vendor not in vendors:
+            vendors[vendor] = {
+                "vendor": vendor,
+                "domains": 0,
+                "total_scans": 0,
+                "blocked": 0,
+                "passed": 0,
+                "bypasses": [],  # collect all bypass payloads
+            }
+
+        v = vendors[vendor]
+        v["domains"] += 1
+        v["total_scans"] += entry.get("total_scans", 0)
+        v["blocked"] += len(entry.get("blocked", {}))
+        v["passed"] += len(entry.get("passed", {}))
+
+        # Collect bypass details for top_bypasses
+        for _ph, info in entry.get("passed", {}).items():
+            v["bypasses"].append({
+                "payload": info.get("payload", "")[:100],
+                "confidence": info.get("bypass_confidence", 0),
+                "domain": domain,
+            })
+
+    # Build final list
+    result = []
+    for v in vendors.values():
+        total = v["blocked"] + v["passed"]
+        block_rate = (v["blocked"] / total * 100) if total > 0 else 0.0
+
+        # Top 5 bypasses by confidence
+        top = sorted(v["bypasses"], key=lambda x: x["confidence"], reverse=True)[:5]
+
+        result.append({
+            "vendor": v["vendor"],
+            "domains": v["domains"],
+            "total_scans": v["total_scans"],
+            "blocked": v["blocked"],
+            "passed": v["passed"],
+            "total_payloads": total,
+            "block_rate": round(block_rate, 1),
+            "top_bypasses": top,
+        })
+
+    # Sort: highest block rate first (hardest WAFs at top)
+    result.sort(key=lambda x: (-x["block_rate"], -x["total_payloads"]))
+    return result
+
+
+def print_waf_leaderboard() -> None:
+    """Print a rich WAF effectiveness leaderboard to stdout."""
+    from fray.output import console
+    from fray import __version__
+    from rich.table import Table
+    from rich.panel import Panel
+    from rich.text import Text
+
+    leaderboard = get_waf_leaderboard()
+    if not leaderboard:
+        console.print("[yellow]  No scan data yet. Run some tests first:[/yellow]")
+        console.print("    fray test https://example.com -c xss --smart")
+        return
+
+    table = Table(show_lines=False, pad_edge=False, box=None)
+    table.add_column("#", width=3, justify="right", style="dim")
+    table.add_column("WAF Vendor", min_width=18, style="bold")
+    table.add_column("Block Rate", width=10, justify="right")
+    table.add_column("", min_width=20)  # bar
+    table.add_column("Blocked", width=8, justify="right")
+    table.add_column("Bypassed", width=8, justify="right")
+    table.add_column("Domains", width=7, justify="right", style="dim")
+    table.add_column("Scans", width=6, justify="right", style="dim")
+
+    for i, entry in enumerate(leaderboard):
+        rate = entry["block_rate"]
+        # Color by block rate
+        if rate >= 95:
+            color = "bright_red"
+        elif rate >= 80:
+            color = "red"
+        elif rate >= 60:
+            color = "yellow"
+        elif rate >= 40:
+            color = "bright_yellow"
+        else:
+            color = "green"
+
+        bar_width = int(rate / 100 * 20)
+        bar = Text("█" * bar_width + "░" * (20 - bar_width), style=color)
+        rate_txt = Text(f"{rate:.1f}%", style=f"bold {color}")
+
+        bypassed_style = "bold green" if entry["passed"] > 0 else "dim"
+
+        table.add_row(
+            str(i + 1),
+            entry["vendor"],
+            rate_txt,
+            bar,
+            str(entry["blocked"]),
+            Text(str(entry["passed"]), style=bypassed_style),
+            str(entry["domains"]),
+            str(entry["total_scans"]),
+        )
+
+    total_blocked = sum(e["blocked"] for e in leaderboard)
+    total_passed = sum(e["passed"] for e in leaderboard)
+    total_domains = sum(e["domains"] for e in leaderboard)
+    total_scans = sum(e["total_scans"] for e in leaderboard)
+
+    table.add_row("", "", "", "", "", "", "", "")
+    table.add_row(
+        "",
+        Text("TOTAL", style="bold white"),
+        Text("", style="dim"),
+        Text("━" * 20, style="bold"),
+        Text(str(total_blocked), style="bold white"),
+        Text(str(total_passed), style="bold white"),
+        Text(str(total_domains), style="bold white"),
+        Text(str(total_scans), style="bold white"),
+    )
+
+    console.print()
+    console.print(Panel(
+        table,
+        title=f"[bold]Fray v{__version__} — WAF Effectiveness Leaderboard[/bold]",
+        subtitle=f"[dim]{len(leaderboard)} vendors · {total_domains} domains · {total_scans} scans · {total_blocked + total_passed:,} payloads[/dim]",
+        border_style="bright_cyan",
+        expand=False,
+    ))
+
+    # Show top bypasses per vendor
+    any_bypasses = any(e["passed"] > 0 for e in leaderboard)
+    if any_bypasses:
+        console.print()
+        console.print("  [bold]Top Bypasses by Vendor:[/bold]")
+        for entry in leaderboard:
+            if not entry["top_bypasses"]:
+                continue
+            console.print(f"\n  [bold]{entry['vendor']}[/bold]")
+            for b in entry["top_bypasses"]:
+                conf = b.get("confidence", 0)
+                payload = b.get("payload", "")[:60]
+                domain = b.get("domain", "")
+                console.print(f"    [{conf:>3}%] {payload}  [dim]({domain})[/dim]")
+
+    console.print()
+
+
 def clear_domain_cache(domain: str = "") -> int:
     """Clear cache for one domain, or wipe all. Returns number of entries removed."""
     with _cache_lock:

@@ -1634,7 +1634,15 @@ def cmd_scan(args):
 
 
 def cmd_stats(args):
-    """Show payload database statistics"""
+    """Show payload database statistics or WAF effectiveness leaderboard"""
+    if getattr(args, 'waf', False):
+        from fray.adaptive_cache import get_waf_leaderboard, print_waf_leaderboard
+        if getattr(args, 'json', False):
+            _json_print(get_waf_leaderboard())
+        else:
+            print_waf_leaderboard()
+        return
+
     from fray.stats import collect_stats, print_stats
     stats = collect_stats()
     if args.json:
@@ -4824,6 +4832,8 @@ Documentation: https://github.com/dalisecurity/fray
     # stats
     p_stats = subparsers.add_parser("stats", help="Show payload database statistics")
     p_stats.add_argument("--json", action="store_true", help="Output as JSON")
+    p_stats.add_argument("--waf", action="store_true",
+                          help="Show WAF effectiveness leaderboard (block rate per vendor from scan history)")
     p_stats.set_defaults(func=cmd_stats)
 
     # version
