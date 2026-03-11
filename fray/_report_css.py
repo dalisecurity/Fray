@@ -34,13 +34,13 @@ def gauge_svg(score):
     la = 1 if a > 90 else 0
     nx, ny = 100 - 60*_math.cos(r), 100 - 60*_math.sin(r)
     rl = 'CRITICAL' if score >= 60 else 'HIGH' if score >= 40 else 'MEDIUM' if score >= 20 else 'LOW'
-    return (f'<svg viewBox="0 0 200 120" style="width:200px;height:120px;">'
+    return (f'<svg viewBox="0 0 200 130" style="width:200px;height:130px;">'
             f'<path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="var(--surface2)" stroke-width="12" stroke-linecap="round"/>'
             f'<path d="M 20 100 A 80 80 0 {la} 1 {ax:.1f} {ay:.1f}" fill="none" stroke="{c}" stroke-width="12" stroke-linecap="round"/>'
             f'<line x1="100" y1="100" x2="{nx:.1f}" y2="{ny:.1f}" stroke="{c}" stroke-width="3" stroke-linecap="round"/>'
             f'<circle cx="100" cy="100" r="5" fill="{c}"/>'
-            f'<text x="100" y="102" text-anchor="middle" font-size="28" font-weight="800" fill="{c}">{score}</text>'
-            f'<text x="100" y="118" text-anchor="middle" font-size="11" fill="var(--muted)" font-weight="600">{rl} RISK</text></svg>')
+            f'<text x="100" y="82" text-anchor="middle" font-size="24" font-weight="800" fill="{c}">{score}</text>'
+            f'<text x="100" y="124" text-anchor="middle" font-size="11" fill="var(--muted)" font-weight="600">{rl} RISK</text></svg>')
 
 
 def donut_svg(counts: List[int], colors: List[str], total_label: int):

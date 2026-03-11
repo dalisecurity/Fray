@@ -35,8 +35,8 @@ def build(rd: Dict[str, Any]) -> str:
     n_low = sum(1 for f in findings if f.get('severity') == 'low')
 
     gap = rd.get('gap_analysis', {}) or {}
-    waf_vendor = gap.get('waf_vendor') or atk.get('waf_vendor') or '—'
-    cdn_vendor = rd.get('dns', {}).get('cdn_detected') or atk.get('cdn') or '—'
+    _waf_single = gap.get('waf_vendor') or atk.get('waf_vendor') or '—'
+    _cdn_single = rd.get('dns', {}).get('cdn_detected') or atk.get('cdn') or '—'
     tls_data = rd.get('tls', {}) or {}
     tls_ver = tls_data.get('tls_version', '—')
     cert_days = tls_data.get('cert_days_remaining', '—')
@@ -73,6 +73,22 @@ def build(rd: Dict[str, Any]) -> str:
     cloud_dist = rd.get('cloud_distribution', {}) or {}
     per_sub = cloud_dist.get('per_subdomain', [])
     waf_bypass_subs = cloud_dist.get('waf_bypass_subdomains', [])
+
+    # Build WAF/CDN display labels — prefer multi-vendor summary when applicable
+    _waf_dist = cloud_dist.get('waf_distribution', {})
+    _cdn_dist = cloud_dist.get('cdn_distribution', {})
+    if _waf_dist and len(_waf_dist) > 1:
+        waf_vendor = 'Multi-WAF: ' + ', '.join(sorted(_waf_dist.keys()))
+    elif _waf_dist and len(_waf_dist) == 1:
+        waf_vendor = next(iter(_waf_dist.keys()))
+    else:
+        waf_vendor = _waf_single
+    if _cdn_dist and len(_cdn_dist) > 1:
+        cdn_vendor = 'Multi-CDN: ' + ', '.join(sorted(_cdn_dist.keys()))
+    elif _cdn_dist and len(_cdn_dist) == 1:
+        cdn_vendor = next(iter(_cdn_dist.keys()))
+    else:
+        cdn_vendor = _cdn_single
 
     probes = rd.get('subdomain_probes', {}) or {}
     probe_results = probes.get('results', []) if isinstance(probes, dict) else []
@@ -145,8 +161,8 @@ def build(rd: Dict[str, Any]) -> str:
     <div style="display:flex;flex-direction:column;gap:6px;">{legend}</div>
   </div>
   <div style="flex:1;min-width:300px;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;">
-    <div class="mc"><div class="l">WAF</div><div class="v" style="font-size:1em;">{_esc(str(waf_vendor))[:30]}</div></div>
-    <div class="mc"><div class="l">CDN</div><div class="v">{_esc(str(cdn_vendor))}</div></div>
+    <div class="mc"><div class="l">WAF</div><div class="v" style="font-size:0.85em;">{_esc(str(waf_vendor))[:50]}</div></div>
+    <div class="mc"><div class="l">CDN</div><div class="v" style="font-size:0.85em;">{_esc(str(cdn_vendor))[:50]}</div></div>
     <div class="mc"><div class="l">TLS</div><div class="v">{_esc(str(tls_ver))}</div></div>
     <div class="mc"><div class="l">Headers Score</div><div class="v" style="color:{hdr_color};">{hdr_score}/100</div></div>
     <div class="mc"><div class="l">Subdomains</div><div class="v">{n_subs}</div></div>
