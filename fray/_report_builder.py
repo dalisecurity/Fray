@@ -554,11 +554,14 @@ def build(rd: Dict[str, Any]) -> str:
             has_waf = 1 if s.get('waf') else 0
             has_cdn = 1 if s.get('cdn') else 0
             return (-has_waf, -has_cdn, s.get('subdomain', ''))
-        per_sub_sorted = sorted(per_sub, key=_sub_sort_key)
+        # Only show subdomains with WAF or CDN (unprotected are in Subdomains section)
+        protected_subs = [s for s in per_sub if s.get('waf') or s.get('cdn')]
+        per_sub_sorted = sorted(protected_subs, key=_sub_sort_key)
+        n_unprotected = len(per_sub) - len(protected_subs)
         sr = ''
         for i, s in enumerate(per_sub_sorted[:show_limit]):
-            wv = s.get('waf') or '(no WAF)'
-            cv = s.get('cdn') or '(direct)'
+            wv = s.get('waf') or '—'
+            cv = s.get('cdn') or '—'
             ca = s.get('cache_status') or '-'
             ht = str(s.get('status') or '-')
             sv = _esc((s.get('server') or '-')[:20])
@@ -568,13 +571,14 @@ def build(rd: Dict[str, Any]) -> str:
 
         overflow = f'<p class="muted" style="margin-top:8px;">Showing first {show_limit} of {len(per_sub)} subdomains.</p>' if len(per_sub) > show_limit else ''
 
+        unprotected_note = f'<p class="muted" style="margin-top:8px;font-size:0.85em;">{n_unprotected} subdomain(s) without WAF/CDN protection — see <a href="#subs" style="color:var(--accent);">Subdomains</a> section for details.</p>' if n_unprotected else ''
         parts.append(f'''
 <div class="sec" id="waf-cdn">
-  <h2>Per-Subdomain WAF / CDN Analysis <span class="count">({len(per_sub)} subdomains)</span></h2>
+  <h2>Per-Subdomain WAF / CDN Analysis <span class="count">({len(protected_subs)} protected of {len(per_sub)} probed)</span></h2>
   <div style="margin-bottom:14px;">{badges}</div>
-  <details open><summary>Show per-subdomain table ({len(per_sub)} subdomains)</summary>
+  <details open><summary>Show protected subdomains ({len(protected_subs)})</summary>
   <table><tr><th>Subdomain</th><th>WAF</th><th>CDN</th><th>Cache</th><th>HTTP</th><th>Server</th></tr>{sr}</table>
-  {overflow}</details>
+  {overflow}{unprotected_note}</details>
 </div>''')
 
     # WAF Gap Analysis
@@ -716,18 +720,7 @@ def build(rd: Dict[str, Any]) -> str:
   {origin_rec}
 </div>''')
 
-    # Admin Panels
-    if admin_panels:
-        ap = ''
-        for a in admin_panels[:30]:
-            ap += f'<tr><td class="mono">{_esc(a.get("path",""))}</td><td>{_esc(a.get("protection",""))}</td><td>{a.get("status","")}</td><td class="muted">{_esc(a.get("category",""))}</td></tr>'
-        parts.append(f'''
-<div class="sec" id="admin">
-  <h2>Admin Panels <span class="count">({n_admin} found)</span></h2>
-  <table><tr><th>Path</th><th>Protection</th><th>Status</th><th>Category</th></tr>{ap}</table>
-</div>''')
-
-    # High Value Targets
+    # High Value Targets (includes Admin Panels)
     hvt_items = []
     if staging_envs:
         hvt_items.append(('Staging / Dev', staging_envs, '#eab308'))
@@ -743,13 +736,23 @@ def build(rd: Dict[str, Any]) -> str:
     ai_subs = [s for s in sub_list if any(k in s.lower() for k in ('ai', 'llm', 'chat', 'bot', 'gpt', 'robot'))]
     if ai_subs:
         hvt_items.append(('AI / LLM', ai_subs[:10], '#a855f7'))
+    # Add Admin Panels as HVT category
+    if admin_panels:
+        admin_paths = [a.get('path', '') for a in admin_panels if isinstance(a, dict)]
+        hvt_items.append(('Admin Panels', admin_paths, '#ef4444'))
     if hvt_items:
         total_hvt = sum(len(items) for _, items, _ in hvt_items)
         hvt_html = ''
         for label, items, color in hvt_items:
-            chips = ''.join(f'<code style="background:var(--surface);padding:5px 12px;border-radius:5px;font-size:0.9em;border:1px solid var(--border);">{_esc(s)}</code>' for s in items[:8])
-            overflow = f'<span class="muted"> + {len(items) - 8} more</span>' if len(items) > 8 else ''
-            hvt_html += f'''<div style="background:var(--surface2);border-radius:10px;padding:16px 20px;margin-bottom:12px;border-left:3px solid {color};"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span class="type-badge" style="background:{color}20;color:{color};font-size:0.92em;">{_esc(label)}</span><span class="muted" style="font-size:0.85em;">{len(items)} environment(s)</span></div><div style="display:flex;flex-wrap:wrap;gap:6px;">{chips}{overflow}</div></div>'''
+            if label == 'Admin Panels' and admin_panels:
+                # Render admin panels as a collapsible table with path + category
+                ap_rows = ''.join(f'<tr><td class="mono">{_esc(a.get("path",""))}</td><td class="muted">{_esc(a.get("category",""))}</td></tr>' for a in admin_panels[:30])
+                ap_overflow = f'<span class="muted"> + {len(admin_panels) - 30} more</span>' if len(admin_panels) > 30 else ''
+                hvt_html += f'''<div style="background:var(--surface2);border-radius:10px;padding:16px 20px;margin-bottom:12px;border-left:3px solid {color};"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span class="type-badge" style="background:{color}20;color:{color};font-size:0.92em;">{_esc(label)}</span><span class="muted" style="font-size:0.85em;">{n_admin} panel(s) found</span></div><details><summary style="cursor:pointer;font-size:0.85em;color:var(--accent);">Show admin panel paths</summary><table style="margin-top:8px;"><tr><th>Path</th><th>Category</th></tr>{ap_rows}</table>{ap_overflow}</details></div>'''
+            else:
+                chips = ''.join(f'<code style="background:var(--surface);padding:5px 12px;border-radius:5px;font-size:0.9em;border:1px solid var(--border);">{_esc(s)}</code>' for s in items[:8])
+                overflow = f'<span class="muted"> + {len(items) - 8} more</span>' if len(items) > 8 else ''
+                hvt_html += f'''<div style="background:var(--surface2);border-radius:10px;padding:16px 20px;margin-bottom:12px;border-left:3px solid {color};"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span class="type-badge" style="background:{color}20;color:{color};font-size:0.92em;">{_esc(label)}</span><span class="muted" style="font-size:0.85em;">{len(items)} environment(s)</span></div><div style="display:flex;flex-wrap:wrap;gap:6px;">{chips}{overflow}</div></div>'''
         parts.append(f'''
 <div class="sec" id="hvt">
   <h2>High Value Targets <span class="count">({total_hvt})</span></h2>

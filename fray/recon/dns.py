@@ -1750,8 +1750,7 @@ _CLOUD_PROVIDERS = {
 _WAF_CDN_SIGNATURES = [
     # ── Cloudflare (WAF + CDN) ──
     {"name": "Cloudflare", "waf": "Cloudflare", "cdn": "Cloudflare",
-     "headers": {"server": "cloudflare", "cf-ray": "", "cf-cache-status": "",
-                 "cf-team": "", "cf-connecting-ip": ""},
+     "headers": {"server": "cloudflare", "cf-ray": "", "cf-cache-status": ""},
      "cname_hints": ["cloudflare"]},
 
     # ── Akamai (Kona Site Defender / App & API Protector + CDN) ──
@@ -1972,16 +1971,6 @@ def _fingerprint_waf_cdn(fqdn: str, timeout: float = 3.0) -> Dict[str, Any]:
                     matched = True
                     result["headers_matched"].append(f"{sig['name']}:cname={hint}")
                     break
-        # Check server-timing for CDN/WAF hints (e.g., cfReqDur → Cloudflare)
-        if not matched and "server-timing" in resp_headers:
-            st_val = resp_headers["server-timing"]
-            for st_hint, st_name in [("cfreqdur", "Cloudflare"), ("cdn-cache", "CDN"),
-                                      ("fastly", "Fastly"), ("akamai", "Akamai")]:
-                if st_hint in st_val and sig["name"] == st_name:
-                    matched = True
-                    result["headers_matched"].append(f"{sig['name']}:server-timing~{st_hint}")
-                    break
-
         if matched:
             if sig["waf"] and sig["waf"] not in detected_wafs:
                 detected_wafs.append(sig["waf"])

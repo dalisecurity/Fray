@@ -1120,14 +1120,6 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
             if cert_issuer and cert_issuer not in inferred:
                 inferred[cert_issuer] = {"category": "Certificate Authority", "confidence": 85}
 
-        # Server header version extraction (keep versioned entries)
-        for s in per_sub:
-            sv = s.get("server")
-            if sv and sv != "-" and "/" in sv:
-                if sv not in inferred:
-                    base = sv.split("/")[0].strip().title()
-                    inferred[sv] = {"category": "Web Server", "confidence": 75}
-
         # IP range → cloud provider mapping
         _IP_PREFIXES = {
             "13.": "Amazon Web Services", "34.": "Amazon Web Services",
@@ -1196,12 +1188,44 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
             "joomla": ("Joomla", "CMS"),
             "cdn": ("CDN", "Infrastructure"),
             "api_json": ("JSON API", "API"),
+            # Cookie-detected techs
+            "hubspot": ("HubSpot", "Marketing"),
+            "hotjar": ("Hotjar", "Analytics"),
+            "haproxy": ("HAProxy", "Load Balancer"),
+            "f5": ("F5 BIG-IP", "Load Balancer"),
+            "netscaler": ("Citrix NetScaler", "Load Balancer"),
+            "flask": ("Flask", "Framework"),
+            # Server header aliases (from .title() mangling)
+            "Amazons3": ("AWS S3", "Storage"),
+            "Awselb": ("AWS ELB", "Load Balancer"),
+            "Awsalb": ("AWS ALB", "Load Balancer"),
+            "Akamaighost": ("Akamai", "CDN"),
+            "Akamainetstorage": ("Akamai", "CDN"),
+            "Cloudfront": ("AWS CloudFront", "CDN"),
+            "Openresty": ("OpenResty", "Web Server"),
+            "Envoy": ("Envoy Proxy", "Proxy"),
+            "Gunicorn": ("Gunicorn", "Web Server"),
+            "Uvicorn": ("Uvicorn", "Web Server"),
+            "Caddy": ("Caddy", "Web Server"),
+            "Litespeed": ("LiteSpeed", "Web Server"),
+            "Tengine": ("Tengine", "Web Server"),
+            "Cowboy": ("Cowboy", "Web Server"),
+            # Hyphenated server headers (.title() keeps hyphens)
+            "Microsoft-Iis": ("Microsoft IIS", "Web Server"),
+            "Microsoft-Azure-Application-Gateway": ("Azure Application Gateway", "Load Balancer"),
+            "Akamaighost": ("Akamai", "CDN"),
+            "Big-Ip": ("F5 BIG-IP", "Load Balancer"),
+            "Ovh": ("OVH", "Cloud"),
+            "Gws": ("Google Web Server", "Web Server"),
+            "Gse": ("Google Servlet Engine", "Web Server"),
+            "Sffe": ("Google SFFE", "Web Server"),
+            "Ats": ("Apache Traffic Server", "Proxy"),
+            "ovh": ("OVH", "Cloud"),
         }
         for old_key, (proper_name, cat) in _NORMALIZE.items():
             if old_key in inferred:
                 entry = inferred.pop(old_key)
-                if entry.get("category") == "Detected":
-                    entry["category"] = cat
+                entry["category"] = cat
                 if proper_name in inferred:
                     existing = inferred[proper_name]
                     if entry.get("confidence", 0) > existing.get("confidence", 0):
@@ -1215,13 +1239,21 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
             "Google": "Google Cloud Platform",
             "Akamai Edge": "Akamai",
             "Akamai DNS": "Akamai",
+            "Akamai (Kona/AAP)": "Akamai",  # merged as CDN/WAF
             "Apache HTTP Server": "Apache",
+            "CloudFront": "AWS CloudFront",
+            "Microsoft Azure App Service": "Microsoft Azure",
+            "Microsoft Azure DNS": "Microsoft Azure",
         }
         for old_name, canonical in _ALIASES.items():
             if old_name in inferred:
                 old_entry = inferred.pop(old_name)
                 if canonical not in inferred or inferred[canonical].get("confidence", 0) < old_entry.get("confidence", 0):
                     inferred[canonical] = old_entry
+
+        # Post-alias category fixes for multi-role providers
+        if "Akamai" in inferred:
+            inferred["Akamai"]["category"] = "CDN/WAF"
 
         if inferred:
             fp["technologies"] = inferred

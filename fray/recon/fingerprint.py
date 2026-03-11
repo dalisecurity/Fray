@@ -69,9 +69,6 @@ _HEADER_FINGERPRINTS: Dict[str, Dict[str, str]] = {
     "cf-ray": {
         r".*": "cloudflare",
     },
-    "cf-team": {
-        r".*": "cloudflare",
-    },
     "x-amz-cf-id": {
         r".*": "cloudfront",
     },
@@ -93,10 +90,6 @@ _HEADER_FINGERPRINTS: Dict[str, Dict[str, str]] = {
         r"varnish": "varnish",
         r"akamai": "akamai",
         r"cloudfront": "cloudfront",
-    },
-    "server-timing": {
-        r"cfReqDur": "cloudflare",
-        r"cdn-cache": "cdn",
     },
 }
 
@@ -162,19 +155,53 @@ _BODY_FINGERPRINTS: List[Tuple[str, str]] = [
 ]
 
 _COOKIE_FINGERPRINTS: Dict[str, str] = {
+    # Language / Runtime
     "PHPSESSID": "php",
     "laravel_session": "php",
     "ci_session": "php",
+    "CAKEPHP": "php",
     "JSESSIONID": "java",
     "connect.sid": "node.js",
     "ASP.NET_SessionId": ".net",
+    ".AspNetCore.": ".net",
     "_rails": "ruby",
+    "_session_id": "ruby",
     "csrftoken": "python",
     "sessionid": "python",
+    "flask": "python",
+    # CMS
     "wp-settings-": "wordpress",
     "wordpress_logged_in": "wordpress",
     "drupal": "drupal",
     "joomla": "joomla",
+    "PrestaShop": "shopify",
+    "Magento": "php",
+    # CDN / WAF
+    "__cfduid": "cloudflare",
+    "cf_clearance": "cloudflare",
+    "__cf_bm": "cloudflare",
+    "AWSALB": "cloudfront",
+    "AWSALBCORS": "cloudfront",
+    "akamai_": "akamai",
+    "AkamaiEdge": "akamai",
+    "incap_ses_": "cloudflare",
+    "visid_incap_": "cloudflare",
+    "sucuri_cloudproxy": "cloudflare",
+    # Analytics / Tracking
+    "_ga": "google_analytics",
+    "_gid": "google_analytics",
+    "_gat": "google_analytics",
+    "_fbp": "facebook_pixel",
+    "_gcl_au": "google_analytics",
+    "hubspotutk": "hubspot",
+    "_hjid": "hotjar",
+    # Captcha / Bot protection
+    "_cf_chl_opt": "turnstile",
+    "cf_chl_": "turnstile",
+    # Infrastructure
+    "SERVERID": "haproxy",
+    "BIGipServer": "f5",
+    "citrix_ns_id": "netscaler",
 }
 
 # ── Security header checklist ────────────────────────────────────────────
