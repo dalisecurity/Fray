@@ -500,15 +500,55 @@ def build(rd: Dict[str, Any]) -> str:
         'CI/CD': 'var(--orange)', 'DevOps': 'var(--purple)',
         'Database': 'var(--red)', 'Search Engine': 'var(--blue)',
         'API': 'var(--accent2)', 'Container Orchestration': 'var(--cyan)',
+        'Load Balancer': 'var(--cyan)', 'Proxy': 'var(--cyan)',
+        'Storage': 'var(--blue)', 'Cache': 'var(--blue)',
+        'JavaScript Framework': 'var(--yellow)', 'JavaScript Library': 'var(--yellow)',
+        'CSS Framework': 'var(--yellow)', 'UI Library': 'var(--yellow)',
+        'Runtime': 'var(--green)', 'Language': 'var(--green)',
+        'Analytics': 'var(--purple)', 'Marketing': 'var(--purple)',
+        'Captcha': 'var(--orange)', 'Security': 'var(--green)',
+        'E-commerce': 'var(--orange)', 'Payment': 'var(--orange)',
+        'CRM': 'var(--blue)', 'Support': 'var(--blue)',
+        'ITSM': 'var(--blue)', 'Identity': 'var(--green)',
+        'SaaS': 'var(--purple)', 'PaaS': 'var(--purple)',
+        'Hosting': 'var(--muted)', 'BaaS': 'var(--purple)',
+        'Monitoring': 'var(--orange)', 'SIEM': 'var(--red)',
+        'Telco': 'var(--blue)', 'Communication': 'var(--blue)',
+        'Editor': 'var(--yellow)', 'Visualization': 'var(--purple)',
+        'Media': 'var(--cyan)', 'Maps': 'var(--green)',
+        'A/B Testing': 'var(--purple)', 'Feature Flags': 'var(--purple)',
+        'Message Queue': 'var(--orange)', 'Directory': 'var(--muted)',
+        'Collaboration': 'var(--blue)', 'Wiki': 'var(--blue)',
+        'Project Management': 'var(--blue)', 'Code Quality': 'var(--orange)',
+        'API Gateway': 'var(--cyan)', 'Icon Library': 'var(--yellow)',
     }
     # Group technologies by category
-    _CAT_ORDER = ['WAF', 'CDN', 'CDN/WAF', 'Cloud', 'Cloud/CDN', 'Web Server', 'Load Balancer',
-                  'Proxy', 'Storage', 'Application Server', 'Framework', 'Runtime', 'Language',
-                  'CMS', 'JavaScript Framework', 'JavaScript Library', 'CSS Framework',
-                  'Icon Library', 'Analytics', 'Marketing', 'Captcha', 'Security',
-                  'E-commerce', 'SaaS', 'PaaS', 'Hosting', 'Database', 'Search Engine',
-                  'Container', 'Container Orchestration', 'CI/CD', 'DevOps', 'Monitoring',
-                  'API', 'TLS', 'Cipher Suite', 'Certificate Authority', 'Infrastructure']
+    _CAT_ORDER = [
+        # Security & Infrastructure
+        'WAF', 'CDN', 'CDN/WAF', 'Cloud', 'Cloud/CDN',
+        'Web Server', 'Load Balancer', 'Proxy', 'API Gateway', 'Storage', 'Cache',
+        'Application Server', 'Framework', 'Runtime', 'Language',
+        # Frontend
+        'JavaScript Framework', 'JavaScript Library', 'CSS Framework', 'UI Library', 'Icon Library',
+        'Visualization', 'Editor', 'Media', 'Maps',
+        # CMS & E-commerce
+        'CMS', 'E-commerce',
+        # SaaS & Business
+        'CRM', 'Support', 'ITSM', 'Payment', 'Identity',
+        'Marketing', 'Analytics', 'A/B Testing', 'Feature Flags',
+        'Captcha', 'Security',
+        # Communication & Collaboration
+        'Communication', 'Collaboration', 'Wiki', 'Project Management',
+        # Data & Search
+        'Database', 'Search Engine', 'Message Queue',
+        # Platform & Hosting
+        'SaaS', 'PaaS', 'BaaS', 'Hosting', 'Telco',
+        # DevOps & Monitoring
+        'Container', 'Container Orchestration', 'CI/CD', 'DevOps', 'Code Quality',
+        'Monitoring', 'SIEM', 'Directory',
+        # API & Infra
+        'API', 'TLS', 'Cipher Suite', 'Certificate Authority', 'Infrastructure',
+    ]
     cat_groups = {}  # category -> [(name, info), ...]
     for name, ver in techs.items():
         if isinstance(ver, dict):
