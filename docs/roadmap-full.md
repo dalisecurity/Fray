@@ -1,6 +1,6 @@
 # Fray Full Roadmap — 222 Items Across 27 Layers
 
-**Status:** 65 done · 157 pending  
+**Status:** 68 done · 154 pending  
 **Last updated:** 2026-03-11
 
 ---
@@ -84,7 +84,7 @@
 |---|------|----------|--------|
 | 47 | DNSSEC validation check | MEDIUM | done |
 | 48 | Zone transfer attempt (AXFR) | MEDIUM | done |
-| 49 | DNS rebinding detection | LOW | pending |
+| 49 | DNS rebinding detection | LOW | done |
 | 50 | Dangling CNAME / subdomain takeover via DNS | HIGH | done |
 | 51 | Wildcard DNS detection | LOW | done |
 
@@ -123,8 +123,8 @@
 | 73 | Automated report generation per company | MEDIUM | pending |
 | 74 | DNS hygiene scoring | LOW | done |
 | 75 | Certificate transparency monitoring | MEDIUM | pending |
-| 76 | Subdomain sprawl detection | LOW | pending |
-| 77 | Cloud provider distribution analysis | LOW | pending |
+| 76 | Subdomain sprawl detection | LOW | done |
+| 77 | Cloud provider distribution analysis | LOW | done |
 | 78 | WAF market share from scan data | MEDIUM | pending |
 | 79 | Historical trend tracking | LOW | pending |
 
@@ -348,10 +348,10 @@
 | L5 Supply Chain | 3 | 2 | 1 |
 | L6 OSINT | 6 | 6 | 0 |
 | L7 Cache + D1 Sync | 8 | 3 | 5 |
-| L8 DNS Recon Phase 2 | 5 | 4 | 1 |
+| L8 DNS Recon Phase 2 | 5 | 5 | 0 |
 | L9 Bot Detection | 5 | 1 | 4 |
 | L10 Dashboard / Web UI | 13 | 0 | 13 |
-| L11 Nikkei 225 | 10 | 1 | 9 |
+| L11 Nikkei 225 | 10 | 3 | 7 |
 | L12 Integrations | 4 | 4 | 0 |
 | L13 GitHub Repos | 12 | 6 | 6 |
 | L14 Growth / Stars | 16 | 3 | 13 |
@@ -368,4 +368,4 @@
 | L25 AI Intelligence | 5 | 0 | 5 |
 | L26 CF Workers AI Gateway | 7 | 0 | 7 |
 | L27 Architecture + Quality | 5 | 0 | 5 |
-| **TOTAL** | **222** | **65** | **157** |
+| **TOTAL** | **222** | **68** | **154** |
