@@ -396,6 +396,7 @@ def run_recon(url: str, timeout: int = 8,
 
         # Non-fast tasks
         t_hist = t_admin = t_auth = t_ports = t_rate = t_gql = t_leak = None
+        t_dnssec = t_axfr = t_wildcard = None
         if not is_fast:
             t_hist  = asyncio.create_task(_run(
                 lambda: discover_historical_urls(url, timeout=timeout, verify_ssl=verify,
@@ -421,6 +422,14 @@ def run_recon(url: str, timeout: int = 8,
                 lambda: check_graphql_introspection(host, port, use_ssl, timeout=timeout,
                                                     extra_headers=headers),
                 "GraphQL introspection"))
+            # DNS security checks (#47, #48, #51)
+            from fray.recon.dns import check_dnssec, check_zone_transfer, check_wildcard_dns
+            t_dnssec   = asyncio.create_task(_run(
+                lambda: check_dnssec(host, timeout=5.0), "DNSSEC validation"))
+            t_axfr     = asyncio.create_task(_run(
+                lambda: check_zone_transfer(host, timeout=8.0), "Zone transfer (AXFR)"))
+            t_wildcard = asyncio.create_task(_run(
+                lambda: check_wildcard_dns(host, timeout=3.0), "Wildcard DNS"))
 
         # Leak check (--leak flag, runs concurrently with other checks)
         if leak:
@@ -507,6 +516,12 @@ def run_recon(url: str, timeout: int = 8,
             result["graphql"] = await _safe(t_gql, {})
         if t_leak:
             result["leak_check"] = await _safe(t_leak, {})
+        if t_dnssec:
+            result["dnssec"] = await _safe(t_dnssec, {})
+        if t_axfr:
+            result["zone_transfer"] = await _safe(t_axfr, {})
+        if t_wildcard:
+            result["wildcard_dns"] = await _safe(t_wildcard, {})
 
         # ── Collect tier 2 results ──
         result["subdomains_active"] = await _safe(t_subs_active, {})
@@ -820,6 +835,7 @@ def _build_attack_surface_summary(r: Dict[str, Any]) -> Dict[str, Any]:
     _FINDING_SCORES = {
         # Critical (80-100)
         "origin IP exposed":        95, "takeover":              95,
+        "zone transfer":            95, "AXFR":                  95,
         "secret":                   90, "leaked":                90,
         "bypass WAF":               90, "admin panel":           85,
         # High (60-79)
@@ -834,6 +850,7 @@ def _build_attack_surface_summary(r: Dict[str, Any]) -> Dict[str, Any]:
         "TLS certificate expires":  35,
         # Low (10-29)
         "Content-Security-Policy":  20, "robots.txt":            15,
+        "DNSSEC":                   15, "Wildcard DNS":          10,
         "WAF":                      10,
     }
     _SEVERITY_BASE = {"critical": 90, "high": 65, "medium": 40, "low": 15}
@@ -902,6 +919,23 @@ def _build_attack_surface_summary(r: Dict[str, Any]) -> Dict[str, Any]:
     if interesting_paths:
         findings.append({"severity": "low", "finding": f"{len(interesting_paths)} interesting paths in robots.txt"})
 
+    # ── DNS security findings (#47, #48, #51) ──
+    dnssec_data = r.get("dnssec", {})
+    if isinstance(dnssec_data, dict) and dnssec_data:
+        if not dnssec_data.get("enabled", False):
+            findings.append({"severity": "low", "finding": "DNSSEC not enabled — DNS responses can be spoofed"})
+        elif dnssec_data.get("enabled") and not dnssec_data.get("validated"):
+            findings.append({"severity": "medium", "finding": "DNSSEC enabled but not validated by resolver (broken chain of trust)"})
+    axfr_data = r.get("zone_transfer", {})
+    if isinstance(axfr_data, dict) and axfr_data.get("vulnerable"):
+        ns_list = ", ".join(axfr_data.get("ns_vulnerable", [])[:3])
+        n_leaked = axfr_data.get("records_leaked", 0)
+        findings.append({"severity": "critical", "finding": f"DNS zone transfer (AXFR) allowed — {n_leaked} record(s) leaked via {ns_list}"})
+    wildcard_data = r.get("wildcard_dns", {})
+    if isinstance(wildcard_data, dict) and wildcard_data.get("wildcard"):
+        wc_ips = ", ".join(wildcard_data.get("wildcard_ips", [])[:3])
+        findings.append({"severity": "low", "finding": f"Wildcard DNS detected — all subdomains resolve to {wc_ips}"})
+
     # ── Leak check findings ──
     leak_data = r.get("leak_check", {})
     n_leak_secrets = leak_data.get("confirmed_secrets", 0) if isinstance(leak_data, dict) else 0
@@ -932,7 +966,8 @@ def _build_attack_surface_summary(r: Dict[str, Any]) -> Dict[str, Any]:
 
     # ── Finding grouping by category (#183) ──
     _FINDING_CATEGORIES = {
-        "infra": {"origin IP", "takeover", "port", "WAF", "bypass WAF", "DNS"},
+        "infra": {"origin IP", "takeover", "port", "WAF", "bypass WAF", "DNS",
+                  "zone transfer", "AXFR", "DNSSEC", "Wildcard DNS"},
         "app":   {"XSS", "injection", "CORS", "clickjacking", "GraphQL",
                   "injectable", "HTTP method", "host header"},
         "config": {"Content-Security-Policy", "SRI", "robots.txt", "admin panel",

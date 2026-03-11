@@ -1072,3 +1072,192 @@ def check_subdomain_takeover(subdomains: List[str],
     result["count"] = len(result["vulnerable"])
 
     return result
+
+
+# ── DNSSEC validation (#47) ───────────────────────────────────────────
+
+def check_dnssec(host: str, timeout: float = 5.0) -> Dict[str, Any]:
+    """Check whether a domain has valid DNSSEC signatures.
+
+    Uses ``dig +dnssec`` and inspects the AD (Authenticated Data) flag
+    as well as the presence of RRSIG / DNSKEY records.
+
+    Returns:
+        Dict with 'enabled', 'validated', 'has_dnskey', 'has_rrsig',
+        'ds_records', 'nsec_type' keys.
+    """
+    import subprocess
+
+    result: Dict[str, Any] = {
+        "enabled": False,
+        "validated": False,
+        "has_dnskey": False,
+        "has_rrsig": False,
+        "ds_records": [],
+        "nsec_type": None,
+    }
+
+    # 1. Query with +dnssec — check AD flag in header
+    try:
+        out = subprocess.run(
+            ["dig", "+dnssec", "+noall", "+comments", "+answer", "A", host],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        header_lines = out.stdout
+        # AD flag in the ;; flags: line means the resolver validated DNSSEC
+        if "flags:" in header_lines and " ad" in header_lines.lower().split("flags:")[1].split(";")[0]:
+            result["validated"] = True
+        # RRSIG in answer section means zone is signed
+        if "RRSIG" in header_lines:
+            result["has_rrsig"] = True
+            result["enabled"] = True
+    except Exception:
+        pass
+
+    # 2. Check for DNSKEY records
+    try:
+        out = subprocess.run(
+            ["dig", "+short", "DNSKEY", host],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        if out.stdout.strip():
+            result["has_dnskey"] = True
+            result["enabled"] = True
+    except Exception:
+        pass
+
+    # 3. Check DS records at parent (proves chain of trust)
+    try:
+        out = subprocess.run(
+            ["dig", "+short", "DS", host],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        lines = [l.strip() for l in out.stdout.strip().splitlines() if l.strip()]
+        if lines:
+            result["ds_records"] = lines[:5]
+            result["enabled"] = True
+    except Exception:
+        pass
+
+    # 4. Detect NSEC vs NSEC3 (zone walking protection)
+    try:
+        out = subprocess.run(
+            ["dig", "+dnssec", "+noall", "+authority", f"nonexistent-dnssec-test.{host}"],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        body = out.stdout
+        if "NSEC3" in body:
+            result["nsec_type"] = "NSEC3"
+        elif "NSEC" in body:
+            result["nsec_type"] = "NSEC"
+    except Exception:
+        pass
+
+    return result
+
+
+# ── Zone transfer attempt (#48) ───────────────────────────────────────
+
+def check_zone_transfer(host: str, timeout: float = 8.0) -> Dict[str, Any]:
+    """Attempt AXFR zone transfer against all NS servers for the domain.
+
+    A successful zone transfer reveals every record in the DNS zone —
+    a critical misconfiguration.
+
+    Returns:
+        Dict with 'vulnerable', 'ns_tested', 'ns_vulnerable',
+        'records_leaked', 'sample_records' keys.
+    """
+    import subprocess
+
+    result: Dict[str, Any] = {
+        "vulnerable": False,
+        "ns_tested": [],
+        "ns_vulnerable": [],
+        "records_leaked": 0,
+        "sample_records": [],
+    }
+
+    # Get NS servers
+    try:
+        out = subprocess.run(
+            ["dig", "+short", "NS", host],
+            capture_output=True, text=True, timeout=5,
+        )
+        nameservers = [l.strip().rstrip(".") for l in out.stdout.strip().splitlines()
+                       if l.strip()]
+    except Exception:
+        return result
+
+    if not nameservers:
+        return result
+
+    for ns in nameservers[:6]:
+        result["ns_tested"].append(ns)
+        try:
+            out = subprocess.run(
+                ["dig", "AXFR", f"@{ns}", host],
+                capture_output=True, text=True, timeout=timeout,
+            )
+            # A successful AXFR has multiple records; failed ones have
+            # "; Transfer failed." or very short output with only SOA
+            lines = [l for l in out.stdout.strip().splitlines()
+                     if l.strip() and not l.startswith(";")]
+            # Need more than just the trailing SOA to count as success
+            if len(lines) > 2:
+                result["vulnerable"] = True
+                result["ns_vulnerable"].append(ns)
+                result["records_leaked"] = max(result["records_leaked"], len(lines))
+                # Keep a sample (first 20 records, redact if very long)
+                if not result["sample_records"]:
+                    result["sample_records"] = [l[:200] for l in lines[:20]]
+        except Exception:
+            pass
+
+    return result
+
+
+# ── Wildcard DNS detection (#51) ──────────────────────────────────────
+
+def check_wildcard_dns(host: str, timeout: float = 3.0) -> Dict[str, Any]:
+    """Detect wildcard DNS by resolving random non-existent subdomains.
+
+    If multiple random labels all resolve to the same IP(s), a wildcard
+    A record is configured — this affects subdomain brute-force accuracy.
+
+    Returns:
+        Dict with 'wildcard', 'wildcard_ips', 'tested' keys.
+    """
+    import hashlib
+    import time
+
+    result: Dict[str, Any] = {
+        "wildcard": False,
+        "wildcard_ips": [],
+        "tested": 0,
+    }
+
+    # Generate 3 random-looking subdomains (deterministic from host + time seed)
+    seed = f"{host}-{int(time.time()) // 60}"
+    probes = []
+    for i in range(3):
+        token = hashlib.md5(f"{seed}-{i}".encode()).hexdigest()[:12]
+        probes.append(f"fray-wc-{token}.{host}")
+
+    resolved: List[set] = []
+    for fqdn in probes:
+        ips = _resolve_hostname(fqdn, timeout=timeout)
+        result["tested"] += 1
+        if ips:
+            resolved.append(set(ips))
+
+    # If at least 2 random names resolve, and they share IPs → wildcard
+    if len(resolved) >= 2:
+        common = resolved[0]
+        for s in resolved[1:]:
+            common = common & s
+        if common:
+            result["wildcard"] = True
+            result["wildcard_ips"] = sorted(common)
+
+    return result
