@@ -1062,6 +1062,87 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
         if any("azure" in n.lower() for n in list(waf_dist) + list(cdn_dist_d)):
             if "Microsoft Azure" not in inferred:
                 inferred["Microsoft Azure"] = {"category": "Cloud", "confidence": 85}
+
+        # DNS CNAME chain analysis
+        dns_data = dns_data if isinstance(dns_data, dict) else result.get("dns", {})
+        cname_chain = dns_data.get("cname", []) if isinstance(dns_data, dict) else []
+        if isinstance(cname_chain, str):
+            cname_chain = [cname_chain]
+        a_recs = dns_data.get("a", []) if isinstance(dns_data, dict) else []
+        aaaa_recs = dns_data.get("aaaa", []) if isinstance(dns_data, dict) else []
+        all_dns_str = " ".join(str(r).lower() for r in (cname_chain + a_recs + aaaa_recs))
+        _dns_tech_hints = {
+            "akamai": ("Akamai", "CDN", 85),
+            "edgekey": ("Akamai Edge", "CDN", 80),
+            "akadns": ("Akamai DNS", "DNS", 80),
+            "cloudflare": ("Cloudflare", "CDN/WAF", 85),
+            "fastly": ("Fastly", "CDN", 85),
+            "incapsula": ("Imperva Incapsula", "CDN/WAF", 85),
+            "sucuri": ("Sucuri", "WAF", 80),
+            "stackpath": ("StackPath", "CDN", 80),
+            "amazonaws.com": ("Amazon Web Services", "Cloud", 85),
+            "azurewebsites": ("Microsoft Azure App Service", "PaaS", 80),
+            "azure-dns": ("Microsoft Azure DNS", "DNS", 75),
+            "googleusercontent": ("Google Cloud", "Cloud", 85),
+            "googleapis": ("Google Cloud", "Cloud", 80),
+            "github.io": ("GitHub Pages", "Hosting", 85),
+            "heroku": ("Heroku", "PaaS", 80),
+            "netlify": ("Netlify", "Hosting", 85),
+            "vercel": ("Vercel", "Hosting", 85),
+            "wpengine": ("WP Engine", "Hosting", 80),
+            "pantheon": ("Pantheon", "Hosting", 75),
+            "zendesk": ("Zendesk", "SaaS", 70),
+            "salesforce": ("Salesforce", "SaaS", 70),
+        }
+        for kw, (name, cat, conf) in _dns_tech_hints.items():
+            if kw in all_dns_str and name not in inferred:
+                inferred[name] = {"category": cat, "confidence": conf}
+
+        # TLS analysis
+        tls_data = result.get("tls", {})
+        if isinstance(tls_data, dict):
+            tls_ver = tls_data.get("tls_version", "")
+            if tls_ver:
+                inferred[tls_ver] = {"category": "TLS", "confidence": 95}
+            cipher = tls_data.get("cipher", "")
+            if cipher:
+                inferred[cipher] = {"category": "Cipher Suite", "confidence": 95}
+            cert_issuer = tls_data.get("cert_issuer")
+            if cert_issuer and cert_issuer not in inferred:
+                inferred[cert_issuer] = {"category": "Certificate Authority", "confidence": 85}
+
+        # Server header version extraction (keep versioned entries)
+        for s in per_sub:
+            sv = s.get("server")
+            if sv and sv != "-" and "/" in sv:
+                if sv not in inferred:
+                    base = sv.split("/")[0].strip().title()
+                    inferred[sv] = {"category": "Web Server", "confidence": 75}
+
+        # IP range → cloud provider mapping
+        _IP_PREFIXES = {
+            "13.": "Amazon Web Services", "34.": "Amazon Web Services",
+            "35.": "Amazon Web Services", "52.": "Amazon Web Services",
+            "54.": "Amazon Web Services", "99.": "Amazon Web Services",
+            "3.": "Amazon Web Services",
+            "20.": "Microsoft Azure", "40.": "Microsoft Azure",
+            "51.": "Microsoft Azure", "52.": "Amazon Web Services",
+            "104.": "Google Cloud", "35.": "Google Cloud",
+            "142.250.": "Google", "172.217.": "Google",
+            "151.101.": "Fastly", "199.232.": "Fastly",
+            "198.41.": "Cloudflare", "104.16.": "Cloudflare",
+            "104.17.": "Cloudflare", "104.18.": "Cloudflare",
+            "104.19.": "Cloudflare", "104.20.": "Cloudflare",
+            "104.21.": "Cloudflare", "104.22.": "Cloudflare",
+            "23.": "Akamai",
+        }
+        for rec in a_recs:
+            rec_str = str(rec)
+            for prefix, provider in _IP_PREFIXES.items():
+                if rec_str.startswith(prefix) and provider not in inferred:
+                    inferred[provider] = {"category": "Cloud/CDN", "confidence": 60}
+                    break
+
         if inferred:
             if not isinstance(fp, dict):
                 fp = {}

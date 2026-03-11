@@ -639,10 +639,21 @@ def build(rd: Dict[str, Any]) -> str:
                 oi += f'<tr><td class="mono">{_esc(o.get("ip",""))}</td><td>{_esc(o.get("source",""))}</td></tr>'
             else:
                 oi += f'<tr><td class="mono">{_esc(str(o))}</td><td></td></tr>'
+        origin_rec = f'''<div style="margin-top:16px;background:var(--surface2);border-radius:10px;padding:14px 18px;border-left:3px solid var(--orange);">
+  <p style="font-size:0.9em;font-weight:600;color:var(--orange);margin-bottom:8px;">Recommendations:</p>
+  <ul style="padding-left:18px;font-size:0.85em;line-height:1.9;color:var(--text);">
+    <li><strong>Restrict origin access</strong> — configure firewall rules (iptables, security groups, NSGs) to allow inbound traffic only from your CDN/WAF IP ranges</li>
+    <li><strong>Enable origin cloaking</strong> — remove DNS records that directly expose origin IPs (e.g., mail, webmail, ftp subdomains)</li>
+    <li><strong>Rotate origin IPs</strong> — if origin IPs are already leaked, migrate to new IPs and ensure they are never published in DNS</li>
+    <li><strong>Use authenticated origin pulls</strong> — configure your CDN (Cloudflare, AWS CloudFront) to send a secret header that the origin validates before responding</li>
+    <li><strong>Monitor for leaks</strong> — run <code>fray recon {_esc(host)} --deep</code> periodically to detect newly exposed origin IPs</li>
+  </ul>
+</div>'''
         parts.append(f'''
 <div class="sec" id="origin">
   <h2>Origin IP Discovery <span class="count">({len(origin_list)} candidates)</span></h2>
   <table><tr><th>IP</th><th>Source</th></tr>{oi}</table>
+  {origin_rec}
 </div>''')
 
     # Admin Panels
@@ -685,19 +696,73 @@ def build(rd: Dict[str, Any]) -> str:
   {hvt_html}
 </div>''')
 
-    # Suggested Tests
-    _TEST_META = {
-        'WAF Bypass': ('critical', '#ef4444', 'Send payloads directly to origin IPs that bypass WAF filtering — test XSS, SQLi, SSTI without WAF interference'),
-        'Unprotected Subdomain': ('high', '#f97316', 'Probe subdomains with no WAF/CDN for injection vulnerabilities, open redirects, and information disclosure'),
-        'Account Takeover': ('critical', '#ef4444', 'Test login endpoints for credential stuffing, brute-force, session fixation, OAuth misconfiguration, and 2FA bypass'),
-        'API Vulnerability': ('high', '#f97316', 'Test API endpoints for BOLA/IDOR, broken authentication, excessive data exposure, mass assignment, and SSRF'),
-        'LLM / AI Prompt Injection': ('high', '#f97316', 'Test AI/chatbot endpoints for prompt injection, jailbreaking, system prompt leakage, and indirect injection'),
-        'Payment / Financial Abuse': ('critical', '#ef4444', 'Test payment flows for price manipulation, payment bypass, race conditions, and card testing'),
-        'Staging / Dev Environment': ('high', '#f97316', 'Probe staging/dev environments for debug endpoints, default credentials, verbose errors, and config leakage'),
-        'DDoS / L7 Denial of Service': ('medium', '#eab308', 'Test rate limiting effectiveness, slow HTTP attacks, and resource-intensive query patterns'),
-        'Web Cache Poisoning': ('medium', '#eab308', 'Test CDN cache behaviour with unkeyed headers, parameter cloaking, and cache deception techniques'),
-        'DDoS \u2014 Direct Origin': ('high', '#f97316', 'Verify origin IP accessibility and test for lack of IP-based access controls or rate limiting'),
-    }
+    # Suggested Tests — each with Fray-specific commands
+    def _test_meta(typ, t0):
+        """Return (sev_label, sev_color, description, fray_commands) for a test type."""
+        t0e = _esc(t0)
+        m = {
+            'WAF Bypass': ('critical', '#ef4444',
+                'These subdomains resolve to origin IPs outside the WAF — payloads reach the server unfiltered. '
+                'Use <strong>fray agent</strong> to run iterative bypass testing directly against origin, or '
+                '<strong>fray test</strong> with XSS/SQLi categories.',
+                [f'fray agent {t0e} -c xss --rounds 5',
+                 f'fray test {t0e} -c sqli --smart',
+                 f'fray bypass {t0e} -c modern_bypasses']),
+            'Unprotected Subdomain': ('high', '#f97316',
+                'No WAF or CDN protection — all payloads reach these subdomains directly. '
+                'Use <strong>fray test</strong> to probe for XSS, SSRF, and open redirect vulnerabilities.',
+                [f'fray test {t0e} -c xss --smart',
+                 f'fray recon {t0e} --deep',
+                 f'fray test {t0e} -c ssrf --smart']),
+            'Account Takeover': ('critical', '#ef4444',
+                'Login and authentication endpoints are exposed. Use <strong>fray test</strong> to check for '
+                'injection in auth forms, and <strong>fray recon</strong> with auth credentials to map the '
+                'authenticated attack surface.',
+                [f'fray test {t0e} -c xss --smart',
+                 f'fray recon {t0e} --deep --login-flow "{t0e}/login,user=test,pass=test"',
+                 f'fray leak {t0e}']),
+            'API Vulnerability': ('high', '#f97316',
+                'API endpoints discovered. Use <strong>fray recon --profile api</strong> for API-focused '
+                'reconnaissance, then <strong>fray test</strong> with API-specific payloads for BOLA, SSRF, and injection.',
+                [f'fray recon {t0e} --profile api',
+                 f'fray test {t0e} -c api_security --smart',
+                 f'fray test {t0e} -c ssrf --smart']),
+            'LLM / AI Prompt Injection': ('high', '#f97316',
+                'AI/chatbot endpoints found. Use <strong>fray agent</strong> with prompt injection payloads '
+                'to test for jailbreaking, system prompt leakage, and indirect injection.',
+                [f'fray agent {t0e} -c xss --rounds 3 --ai',
+                 f'fray test {t0e} -c modern_bypasses --smart']),
+            'Payment / Financial Abuse': ('critical', '#ef4444',
+                'Payment and commerce endpoints detected. Use <strong>fray recon --deep</strong> to map the '
+                'full payment flow, then <strong>fray test</strong> for injection in transaction parameters.',
+                [f'fray recon {t0e} --deep',
+                 f'fray test {t0e} -c xss --smart',
+                 f'fray leak {t0e}']),
+            'Staging / Dev Environment': ('high', '#f97316',
+                'Staging/dev environments are publicly accessible and often have weaker security. '
+                'Use <strong>fray recon --profile bounty</strong> for maximum coverage, then '
+                '<strong>fray agent</strong> to find bypasses on weaker WAF rules.',
+                [f'fray recon {t0e} --profile bounty',
+                 f'fray agent {t0e} -c xss --rounds 5',
+                 f'fray test {t0e} -c ssti --smart']),
+            'DDoS / L7 Denial of Service': ('medium', '#eab308',
+                'No rate limiting detected. Use <strong>fray recon</strong> to verify rate limit thresholds '
+                'and <strong>fray harden</strong> to generate WAF rules that enforce limits.',
+                [f'fray recon {t0e} -v',
+                 f'fray harden {t0e}']),
+            'Web Cache Poisoning': ('medium', '#eab308',
+                'CDN caching + authenticated pages = cache deception risk. Use <strong>fray smuggle</strong> '
+                'to test HTTP request smuggling, and <strong>fray test</strong> with cache-specific payloads.',
+                [f'fray smuggle {t0e}',
+                 f'fray test {t0e} -c csp_bypass --smart']),
+            'DDoS \u2014 Direct Origin': ('high', '#f97316',
+                'Origin servers reachable without CDN protection. Use <strong>fray recon</strong> to confirm '
+                'origin IP exposure, and <strong>fray harden</strong> to generate firewall rules.',
+                [f'fray recon {t0e} --deep',
+                 f'fray harden {t0e}']),
+        }
+        return m.get(typ, ('medium', '#64748b', '', []))
+
     tests_by_type = {}
     for t in attack_targets:
         typ = t.get('type', 'Other')
@@ -705,12 +770,18 @@ def build(rd: Dict[str, Any]) -> str:
     if tests_by_type:
         st_html = ''
         for typ, targets in tests_by_type.items():
-            meta = _TEST_META.get(typ, ('medium', '#64748b', ''))
-            sev_label, sev_color, test_desc = meta
+            first_target = targets[0] if targets else target
+            meta = _test_meta(typ, first_target)
+            sev_label, sev_color, test_desc = meta[0], meta[1], meta[2]
+            fray_cmds = meta[3] if len(meta) > 3 else []
             chips = ''.join(f'<code style="background:var(--surface);padding:5px 12px;border-radius:5px;font-size:0.9em;border:1px solid var(--border);">{_esc(t)}</code>' for t in targets[:10])
             overflow = f'<span class="muted"> + {len(targets) - 10} more</span>' if len(targets) > 10 else ''
-            desc_html = f'<p class="muted" style="font-size:0.85em;margin:6px 0 10px;">{_esc(test_desc)}</p>' if test_desc else ''
-            st_html += f'''<div style="background:var(--surface2);border-radius:10px;padding:16px 20px;margin-bottom:12px;border-left:3px solid {sev_color};"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;"><span class="sev-badge" style="background:{sev_color}20;color:{sev_color};">{sev_label.upper()}</span><span style="font-weight:700;font-size:0.95em;">{_esc(typ)}</span><span class="muted" style="font-size:0.85em;">{len(targets)} target(s)</span></div>{desc_html}<div style="display:flex;flex-wrap:wrap;gap:6px;">{chips}{overflow}</div></div>'''
+            desc_html = f'<p style="font-size:0.85em;margin:6px 0 10px;color:var(--text);">{test_desc}</p>' if test_desc else ''
+            cmds_html = ''
+            if fray_cmds:
+                cmd_items = ''.join(f'<code style="background:var(--surface);padding:4px 10px;border-radius:5px;font-size:0.84em;display:inline-block;margin:2px 4px 2px 0;border:1px solid var(--border);">{c}</code>' for c in fray_cmds)
+                cmds_html = f'<div style="margin-top:8px;"><span class="muted" style="font-size:0.8em;">Fray commands:</span><br><div style="margin-top:4px;">{cmd_items}</div></div>'
+            st_html += f'''<div style="background:var(--surface2);border-radius:10px;padding:16px 20px;margin-bottom:12px;border-left:3px solid {sev_color};"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;"><span class="sev-badge" style="background:{sev_color}20;color:{sev_color};">{sev_label.upper()}</span><span style="font-weight:700;font-size:0.95em;">{_esc(typ)}</span><span class="muted" style="font-size:0.85em;">{len(targets)} target(s)</span></div>{desc_html}<div style="display:flex;flex-wrap:wrap;gap:6px;">{chips}{overflow}</div>{cmds_html}</div>'''
         parts.append(f'''
 <div class="sec" id="tests">
   <h2>Suggested Tests <span class="count">({len(tests_by_type)} types, {n_attack_targets} targets)</span></h2>
