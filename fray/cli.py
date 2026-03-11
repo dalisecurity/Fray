@@ -1931,6 +1931,9 @@ def cmd_recon(args):
                 "cdn": atk.get("cdn"),
                 "technologies": atk.get("technologies", []),
                 "findings": len(atk.get("findings", [])),
+                "per_subdomain_waf_cdn": result.get("cloud_distribution", {}).get("per_subdomain", []),
+                "multi_waf": result.get("cloud_distribution", {}).get("multi_waf", False),
+                "multi_cdn": result.get("cloud_distribution", {}).get("multi_cdn", False),
             }
             print(json.dumps(summary, ensure_ascii=False))
             all_results.append(result)
@@ -1947,6 +1950,7 @@ def cmd_recon(args):
                 "findings_count": len(findings),
                 "findings": findings,
                 "waf": atk.get("waf_vendor"),
+                "per_subdomain_waf_cdn": result.get("cloud_distribution", {}).get("per_subdomain", []),
                 "exit_code": 0,
             }
             # Check severity gate

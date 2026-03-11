@@ -1536,6 +1536,42 @@ def print_recon(result: Dict[str, Any]) -> None:
         cdn_s = f"[cyan]{cdn}[/cyan]" if cdn else "[dim]none[/dim]"
         console.print(f"    WAF: {waf_s}    CDN: {cdn_s}    TLS: {tls_v}")
 
+        # Per-subdomain WAF/CDN table
+        cloud_dist = result.get("cloud_distribution", {})
+        per_sub = cloud_dist.get("per_subdomain", [])
+        if per_sub:
+            console.print()
+            sub_table = Table(title="Per-Subdomain WAF / CDN", box=None, pad_edge=False,
+                              padding=(0, 1), show_header=True, header_style="bold")
+            sub_table.add_column("Subdomain", min_width=28)
+            sub_table.add_column("WAF", min_width=20)
+            sub_table.add_column("CDN", min_width=16)
+            sub_table.add_column("Cache", min_width=8)
+            sub_table.add_column("HTTP", width=5)
+            sub_table.add_column("Server", min_width=14)
+            for s in per_sub:
+                waf_v = s.get("waf") or "(no WAF)"
+                cdn_v = s.get("cdn") or "(direct)"
+                waf_style = f"[green]{waf_v}[/green]" if s.get("waf") else f"[red]{waf_v}[/red]"
+                cdn_style = f"[cyan]{cdn_v}[/cyan]" if s.get("cdn") else f"[dim]{cdn_v}[/dim]"
+                cache = s.get("cache_status") or "-"
+                http_st = str(s.get("status") or "-")
+                srv = (s.get("server") or "-")[:18]
+                sub_table.add_row(s["subdomain"], waf_style, cdn_style, cache, http_st, f"[dim]{srv}[/dim]")
+            console.print(sub_table)
+
+            # Distribution summary
+            waf_dist = cloud_dist.get("waf_distribution", {})
+            cdn_dist = cloud_dist.get("cdn_distribution", {})
+            if waf_dist:
+                waf_parts = ", ".join(f"[green]{k}[/green] {v['pct']}%" for k, v in waf_dist.items())
+                console.print(f"    WAF coverage: {waf_parts}")
+            if cdn_dist:
+                cdn_parts = ", ".join(f"[cyan]{k}[/cyan] {v['pct']}%" for k, v in cdn_dist.items())
+                console.print(f"    CDN coverage: {cdn_parts}")
+            if cloud_dist.get("multi_waf"):
+                console.print("    [yellow]⚠ Multi-WAF environment detected[/yellow]")
+
         # Row 2: Technologies
         techs = atk.get("technologies", [])
         if techs:
