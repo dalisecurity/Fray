@@ -1837,6 +1837,10 @@ def _fingerprint_waf_cdn(fqdn: str, timeout: float = 3.0) -> Dict[str, Any]:
         "cname": None,
         "ip": None,
         "server": None,
+        "status": None,
+        "cache_status": None,     # HIT / MISS / DYNAMIC / EXPIRED / etc.
+        "cache_age": None,        # Age header value (seconds)
+        "cache_control": None,    # Cache-Control header
         "headers_matched": [],
     }
 
@@ -1857,26 +1861,87 @@ def _fingerprint_waf_cdn(fqdn: str, timeout: float = 3.0) -> Dict[str, Any]:
     if ips:
         result["ip"] = ips[0]
 
-    # 3. HTTP HEAD probe
+    # 3. HTTP GET probe (GET, not HEAD — many CDNs strip cache headers on HEAD)
+    #    Probe / first for WAF/server detection, then /robots.txt for cache status
     resp_headers: Dict[str, str] = {}
-    for scheme, port_num in [("https", 443), ("http", 80)]:
-        try:
-            if scheme == "https":
-                ctx = _ssl.create_default_context()
-                ctx.check_hostname = False
-                ctx.verify_mode = _ssl.CERT_NONE
-                conn = http.client.HTTPSConnection(fqdn, port_num,
-                                                    timeout=timeout, context=ctx)
-            else:
-                conn = http.client.HTTPConnection(fqdn, port_num, timeout=timeout)
-            conn.request("HEAD", "/", headers={"User-Agent": "Mozilla/5.0"})
-            resp = conn.getresponse()
-            resp_headers = {k.lower(): v.lower() for k, v in resp.getheaders()}
-            result["server"] = resp_headers.get("server", None)
-            conn.close()
-            break
-        except Exception:
-            continue
+    _ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+
+    def _http_get(host: str, path: str, tout: float) -> Tuple[int, Dict[str, str]]:
+        for scheme, pn in [("https", 443), ("http", 80)]:
+            try:
+                if scheme == "https":
+                    ctx = _ssl.create_default_context()
+                    ctx.check_hostname = False
+                    ctx.verify_mode = _ssl.CERT_NONE
+                    c = http.client.HTTPSConnection(host, pn, timeout=tout, context=ctx)
+                else:
+                    c = http.client.HTTPConnection(host, pn, timeout=tout)
+                c.request("GET", path, headers={"User-Agent": _ua, "Accept": "*/*"})
+                r = c.getresponse()
+                r.read(8192)
+                hdrs = {k.lower(): v.lower() for k, v in r.getheaders()}
+                c.close()
+                return r.status, hdrs
+            except Exception:
+                continue
+        return 0, {}
+
+    # Primary probe: /
+    status, resp_headers = _http_get(fqdn, "/", timeout)
+    result["server"] = resp_headers.get("server", None)
+    result["status"] = status
+
+    # Secondary probe: /robots.txt (static, more likely to show cache HIT)
+    cache_probed = False
+    _cache_keys = ("cf-cache-status", "x-cache", "x-akamai-cache-status")
+    if not any(k in resp_headers for k in _cache_keys):
+        st2, hdrs2 = _http_get(fqdn, "/robots.txt", timeout)
+        if any(k in hdrs2 for k in _cache_keys):
+            # Merge cache headers from /robots.txt into results
+            for ck in _cache_keys:
+                if ck in hdrs2 and ck not in resp_headers:
+                    resp_headers[ck] = hdrs2[ck]
+            if "age" in hdrs2:
+                resp_headers["age"] = hdrs2["age"]
+            cache_probed = True
+        # Also use /robots.txt server header if missing
+        if not result["server"] and hdrs2.get("server"):
+            result["server"] = hdrs2.get("server")
+            resp_headers["server"] = hdrs2["server"]
+
+    # 5. Extract CDN cache headers
+    # Cloudflare: cf-cache-status (HIT/MISS/DYNAMIC/EXPIRED/REVALIDATED)
+    # Akamai: x-cache (TCP_HIT/TCP_MISS), x-akamai-cache-status, x-true-cache-key
+    # CloudFront: x-cache (Hit from cloudfront / Miss from cloudfront)
+    # Azure: x-cache (HIT/MISS), x-azure-ref
+    # Fastly: x-cache (HIT/MISS), x-cache-hits
+    # Generic: age header (seconds since cached)
+    cache_hdrs = {
+        "cf-cache-status": resp_headers.get("cf-cache-status"),
+        "x-cache": resp_headers.get("x-cache"),
+        "x-akamai-cache-status": resp_headers.get("x-akamai-cache-status"),
+        "x-cache-hits": resp_headers.get("x-cache-hits"),
+        "age": resp_headers.get("age"),
+        "cache-control": resp_headers.get("cache-control"),
+    }
+    # Determine cache status from available headers
+    cs = None
+    if cache_hdrs["cf-cache-status"]:
+        cs = cache_hdrs["cf-cache-status"].upper()
+    elif cache_hdrs["x-cache"]:
+        xc = cache_hdrs["x-cache"].upper()
+        if "HIT" in xc:
+            cs = "HIT"
+        elif "MISS" in xc:
+            cs = "MISS"
+        else:
+            cs = xc[:20]
+    elif cache_hdrs["x-akamai-cache-status"]:
+        cs = cache_hdrs["x-akamai-cache-status"].upper()
+
+    result["cache_status"] = cs
+    result["cache_age"] = cache_hdrs["age"]
+    result["cache_control"] = cache_hdrs["cache-control"]
 
     # 4. Match against WAF/CDN signatures
     detected_wafs = []
@@ -1971,6 +2036,9 @@ def analyze_cloud_distribution(subdomains: List[str],
                     "waf": info.get("waf"),
                     "cdn": info.get("cdn"),
                     "server": info.get("server"),
+                    "status": info.get("status"),
+                    "cache_status": info.get("cache_status"),
+                    "cache_age": info.get("cache_age"),
                 }
                 per_subdomain.append(entry)
 
