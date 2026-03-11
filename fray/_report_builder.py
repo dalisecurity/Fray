@@ -369,13 +369,24 @@ def build(rd: Dict[str, Any]) -> str:
 
     # Attack Priorities
     if attack_targets:
+        _TYPE_COLORS = {
+            'WAF Bypass': '#ef4444', 'Unprotected Subdomain': '#f97316',
+            'Account Takeover': '#ef4444', 'API Vulnerability': '#f97316',
+            'SSRF': '#ef4444', 'File Upload': '#f97316',
+            'Payment': '#ef4444', 'Cloud Storage': '#a855f7',
+            'LLM/AI': '#a855f7', 'DDoS': '#eab308',
+            'Cache Poisoning': '#eab308', 'JWT': '#f97316',
+            'Rate Limit': '#eab308', 'WebSocket': '#3b82f6',
+            'Robots Paths': '#64748b', 'Open Redirect': '#f97316',
+        }
         at_rows = ''
         for i, t in enumerate(attack_targets[:50], 1):
             tp = t.get('priority', 0)
             tt = t.get('type', '')
             tgt = t.get('target', '')
             pc = '#ef4444' if tp >= 90 else '#f97316' if tp >= 70 else '#eab308' if tp >= 50 else '#64748b'
-            at_rows += f'<tr><td class="num">{i}</td><td style="color:{pc};font-weight:700;">{tp}</td><td><span class="type-badge" style="background:#64748b20;color:#64748b;">{_esc(tt)}</span></td><td class="mono" style="font-size:0.85em;">{_esc(tgt)}</td></tr>'
+            tc = _TYPE_COLORS.get(tt, '#3b82f6')
+            at_rows += f'<tr><td class="num">{i}</td><td style="color:{pc};font-weight:700;">{tp}</td><td><span class="type-badge" style="background:{tc}20;color:{tc};">{_esc(tt)}</span></td><td class="mono" style="font-size:0.85em;">{_esc(tgt)}</td></tr>'
         parts.append(f'''
 <div class="sec" id="priorities">
   <h2>Attack Priorities <span class="count">({n_attack_targets} targets)</span></h2>
@@ -774,7 +785,7 @@ def build(rd: Dict[str, Any]) -> str:
 <div class="sec" id="subs">
   <h2>Subdomains <span class="count">({n_subs} unique)</span></h2>
   {src_line}{waf_bypass_html}
-  <details open><summary>Show subdomains{sub_overflow}</summary>
+  <details><summary>Show subdomains{sub_overflow}</summary>
   <table><tr><th>Subdomain</th></tr>{sub_rows}</table></details>
 </div>''')
 
