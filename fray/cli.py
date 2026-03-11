@@ -840,16 +840,18 @@ def _read_targets(args) -> list:
     Supports:
         fray recon https://example.com           # single target
         cat domains.txt | fray recon              # piped targets
+        cat domains.txt | fray recon -            # explicit stdin marker
         echo https://example.com | fray detect    # single pipe
     """
     targets = []
 
-    # 1. Explicit CLI argument
-    if getattr(args, 'target', None):
-        targets.append(args.target)
+    # 1. Explicit CLI argument ("-" means "read from stdin")
+    target_arg = getattr(args, 'target', None)
+    if target_arg and target_arg != '-':
+        targets.append(target_arg)
 
-    # 2. Stdin (piped)
-    if _is_piped():
+    # 2. Stdin (piped, or "-" forces stdin read)
+    if _is_piped() or target_arg == '-':
         for line in sys.stdin:
             line = line.strip()
             if not line or line.startswith('#'):
@@ -4283,6 +4285,9 @@ Documentation: https://github.com/dalisecurity/fray
     p_recon.add_argument("-H", "--header", action="append", help="Custom header (repeatable, format: 'Name: Value')")
     p_recon.add_argument("--login-flow", default=None,
                           help="Form login: 'URL,field=value,field=value' — captures session cookies")
+    p_recon.add_argument("--profile", default=None,
+                          choices=["quick", "standard", "deep", "stealth", "api", "bounty"],
+                          help="Scan preset: quick (~10s), standard (default), deep (~60s), stealth (slow+evasive), api (API-focused), bounty (max coverage)")
     p_recon.add_argument("--fast", action="store_true",
                           help="Fast mode (~15s): skip historical URLs, admin panels, rate limits, GraphQL")
     p_recon.add_argument("--deep", action="store_true",
@@ -4336,6 +4341,9 @@ Documentation: https://github.com/dalisecurity/fray
     p_test.add_argument("-p", "--payload-file", help="Specific payload file to use")
     p_test.add_argument("-t", "--timeout", type=int, default=8, help="Request timeout in seconds (default: 8)")
     p_test.add_argument("-d", "--delay", type=float, default=0.5, help="Delay between requests in seconds (default: 0.5)")
+    p_test.add_argument("--profile", default=None,
+                         choices=["quick", "standard", "deep", "stealth", "api", "bounty"],
+                         help="Scan preset: quick (fast, 20 payloads), standard (default), deep (all cats, mutate), stealth (slow+evasive), api (API cats), bounty (max coverage + resume)")
     p_test.add_argument("--all", action="store_true", help="Test all payload categories")
     p_test.add_argument("-m", "--max", type=int, default=None, help="Maximum number of payloads to test")
     p_test.add_argument("-o", "--output", default=None, help="Output results JSON file")
@@ -4957,6 +4965,57 @@ Documentation: https://github.com/dalisecurity/fray
         help="Show friendly guide to all fray commands")
     p_help.set_defaults(func=cmd_help)
 
+    # ── Scan Profile Presets ──────────────────────────────────────────────
+    # Profiles map to argparse defaults. CLI flags always override profiles.
+    # Usage: fray recon target --profile quick
+    #        fray test target -c xss --profile bounty
+
+    _RECON_PROFILES = {
+        "quick":    {"fast": True, "timeout": 5},
+        "standard": {},
+        "deep":     {"deep": True, "retirejs": True, "history": True, "js": True,
+                     "params": True, "leak": True, "timeout": 15},
+        "stealth":  {"stealth": True, "timeout": 15},
+        "api":      {"deep": True, "js": True, "params": True},
+        "bounty":   {"deep": True, "retirejs": True, "history": True, "js": True,
+                     "params": True, "leak": True, "timeout": 15,
+                     "ai_summary": True},
+    }
+
+    _TEST_PROFILES = {
+        "quick":    {"max": 20, "timeout": 5, "delay": 0.2},
+        "standard": {},
+        "deep":     {"all": True, "mutate": 10, "blind": True, "timeout": 12,
+                     "delay": 0.5},
+        "stealth":  {"stealth": True, "delay": 2.0, "jitter": 1.5,
+                     "rate_limit": 1.0, "timeout": 15},
+        "api":      {"category": "sqli,ssrf,ssti,path_traversal,command_injection",
+                     "timeout": 10, "delay": 0.3},
+        "bounty":   {"all": True, "mutate": 10, "blind": True, "resume": True,
+                     "timeout": 12, "delay": 0.5, "auto_throttle": True},
+    }
+
+    def _apply_profile(args):
+        """Apply --profile preset defaults. Explicit CLI flags take precedence."""
+        profile = getattr(args, "profile", None)
+        if not profile:
+            return
+        command = getattr(args, "command", "")
+        profiles = _RECON_PROFILES if command == "recon" else _TEST_PROFILES
+        defaults = profiles.get(profile, {})
+        for key, value in defaults.items():
+            current = getattr(args, key, None)
+            # Only apply if CLI didn't set it (None for optional, False for store_true,
+            # default values for typed args)
+            if current is None or current is False:
+                setattr(args, key, value)
+            elif key == "max" and current is None:
+                setattr(args, key, value)
+            elif key == "delay" and current == 0.5 and value != 0.5:
+                setattr(args, key, value)
+            elif key == "timeout" and current == 8 and value != 8:
+                setattr(args, key, value)
+
     args = parser.parse_args()
 
     if not args.command:
@@ -4970,6 +5029,9 @@ Documentation: https://github.com/dalisecurity/fray
     load_env_from_config(config)
     if config:
         apply_config_defaults(args, config, args.command)
+
+    # Apply --profile presets (after config, before command execution)
+    _apply_profile(args)
 
     args.func(args)
 
