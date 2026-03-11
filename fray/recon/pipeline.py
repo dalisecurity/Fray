@@ -774,6 +774,38 @@ def _build_attack_surface_summary(r: Dict[str, Any]) -> Dict[str, Any]:
     critical_cves = [v for v in fl_vulns if v.get("severity") in ("critical", "high")]
     n_sri_missing = fl.get("sri_missing", 0) if isinstance(fl, dict) else 0
 
+    # ── Per-finding severity scoring model ──
+    # Maps keywords in finding text to specific numeric scores (0-100).
+    # Falls back to severity-level base scores if no keyword match.
+    _FINDING_SCORES = {
+        # Critical (80-100)
+        "origin IP exposed":        95, "takeover":              95,
+        "secret":                   90, "leaked":                90,
+        "bypass WAF":               90, "admin panel":           85,
+        # High (60-79)
+        "host header injection":    75, "CORS misconfiguration": 70,
+        "GraphQL introspection":    70, "risky port":            65,
+        "CVE":                      65, "origin IP candidate":   60,
+        "HIBP breach":              60, "credential":            60,
+        # Medium (30-59)
+        "clickjacking":             50, "dangerous HTTP method":  45,
+        "injectable parameter":     45, "exposed sensitive file": 40,
+        "staging":                  40, "SRI":                   35,
+        "TLS certificate expires":  35,
+        # Low (10-29)
+        "Content-Security-Policy":  20, "robots.txt":            15,
+        "WAF":                      10,
+    }
+    _SEVERITY_BASE = {"critical": 90, "high": 65, "medium": 40, "low": 15}
+
+    def _score_finding(f: dict) -> int:
+        text = f.get("finding", "")
+        sev = f.get("severity", "low")
+        for keyword, score in _FINDING_SCORES.items():
+            if keyword.lower() in text.lower():
+                return score
+        return _SEVERITY_BASE.get(sev, 15)
+
     # ── Build findings list (for quick scan) ──
     findings = []
     if critical_cves:
@@ -844,7 +876,13 @@ def _build_attack_surface_summary(r: Dict[str, Any]) -> Dict[str, Any]:
     if n_leak_breaches > 0:
         findings.append({"severity": "high", "finding": f"Domain in {n_leak_breaches} HIBP breach(es) ({leak_pwn:,} accounts)"})
 
-    # ── Risk score (0-100) ──
+    # ── Per-finding risk scores (0-100) ──
+    for f in findings:
+        f["risk_score"] = _score_finding(f)
+    # Sort findings by risk_score descending
+    findings.sort(key=lambda f: f["risk_score"], reverse=True)
+
+    # ── Aggregate risk score (0-100) ──
     risk_score = 0
     for f in findings:
         if f["severity"] == "critical": risk_score += 25
@@ -1391,7 +1429,9 @@ def print_recon(result: Dict[str, Any]) -> None:
                          "low": "[dim]\u25cb LOW[/dim]"}
             for f in findings:
                 icon = sev_icons.get(f["severity"], "[dim]?[/dim]")
-                console.print(f"      {icon}  {f['finding']}")
+                score = f.get("risk_score", 0)
+                score_color = "bold red" if score >= 80 else ("red" if score >= 60 else ("yellow" if score >= 40 else "dim"))
+                console.print(f"      {icon} [{score_color}]{score:>3}[/{score_color}]  {f['finding']}")
             console.print()
 
         console.print("  " + "\u2500" * 60)

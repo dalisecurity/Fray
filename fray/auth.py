@@ -508,3 +508,110 @@ class AuthProfile:
         if self.custom_headers:
             d["headers"] = self.custom_headers
         return d
+
+    # ── Session persistence ───────────────────────────────────────────────
+
+    _SESSIONS_DIR = Path.home() / ".fray" / "sessions"
+
+    def save_session(self, name: str) -> Path:
+        """Save current session state (cookies, tokens) to ~/.fray/sessions/<name>.json.
+
+        Only saves live session data — not secrets like client_secret or passwords.
+        """
+        self._SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+        data: Dict = {
+            "name": name,
+            "auth_type": self.auth_type,
+            "saved_at": datetime.now(timezone.utc).isoformat(),
+        }
+        # Save cookies
+        if self._session_cookies:
+            data["cookies"] = dict(self._session_cookies)
+        if self.cookie:
+            data["cookie_header"] = self.cookie
+        # Save tokens (short-lived, but useful for session reuse)
+        if self._access_token:
+            data["access_token"] = self._access_token
+            data["token_expiry"] = self._token_expiry
+        if self.bearer_token:
+            data["bearer_token"] = self.bearer_token
+        # Save custom headers (may include auth)
+        if self.custom_headers:
+            data["custom_headers"] = self.custom_headers
+        # Save source info for re-auth
+        if self.login_url:
+            data["login_url"] = self.login_url
+        if self.token_url:
+            data["token_url"] = self.token_url
+
+        path = self._SESSIONS_DIR / f"{name}.json"
+        path.write_text(json.dumps(data, indent=2, ensure_ascii=False),
+                        encoding="utf-8")
+        return path
+
+    @classmethod
+    def load_session(cls, name: str) -> "AuthProfile":
+        """Load a saved session from ~/.fray/sessions/<name>.json.
+
+        Returns an AuthProfile pre-populated with cookies/tokens from disk.
+        """
+        path = cls._SESSIONS_DIR / f"{name}.json"
+        if not path.is_file():
+            raise FileNotFoundError(f"Session not found: {path}")
+
+        data = json.loads(path.read_text(encoding="utf-8"))
+        auth_type = data.get("auth_type", "cookie")
+
+        profile = cls(auth_type=auth_type)
+
+        # Restore cookies
+        if "cookies" in data:
+            profile._session_cookies = data["cookies"]
+        if "cookie_header" in data:
+            profile.cookie = data["cookie_header"]
+        # Restore tokens
+        if "access_token" in data:
+            profile._access_token = data["access_token"]
+            profile._token_expiry = data.get("token_expiry", 0.0)
+        if "bearer_token" in data:
+            profile.bearer_token = data["bearer_token"]
+        # Restore custom headers
+        if "custom_headers" in data:
+            profile.custom_headers = data["custom_headers"]
+        # Restore source info
+        if "login_url" in data:
+            profile.login_url = data["login_url"]
+        if "token_url" in data:
+            profile.token_url = data["token_url"]
+
+        return profile
+
+    @classmethod
+    def list_sessions(cls) -> List[Dict]:
+        """List all saved sessions with metadata."""
+        sessions = []
+        if not cls._SESSIONS_DIR.is_dir():
+            return sessions
+        for f in sorted(cls._SESSIONS_DIR.glob("*.json")):
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                sessions.append({
+                    "name": f.stem,
+                    "auth_type": data.get("auth_type", "?"),
+                    "saved_at": data.get("saved_at", "?"),
+                    "has_cookies": bool(data.get("cookies")),
+                    "has_token": bool(data.get("access_token") or data.get("bearer_token")),
+                })
+            except (json.JSONDecodeError, OSError):
+                continue
+        return sessions
+
+    @classmethod
+    def delete_session(cls, name: str) -> bool:
+        """Delete a saved session."""
+        path = cls._SESSIONS_DIR / f"{name}.json"
+        try:
+            path.unlink(missing_ok=True)
+            return True
+        except OSError:
+            return False

@@ -734,8 +734,25 @@ def _validate_output_path(output: str) -> None:
 
 
 def build_auth_headers(args) -> dict:
-    """Build auth headers from CLI flags: --cookie, --bearer, --header, --login-flow"""
+    """Build auth headers from CLI flags: --cookie, --bearer, --header, --login-flow, --load-session"""
     headers = {}
+
+    # 1. Load saved session first (can be overridden by explicit flags)
+    _auth_profile = None
+    load_name = getattr(args, 'load_session', None)
+    if load_name:
+        try:
+            from fray.auth import AuthProfile
+            _auth_profile = AuthProfile.load_session(load_name)
+            sess_headers = _auth_profile.get_headers()
+            headers.update(sess_headers)
+            sys.stderr.write(f"  Session loaded: {load_name} ({_auth_profile.auth_type})\n")
+        except FileNotFoundError:
+            sys.stderr.write(f"  ⚠  Session not found: {load_name}\n")
+        except Exception as e:
+            sys.stderr.write(f"  ⚠  Failed to load session: {e}\n")
+
+    # 2. Explicit flags override loaded session
     if getattr(args, 'cookie', None):
         headers['Cookie'] = args.cookie
     if getattr(args, 'bearer', None):
@@ -753,6 +770,27 @@ def build_auth_headers(args) -> dict:
                 headers['Cookie'] = f"{existing}; {session_cookie}"
             else:
                 headers['Cookie'] = session_cookie
+
+    # 3. Save session if --save-session was requested
+    save_name = getattr(args, 'save_session', None)
+    if save_name and headers:
+        try:
+            from fray.auth import AuthProfile
+            profile = _auth_profile or AuthProfile(auth_type="custom")
+            # Populate from current headers
+            if 'Cookie' in headers and not profile.cookie and not profile._session_cookies:
+                profile.cookie = headers['Cookie']
+            if 'Authorization' in headers and headers['Authorization'].startswith('Bearer '):
+                token = headers['Authorization'][7:]
+                if not profile.bearer_token and not profile._access_token:
+                    profile.bearer_token = token
+            profile.custom_headers = {k: v for k, v in headers.items()
+                                       if k.lower() not in ('cookie', 'authorization')}
+            path = profile.save_session(save_name)
+            sys.stderr.write(f"  Session saved: {path}\n")
+        except Exception as e:
+            sys.stderr.write(f"  ⚠  Failed to save session: {e}\n")
+
     return headers
 
 
@@ -4285,6 +4323,10 @@ Documentation: https://github.com/dalisecurity/fray
     p_recon.add_argument("-H", "--header", action="append", help="Custom header (repeatable, format: 'Name: Value')")
     p_recon.add_argument("--login-flow", default=None,
                           help="Form login: 'URL,field=value,field=value' — captures session cookies")
+    p_recon.add_argument("--save-session", dest="save_session", default=None, metavar="NAME",
+                          help="Save session cookies/tokens to ~/.fray/sessions/NAME.json for reuse")
+    p_recon.add_argument("--load-session", dest="load_session", default=None, metavar="NAME",
+                          help="Load a saved session from ~/.fray/sessions/NAME.json")
     p_recon.add_argument("--profile", default=None,
                           choices=["quick", "standard", "deep", "stealth", "api", "bounty"],
                           help="Scan preset: quick (~10s), standard (default), deep (~60s), stealth (slow+evasive), api (API-focused), bounty (max coverage)")
@@ -4332,6 +4374,10 @@ Documentation: https://github.com/dalisecurity/fray
     p_detect.add_argument("-H", "--header", action="append", help="Custom header (repeatable, format: 'Name: Value')")
     p_detect.add_argument("--login-flow", default=None,
                            help="Form login: 'URL,field=value,field=value' — captures session cookies")
+    p_detect.add_argument("--save-session", dest="save_session", default=None, metavar="NAME",
+                           help="Save session cookies/tokens to ~/.fray/sessions/NAME.json")
+    p_detect.add_argument("--load-session", dest="load_session", default=None, metavar="NAME",
+                           help="Load a saved session from ~/.fray/sessions/NAME.json")
     p_detect.set_defaults(func=cmd_detect)
 
     # test
@@ -4384,6 +4430,10 @@ Documentation: https://github.com/dalisecurity/fray
                          help="OOB callback server for blind detection (e.g. oast.fun, interact.sh)")
     p_test.add_argument("--auth-profile", default=None, metavar="FILE",
                          help="Auth profile JSON file (~/.fray/auth/*.json) — OAuth2, form login, multi-step")
+    p_test.add_argument("--save-session", dest="save_session", default=None, metavar="NAME",
+                         help="Save session cookies/tokens to ~/.fray/sessions/NAME.json for reuse")
+    p_test.add_argument("--load-session", dest="load_session", default=None, metavar="NAME",
+                         help="Load a saved session from ~/.fray/sessions/NAME.json")
     p_test.add_argument("--resume", action="store_true",
                          help="Resume an interrupted scan from checkpoint (~/.fray/checkpoints/)")
     p_test.add_argument("--notify", default=None, metavar="WEBHOOK_URL",
