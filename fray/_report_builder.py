@@ -481,8 +481,13 @@ def build(rd: Dict[str, Any]) -> str:
             badges += '<span class="tag" style="background:rgba(234,179,8,0.15);color:var(--yellow);">Multi-CDN</span> '
 
         show_limit = 200
+        def _sub_sort_key(s):
+            has_waf = 1 if s.get('waf') else 0
+            has_cdn = 1 if s.get('cdn') else 0
+            return (-has_waf, -has_cdn, s.get('subdomain', ''))
+        per_sub_sorted = sorted(per_sub, key=_sub_sort_key)
         sr = ''
-        for i, s in enumerate(per_sub[:show_limit]):
+        for i, s in enumerate(per_sub_sorted[:show_limit]):
             wv = s.get('waf') or '(no WAF)'
             cv = s.get('cdn') or '(direct)'
             ca = s.get('cache_status') or '-'
