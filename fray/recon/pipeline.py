@@ -549,12 +549,18 @@ def run_recon(url: str, timeout: int = 8,
             "Rate limits (critical paths)"))
         result["rate_limits_critical"] = await _safe(t_rl_crit, {})
 
-        # ── Tier 4: GitHub org recon + employee email breach check ──
-        from fray.osint import github_org_recon, enumerate_employees
+        # ── Tier 4: GitHub org recon + OSINT email harvest + breach check ──
+        from fray.osint import github_org_recon, enumerate_employees, harvest_emails
         t_github = asyncio.create_task(_run(
             lambda: github_org_recon(host, timeout=timeout),
             "GitHub org recon"))
+        # Strip www. for email domain
+        _email_domain = host[4:] if host.startswith("www.") else host
+        t_emails = asyncio.create_task(_run(
+            lambda: harvest_emails(_email_domain, timeout=timeout),
+            "OSINT email harvest"))
         result["github_recon"] = await _safe(t_github, {})
+        result["email_harvest"] = await _safe(t_emails, {})
 
         # Cross-reference discovered employee emails with breach databases
         t_emp_breach = asyncio.create_task(_run(

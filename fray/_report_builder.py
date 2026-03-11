@@ -385,17 +385,20 @@ def build(rd: Dict[str, Any]) -> str:
             'LLM / AI Prompt Injection': '#a855f7',
         }
         at_rows = ''
-        for i, t in enumerate(attack_targets[:50], 1):
+        _at_limit = 20
+        for i, t in enumerate(attack_targets[:_at_limit], 1):
             tp = t.get('priority', 0)
             tt = t.get('type', '')
             tgt = t.get('target', '')
             pc = '#ef4444' if tp >= 90 else '#f97316' if tp >= 70 else '#eab308' if tp >= 50 else '#64748b'
             tc = _TYPE_COLORS.get(tt, '#3b82f6')
             at_rows += f'<tr><td class="num">{i}</td><td style="color:{pc};font-weight:700;">{tp}</td><td><span class="type-badge" style="background:{tc}20;color:{tc};">{_esc(tt)}</span></td><td class="mono" style="font-size:0.85em;">{_esc(tgt)}</td></tr>'
+        overflow_note = f'<p class="muted" style="margin-top:8px;font-size:0.85em;">Showing top {_at_limit} of {n_attack_targets} targets by priority. See <a href="#vectors" style="color:var(--accent);">Attack Vectors</a> above for full details.</p>' if n_attack_targets > _at_limit else ''
         parts.append(f'''
 <div class="sec" id="priorities">
-  <h2>Attack Priorities <span class="count">({n_attack_targets} targets)</span></h2>
+  <h2>Attack Priorities <span class="count">(Top {min(_at_limit, n_attack_targets)} of {n_attack_targets})</span></h2>
   <table><tr><th>#</th><th>Priority</th><th>Type</th><th>Target</th></tr>{at_rows}</table>
+  {overflow_note}
 </div>''')
 
     # CVEs — both frontend libs and server-side technologies
@@ -643,6 +646,51 @@ def build(rd: Dict[str, Any]) -> str:
 
     spf = dns.get('spf', '')
     dmarc = dns.get('dmarc', '')
+
+    # DNSSEC
+    dnssec = rd.get('dnssec', {}) or {}
+    dnssec_enabled = dnssec.get('enabled', False) if isinstance(dnssec, dict) else False
+    dnssec_validated = dnssec.get('validated', False) if isinstance(dnssec, dict) else False
+    if dnssec_enabled and dnssec_validated:
+        dnssec_display = '<span style="color:var(--green);font-weight:600;">&#x2713; Enabled &amp; Validated</span>'
+    elif dnssec_enabled:
+        dnssec_display = '<span style="color:var(--yellow);font-weight:600;">&#x26a0; Enabled but not validated</span>'
+    else:
+        dnssec_display = '<span style="color:var(--red);">&#x2717; Not enabled</span>'
+    dnssec_detail = ''
+    if dnssec.get('has_dnskey'):
+        dnssec_detail += ' <span class="muted" style="font-size:0.82em;">DNSKEY</span>'
+    if dnssec.get('has_rrsig'):
+        dnssec_detail += ' <span class="muted" style="font-size:0.82em;">RRSIG</span>'
+    if dnssec.get('nsec_type'):
+        dnssec_detail += f' <span class="muted" style="font-size:0.82em;">{_esc(str(dnssec["nsec_type"]))}</span>'
+
+    # OSINT email harvest
+    email_harvest = rd.get('email_harvest', {}) or {}
+    harvest_emails_list = email_harvest.get('emails', []) if isinstance(email_harvest, dict) else []
+    role_addresses = email_harvest.get('role_addresses', []) if isinstance(email_harvest, dict) else []
+    email_patterns = email_harvest.get('patterns', []) if isinstance(email_harvest, dict) else []
+    email_html = ''
+    if harvest_emails_list or role_addresses:
+        email_chips = ''
+        for e in harvest_emails_list[:10]:
+            addr = e.get('email', str(e)) if isinstance(e, dict) else str(e)
+            email_chips += f'<code style="background:var(--surface);padding:3px 8px;border-radius:4px;font-size:0.85em;border:1px solid var(--border);">{_esc(addr)}</code> '
+        for r in role_addresses[:5]:
+            addr = r.get('address', str(r)) if isinstance(r, dict) else str(r)
+            status = r.get('status', '') if isinstance(r, dict) else ''
+            st_color = 'var(--green)' if status == 'valid' else 'var(--muted)'
+            email_chips += f'<code style="background:var(--surface);padding:3px 8px;border-radius:4px;font-size:0.85em;border:1px solid {st_color};">{_esc(addr)}</code> '
+        n_emails = len(harvest_emails_list) + len(role_addresses)
+        pattern_note = ''
+        if email_patterns:
+            pat = email_patterns[0].get('pattern', '') if isinstance(email_patterns[0], dict) else str(email_patterns[0])
+            if pat:
+                pattern_note = f' <span class="muted" style="font-size:0.82em;">Pattern: <code>{_esc(pat)}</code></span>'
+        email_html = f'<tr><td class="kv-key">Emails (OSINT)</td><td>{email_chips}{pattern_note}</td></tr>'
+    elif not harvest_emails_list:
+        email_html = '<tr><td class="kv-key">Emails (OSINT)</td><td class="muted">No emails discovered (set HUNTER_API_KEY for deeper results)</td></tr>'
+
     parts.append(f'''
 <div class="sec" id="dns">
   <h2>DNS &amp; Email</h2>
@@ -650,8 +698,10 @@ def build(rd: Dict[str, Any]) -> str:
     <tr><td class="kv-key">NS</td><td class="mono" style="word-break:break-all;">{_esc(ns_display)}</td></tr>
     <tr><td class="kv-key">MX</td><td style="word-break:break-all;">{mx_display}</td></tr>
     <tr><td class="kv-key">CNAME Chain</td><td style="word-break:break-all;">{cname_display}</td></tr>
+    <tr><td class="kv-key">DNSSEC</td><td>{dnssec_display}{dnssec_detail}</td></tr>
     <tr><td class="kv-key">SPF</td><td>{'&#x2713; ' + _esc(spf[:100]) if spf else '&#x2717; <span style=\"color:var(--red);\">Missing</span>'}</td></tr>
     <tr><td class="kv-key">DMARC</td><td>{'&#x2713; ' + _esc(dmarc[:100]) if dmarc else '&#x2717; <span style=\"color:var(--red);\">Missing</span>'}</td></tr>
+    {email_html}
   </table>
 </div>''')
 
@@ -682,12 +732,10 @@ def build(rd: Dict[str, Any]) -> str:
         for i, s in enumerate(per_sub_sorted[:show_limit]):
             wv = s.get('waf') or '—'
             cv = s.get('cdn') or '—'
-            ca = s.get('cache_status') or '-'
-            ht = str(s.get('status') or '-')
             sv = _esc((s.get('server') or '-')[:20])
             ws = 'color:var(--green);font-weight:600;' if s.get('waf') else 'color:var(--red);'
             cs = 'color:var(--blue);font-weight:600;' if s.get('cdn') else 'color:var(--muted);'
-            sr += f'<tr><td class="mono">{_esc(s["subdomain"])}</td><td style="{ws}">{_esc(wv)}</td><td style="{cs}">{_esc(cv)}</td><td>{_esc(ca)}</td><td>{_esc(ht)}</td><td class="muted">{sv}</td></tr>'
+            sr += f'<tr><td class="mono">{_esc(s["subdomain"])}</td><td style="{ws}">{_esc(wv)}</td><td style="{cs}">{_esc(cv)}</td><td class="muted">{sv}</td></tr>'
 
         overflow = f'<p class="muted" style="margin-top:8px;">Showing first {show_limit} of {len(per_sub)} subdomains.</p>' if len(per_sub) > show_limit else ''
 
@@ -697,7 +745,7 @@ def build(rd: Dict[str, Any]) -> str:
   <h2>Per-Subdomain WAF / CDN Analysis <span class="count">({len(protected_subs)} protected of {len(per_sub)} probed)</span></h2>
   <div style="margin-bottom:14px;">{badges}</div>
   <details open><summary>Show protected subdomains ({len(protected_subs)})</summary>
-  <table><tr><th>Subdomain</th><th>WAF</th><th>CDN</th><th>Cache</th><th>HTTP</th><th>Server</th></tr>{sr}</table>
+  <table><tr><th>Subdomain</th><th>WAF</th><th>CDN</th><th>Server</th></tr>{sr}</table>
   {overflow}{unprotected_note}</details>
 </div>''')
 
