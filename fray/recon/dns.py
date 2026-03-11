@@ -1743,35 +1743,82 @@ _CLOUD_PROVIDERS = {
 }
 
 
-# WAF fingerprint signatures detected from HTTP response headers
-_WAF_HEADER_SIGNATURES = {
-    "Cloudflare":   {"headers": {"server": "cloudflare", "cf-ray": ""},
-                     "cname_hints": ["cloudflare"]},
-    "AWS WAF":      {"headers": {"x-amzn-waf-action": "", "x-amz-cf-id": ""},
-                     "cname_hints": ["awswaf"]},
-    "CloudFront":   {"headers": {"x-amz-cf-id": "", "x-amz-cf-pop": "", "via": "cloudfront"},
-                     "cname_hints": ["cloudfront.net"]},
-    "Akamai":       {"headers": {"x-akamai-transformed": "", "server": "akamaighost"},
-                     "cname_hints": ["akamai", "edgesuite", "edgekey"]},
-    "Imperva":      {"headers": {"x-iinfo": "", "x-cdn": "imperva"},
-                     "cname_hints": ["incapsula", "imperva"]},
-    "Sucuri":       {"headers": {"x-sucuri-id": "", "x-sucuri-cache": ""},
-                     "cname_hints": ["sucuri"]},
-    "Fastly":       {"headers": {"x-served-by": "", "via": "varnish", "x-fastly-request-id": ""},
-                     "cname_hints": ["fastly"]},
-    "Azure CDN":    {"headers": {"x-msedge-ref": ""},
-                     "cname_hints": ["azureedge", "msecnd"]},
-    "Azure Front Door": {"headers": {"x-azure-ref": ""},
-                          "cname_hints": ["azurefd", "afd."]},
-    "Google CDN":   {"headers": {"via": "google"},
-                     "cname_hints": ["googleusercontent", "googlevideo"]},
-    "F5 BIG-IP":    {"headers": {"server": "big-ip", "x-cnection": ""},
-                     "cname_hints": []},
-    "Barracuda":    {"headers": {"server": "barracuda"},
-                     "cname_hints": ["barracuda"]},
-    "FortiWeb":     {"headers": {"server": "fortiweb"},
-                     "cname_hints": []},
-}
+# WAF/CDN fingerprint signatures.
+# "waf" and "cdn" indicate what to label when matched.
+# Many CDN providers bundle WAF (Akamai Kona, Azure Front Door WAF,
+# AWS WAF+CloudFront, Cloudflare WAF) — we detect them as both.
+_WAF_CDN_SIGNATURES = [
+    # ── Cloudflare (WAF + CDN) ──
+    {"name": "Cloudflare", "waf": "Cloudflare", "cdn": "Cloudflare",
+     "headers": {"server": "cloudflare", "cf-ray": "", "cf-cache-status": ""},
+     "cname_hints": ["cloudflare"]},
+
+    # ── Akamai (Kona Site Defender / App & API Protector + CDN) ──
+    {"name": "Akamai", "waf": "Akamai (Kona/AAP)", "cdn": "Akamai",
+     "headers": {"server": "akamaighost", "x-akamai-transformed": "",
+                 "x-akamai-session-info": "", "x-akamai-request-id": ""},
+     "server_contains": ["akamai"],
+     "cname_hints": ["akamai", "edgesuite", "edgekey", "akamaized",
+                     "akamaiedge", "akamaitechnologies"]},
+    # Akamai NetStorage (CDN only, no WAF)
+    {"name": "Akamai NetStorage", "waf": None, "cdn": "Akamai",
+     "headers": {"server": "akamainetstorage"},
+     "server_contains": ["akamainetstorag"],
+     "cname_hints": ["netstorage"]},
+
+    # ── AWS CloudFront + WAF ──
+    {"name": "CloudFront", "waf": "AWS WAF", "cdn": "CloudFront",
+     "headers": {"x-amz-cf-id": "", "x-amz-cf-pop": "", "via": "cloudfront",
+                 "x-cache": ""},
+     "cname_hints": ["cloudfront.net"]},
+    # Explicit AWS WAF header (may appear without CloudFront)
+    {"name": "AWS WAF", "waf": "AWS WAF", "cdn": None,
+     "headers": {"x-amzn-waf-action": ""},
+     "cname_hints": ["awswaf"]},
+
+    # ── Azure Front Door (bundled WAF + CDN) ──
+    {"name": "Azure Front Door", "waf": "Azure Front Door WAF", "cdn": "Azure Front Door",
+     "headers": {"x-azure-ref": ""},
+     "cname_hints": ["azurefd", "afd.", "trafficmanager.net"]},
+    # Azure CDN (Verizon/Akamai backend, may or may not have WAF)
+    {"name": "Azure CDN", "waf": None, "cdn": "Azure CDN",
+     "headers": {"x-msedge-ref": "", "x-ec-custom-error": ""},
+     "cname_hints": ["azureedge", "msecnd"]},
+
+    # ── Imperva / Incapsula (WAF + CDN) ──
+    {"name": "Imperva", "waf": "Imperva", "cdn": "Imperva",
+     "headers": {"x-iinfo": "", "x-cdn": "imperva", "x-iinfo-origin-env": ""},
+     "cname_hints": ["incapsula", "imperva"]},
+
+    # ── Fastly (Signal Sciences WAF + CDN) ──
+    {"name": "Fastly", "waf": "Fastly (Signal Sciences)", "cdn": "Fastly",
+     "headers": {"x-served-by": "", "x-fastly-request-id": ""},
+     "cname_hints": ["fastly"]},
+
+    # ── Sucuri (WAF + CDN) ──
+    {"name": "Sucuri", "waf": "Sucuri", "cdn": "Sucuri",
+     "headers": {"x-sucuri-id": "", "x-sucuri-cache": ""},
+     "cname_hints": ["sucuri"]},
+
+    # ── Google Cloud CDN / Cloud Armor (WAF) ──
+    {"name": "Google Cloud", "waf": "Google Cloud Armor", "cdn": "Google CDN",
+     "headers": {"via": "google", "x-goog-": ""},
+     "cname_hints": ["googleusercontent", "googlevideo", "withgoogle"]},
+
+    # ── Standalone WAFs (no CDN) ──
+    {"name": "F5 BIG-IP", "waf": "F5 BIG-IP ASM", "cdn": None,
+     "headers": {"server": "big-ip", "x-cnection": ""},
+     "cname_hints": []},
+    {"name": "Barracuda", "waf": "Barracuda WAF", "cdn": None,
+     "headers": {"server": "barracuda"},
+     "cname_hints": ["barracuda"]},
+    {"name": "FortiWeb", "waf": "FortiWeb", "cdn": None,
+     "headers": {"server": "fortiweb"},
+     "cname_hints": []},
+    {"name": "Citrix NetScaler", "waf": "Citrix NetScaler", "cdn": None,
+     "headers": {"via": "ns-cache", "cneonction": "", "x-nsprotect": ""},
+     "cname_hints": []},
+]
 
 
 def _fingerprint_waf_cdn(fqdn: str, timeout: float = 3.0) -> Dict[str, Any]:
@@ -1834,38 +1881,44 @@ def _fingerprint_waf_cdn(fqdn: str, timeout: float = 3.0) -> Dict[str, Any]:
     # 4. Match against WAF/CDN signatures
     detected_wafs = []
     detected_cdns = []
+    server_hdr = resp_headers.get("server", "").lower()
 
-    for vendor, sig in _WAF_HEADER_SIGNATURES.items():
+    for sig in _WAF_CDN_SIGNATURES:
         matched = False
-        # Check headers
+        # Check response headers
         for hdr_key, hdr_val in sig["headers"].items():
             if hdr_key in resp_headers:
                 if not hdr_val or hdr_val in resp_headers[hdr_key]:
                     matched = True
-                    result["headers_matched"].append(f"{vendor}:{hdr_key}")
+                    result["headers_matched"].append(f"{sig['name']}:{hdr_key}")
+                    break
+        # Check server header substring (e.g. "akamai" in "akamaighost")
+        if not matched and server_hdr and "server_contains" in sig:
+            for fragment in sig["server_contains"]:
+                if fragment in server_hdr:
+                    matched = True
+                    result["headers_matched"].append(f"{sig['name']}:server~{fragment}")
                     break
         # Check CNAME hints
         if not matched and result["cname"]:
             for hint in sig.get("cname_hints", []):
                 if hint in result["cname"]:
                     matched = True
-                    result["headers_matched"].append(f"{vendor}:cname={hint}")
+                    result["headers_matched"].append(f"{sig['name']}:cname={hint}")
                     break
 
         if matched:
-            # Classify as WAF or CDN (some are both)
-            if vendor in ("CloudFront", "Azure CDN", "Google CDN", "Fastly",
-                          "Akamai", "Azure Front Door"):
-                detected_cdns.append(vendor)
-            elif vendor in ("Cloudflare",):
-                detected_wafs.append(vendor)
-                detected_cdns.append(vendor)  # Cloudflare is both
-            else:
-                detected_wafs.append(vendor)
+            if sig["waf"] and sig["waf"] not in detected_wafs:
+                detected_wafs.append(sig["waf"])
+            if sig["cdn"] and sig["cdn"] not in detected_cdns:
+                detected_cdns.append(sig["cdn"])
 
     result["waf"] = detected_wafs[0] if detected_wafs else None
     result["cdn"] = detected_cdns[0] if detected_cdns else None
-    # If IP matched a cloud provider, use that as CDN fallback
+    result["waf_all"] = detected_wafs
+    result["cdn_all"] = detected_cdns
+
+    # IP-based fallback for CDN only (if no header/CNAME match)
     if not result["cdn"] and result["ip"]:
         for provider, prefixes in _CLOUD_PROVIDERS.items():
             for prefix in prefixes:
