@@ -634,6 +634,18 @@ def build(rd: Dict[str, Any]) -> str:
 </div>''')
 
     # Suggested Tests
+    _TEST_META = {
+        'WAF Bypass': ('critical', '#ef4444', 'Send payloads directly to origin IPs that bypass WAF filtering — test XSS, SQLi, SSTI without WAF interference'),
+        'Unprotected Subdomain': ('high', '#f97316', 'Probe subdomains with no WAF/CDN for injection vulnerabilities, open redirects, and information disclosure'),
+        'Account Takeover': ('critical', '#ef4444', 'Test login endpoints for credential stuffing, brute-force, session fixation, OAuth misconfiguration, and 2FA bypass'),
+        'API Vulnerability': ('high', '#f97316', 'Test API endpoints for BOLA/IDOR, broken authentication, excessive data exposure, mass assignment, and SSRF'),
+        'LLM / AI Prompt Injection': ('high', '#f97316', 'Test AI/chatbot endpoints for prompt injection, jailbreaking, system prompt leakage, and indirect injection'),
+        'Payment / Financial Abuse': ('critical', '#ef4444', 'Test payment flows for price manipulation, payment bypass, race conditions, and card testing'),
+        'Staging / Dev Environment': ('high', '#f97316', 'Probe staging/dev environments for debug endpoints, default credentials, verbose errors, and config leakage'),
+        'DDoS / L7 Denial of Service': ('medium', '#eab308', 'Test rate limiting effectiveness, slow HTTP attacks, and resource-intensive query patterns'),
+        'Web Cache Poisoning': ('medium', '#eab308', 'Test CDN cache behaviour with unkeyed headers, parameter cloaking, and cache deception techniques'),
+        'DDoS \u2014 Direct Origin': ('high', '#f97316', 'Verify origin IP accessibility and test for lack of IP-based access controls or rate limiting'),
+    }
     tests_by_type = {}
     for t in attack_targets:
         typ = t.get('type', 'Other')
@@ -641,9 +653,12 @@ def build(rd: Dict[str, Any]) -> str:
     if tests_by_type:
         st_html = ''
         for typ, targets in tests_by_type.items():
+            meta = _TEST_META.get(typ, ('medium', '#64748b', ''))
+            sev_label, sev_color, test_desc = meta
             chips = ''.join(f'<code style="background:var(--surface);padding:5px 12px;border-radius:5px;font-size:0.9em;border:1px solid var(--border);">{_esc(t)}</code>' for t in targets[:10])
             overflow = f'<span class="muted"> + {len(targets) - 10} more</span>' if len(targets) > 10 else ''
-            st_html += f'''<div style="background:var(--surface2);border-radius:10px;padding:16px 20px;margin-bottom:12px;border-left:3px solid #64748b;"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span class="type-badge" style="background:#64748b20;color:#64748b;font-size:0.92em;">{_esc(typ)}</span><span class="muted" style="font-size:0.85em;">{len(targets)} target(s)</span></div><div style="display:flex;flex-wrap:wrap;gap:6px;">{chips}{overflow}</div></div>'''
+            desc_html = f'<p class="muted" style="font-size:0.85em;margin:6px 0 10px;">{_esc(test_desc)}</p>' if test_desc else ''
+            st_html += f'''<div style="background:var(--surface2);border-radius:10px;padding:16px 20px;margin-bottom:12px;border-left:3px solid {sev_color};"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;"><span class="sev-badge" style="background:{sev_color}20;color:{sev_color};">{sev_label.upper()}</span><span style="font-weight:700;font-size:0.95em;">{_esc(typ)}</span><span class="muted" style="font-size:0.85em;">{len(targets)} target(s)</span></div>{desc_html}<div style="display:flex;flex-wrap:wrap;gap:6px;">{chips}{overflow}</div></div>'''
         parts.append(f'''
 <div class="sec" id="tests">
   <h2>Suggested Tests <span class="count">({len(tests_by_type)} types, {n_attack_targets} targets)</span></h2>
@@ -651,13 +666,30 @@ def build(rd: Dict[str, Any]) -> str:
 </div>''')
 
     # Recommended Categories
+    _CAT_DESC = {
+        'csp_bypass': 'Bypass Content-Security-Policy restrictions via JSONP, base-tag, and trusted-type abuse',
+        'modern_bypasses': 'Latest WAF evasion techniques — encoding tricks, DOM clobbering, prototype pollution payloads',
+        'prototype_pollution': 'Pollute JavaScript Object.prototype to hijack application logic and achieve XSS',
+        'ssrf': 'Server-Side Request Forgery — access internal services, cloud metadata, and private networks',
+        'ssti': 'Server-Side Template Injection — execute arbitrary code via Jinja2, Twig, Freemarker templates',
+        'api_security': 'OWASP API Top-10 payloads — BOLA, broken auth, mass assignment, injection',
+        'xss': 'Cross-Site Scripting — reflected, stored, and DOM-based injection vectors',
+        'sqli': 'SQL Injection — union, blind, time-based, and out-of-band techniques',
+        'xxe': 'XML External Entity — file read, SSRF, and denial of service via DTD abuse',
+        'lfi': 'Local File Inclusion — path traversal, null-byte injection, wrapper abuse',
+    }
     if rec_cats:
-        cl = ''.join(f'<li style="margin:4px 0;"><strong>{_esc(c)}</strong></li>' for c in rec_cats[:10])
+        cl = ''
+        for c in rec_cats[:10]:
+            desc = _CAT_DESC.get(c, '')
+            desc_html = f'<span class="muted" style="font-size:0.85em;"> — {_esc(desc)}</span>' if desc else ''
+            cmd = f'fray test {_esc(target)} -c {_esc(c)} --smart'
+            cl += (f'<li style="margin:8px 0;"><strong>{_esc(c)}</strong>{desc_html}'
+                   f'<br><code style="background:var(--surface2);padding:4px 10px;border-radius:5px;font-size:0.85em;margin-top:4px;display:inline-block;">{cmd}</code></li>')
         parts.append(f'''
 <div class="sec" id="cats">
   <h2>Recommended Payload Categories</h2>
-  <ol style="padding-left:20px;">{cl}</ol>
-  <p style="margin-top:12px;"><code style="background:var(--surface2);padding:6px 12px;border-radius:6px;font-size:0.9em;">fray test {_esc(target)} -c {_esc(rec_cats[0] if rec_cats else 'xss')} --smart</code></p>
+  <ol style="padding-left:20px;line-height:1.8;">{cl}</ol>
 </div>''')
 
     # Remediation Plan
