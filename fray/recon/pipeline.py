@@ -103,6 +103,7 @@ from fray.recon.checks import (
     check_host_header_injection,
     check_admin_panels,
     check_auth_endpoints,
+    check_ai_endpoints,
     check_open_ports,
     check_rate_limits,
     check_rate_limits_critical,
@@ -533,6 +534,18 @@ def run_recon(url: str, timeout: int = 8,
         result["subdomains_active"] = await _safe(t_subs_active, {})
         result["origin_ip"]         = await _safe(t_origin, {})
 
+        # ── Tier 3: AI endpoint discovery (needs origin IPs for port scan) ──
+        _origin_data = result.get("origin_ip", {})
+        _origin_candidates = _origin_data.get("candidates", []) if isinstance(_origin_data, dict) else []
+        _origin_ip_list = [c.get("ip") for c in _origin_candidates
+                           if isinstance(c, dict) and c.get("ip")] if _origin_candidates else []
+        t_ai_ep = asyncio.create_task(_run(
+            lambda: check_ai_endpoints(host, port, use_ssl,
+                                        timeout=4 if is_fast else 6,
+                                        extra_headers=headers,
+                                        origin_ips=_origin_ip_list[:3]),
+            "AI/LLM endpoint discovery"))
+
         # ── Tier 3: Critical path rate limit probe (needs subdomain list) ──
         all_subs = []
         for s in (result.get("subdomains", {}).get("subdomains", []) +
@@ -548,6 +561,7 @@ def run_recon(url: str, timeout: int = 8,
                                                subdomains=all_subs),
             "Rate limits (critical paths)"))
         result["rate_limits_critical"] = await _safe(t_rl_crit, {})
+        result["ai_endpoints"] = await _safe(t_ai_ep, {})
 
         # ── Tier 4: GitHub org recon + OSINT email harvest + breach check ──
         from fray.osint import github_org_recon, enumerate_employees, harvest_emails
@@ -940,16 +954,71 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
     if ai_techs_detected and not ai_subs:
         ai_subs.append(host)
 
-    if ai_subs:
-        ai_detail = f"{len(ai_subs)} AI/chatbot endpoint(s): {', '.join(ai_subs[:5])}"
-        if len(ai_subs) > 5:
-            ai_detail += f" … and {len(ai_subs) - 5} more"
+    # ── Merge results from check_ai_endpoints (active probing) ──
+    ai_ep_data = result.get("ai_endpoints", {})
+    ai_ep_endpoints = ai_ep_data.get("endpoints", []) if isinstance(ai_ep_data, dict) else []
+    ai_ep_headers = ai_ep_data.get("ai_headers", {}) if isinstance(ai_ep_data, dict) else {}
+    ai_ep_ports = ai_ep_data.get("open_ports", []) if isinstance(ai_ep_data, dict) else []
+    ai_ep_confirmed_ports = ai_ep_data.get("confirmed_ports", []) if isinstance(ai_ep_data, dict) else []
+    ai_ep_techs = ai_ep_data.get("technologies", []) if isinstance(ai_ep_data, dict) else []
+
+    # Add discovered AI API paths as targets
+    ai_path_targets = []
+    for ep in ai_ep_endpoints:
+        if isinstance(ep, dict):
+            p = ep.get("path", "")
+            signals = ep.get("signals", [])
+            if p:
+                ai_path_targets.append(f"https://{host}{p}")
+    # Add confirmed self-hosted AI ports as targets
+    for ps in ai_ep_confirmed_ports:
+        if isinstance(ps, dict):
+            ip = ps.get("ip", "")
+            pt = ps.get("port", "")
+            svc = ps.get("service", "")
+            if ip and pt:
+                ai_path_targets.append(f"http://{ip}:{pt} ({svc})")
+    # Merge AI endpoint techs into ai_techs_detected
+    for t in ai_ep_techs:
+        if t not in ai_techs_detected:
+            ai_techs_detected.append(t)
+
+    # Ensure host is in ai_subs if active probing found AI endpoints
+    if (ai_ep_endpoints or ai_ep_confirmed_ports or ai_ep_headers) and host not in ai_subs:
+        ai_subs.append(host)
+
+    if ai_subs or ai_path_targets:
+        all_ai_targets = [f"https://{s}" for s in ai_subs[:5]]
+        for t in ai_path_targets[:5]:
+            if t not in all_ai_targets:
+                all_ai_targets.append(t)
+
+        ai_detail_parts = []
+        if ai_subs:
+            ai_detail_parts.append(f"{len(ai_subs)} AI/chatbot subdomain(s): {', '.join(ai_subs[:5])}")
+            if len(ai_subs) > 5:
+                ai_detail_parts[-1] += f" … +{len(ai_subs) - 5} more"
+        if ai_ep_endpoints:
+            ai_detail_parts.append(f"{len(ai_ep_endpoints)} AI API path(s) discovered via active probing")
+        if ai_ep_headers:
+            hdr_names = ', '.join(ai_ep_headers.keys())
+            ai_detail_parts.append(f"AI proxy headers detected: {hdr_names}")
+        if ai_ep_confirmed_ports:
+            port_info = ', '.join(f"{p.get('ip')}:{p.get('port')} ({p.get('service')})"
+                                  for p in ai_ep_confirmed_ports[:3])
+            ai_detail_parts.append(f"Self-hosted AI services: {port_info}")
+        elif ai_ep_ports:
+            ai_detail_parts.append(f"{len(ai_ep_ports)} open AI-related port(s)")
         if ai_techs_detected:
-            ai_detail += f". Detected AI technologies: {', '.join(ai_techs_detected[:8])}"
-        ai_detail += ". Test for prompt injection, jailbreaking, system prompt leakage, and indirect prompt injection via user-supplied content."
+            ai_detail_parts.append(f"Technologies: {', '.join(ai_techs_detected[:8])}")
+        ai_detail_parts.append("Test for prompt injection, jailbreaking, system prompt leakage, and indirect prompt injection via user-supplied content.")
+        ai_detail = ". ".join(ai_detail_parts)
+
+        sev = "critical" if (ai_ep_endpoints or ai_ep_confirmed_ports) else "high"
         vectors.append({
-            "type": "LLM / AI Prompt Injection", "severity": "high", "count": len(ai_subs),
-            "priority": priority_counter, "targets": [f"https://{s}" for s in ai_subs[:5]],
+            "type": "LLM / AI Prompt Injection", "severity": sev,
+            "count": len(ai_subs) + len(ai_path_targets),
+            "priority": priority_counter, "targets": all_ai_targets[:10],
             "description": "AI/ML and chatbot endpoints discovered — LLM-powered services that may be vulnerable to prompt injection, jailbreaking, and data exfiltration.",
             "impact": "Prompt injection can bypass safety filters, leak system prompts, exfiltrate training data, or cause unintended actions.",
             "mitre": "OWASP LLM01 — Prompt Injection",

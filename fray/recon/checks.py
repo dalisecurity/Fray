@@ -2432,3 +2432,450 @@ def _infer_vendor_from_recon(recon: Dict[str, Any], vendors_db: Dict[str, Any]) 
         return "azure_waf"
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# AI / LLM Endpoint Discovery
+# ---------------------------------------------------------------------------
+
+# Technique #1: Common AI API path patterns
+_AI_API_PATHS: List[Tuple[str, str]] = [
+    # OpenAI-compatible
+    ("/v1/chat/completions", "openai_compat"),
+    ("/v1/completions", "openai_compat"),
+    ("/v1/embeddings", "openai_compat"),
+    ("/v1/models", "openai_compat"),
+    ("/v1/images/generations", "openai_compat"),
+    ("/v1/audio/transcriptions", "openai_compat"),
+    ("/v1/messages", "anthropic_compat"),
+    # Common proxy / gateway paths
+    ("/api/v1/chat", "ai_chat"),
+    ("/api/v1/completions", "ai_chat"),
+    ("/api/chat/completions", "ai_chat"),
+    ("/api/chat", "ai_chat"),
+    ("/api/ai/chat", "ai_chat"),
+    ("/api/ai/generate", "ai_chat"),
+    ("/api/ai/completions", "ai_chat"),
+    ("/api/openai/v1/chat/completions", "openai_proxy"),
+    ("/api/openai/chat/completions", "openai_proxy"),
+    ("/proxy/openai/v1/chat/completions", "openai_proxy"),
+    ("/api/anthropic/v1/messages", "anthropic_proxy"),
+    ("/api/gpt/chat", "gpt_proxy"),
+    ("/backend/llm", "llm_backend"),
+    ("/backend/ai", "llm_backend"),
+    # Ollama
+    ("/api/generate", "ollama"),
+    ("/api/chat", "ollama"),
+    ("/api/tags", "ollama"),
+    ("/api/show", "ollama"),
+    # LiteLLM
+    ("/chat/completions", "litellm"),
+    ("/completions", "litellm"),
+    ("/models", "litellm"),
+    # OpenWebUI / LocalAI
+    ("/api/v1/auths/signin", "openwebui"),
+    ("/ollama/api/tags", "openwebui"),
+    # LangServe / LangChain
+    ("/invoke", "langserve"),
+    ("/batch", "langserve"),
+    ("/stream", "langserve"),
+    # Generic AI/ML inference
+    ("/ai/generate", "ai_inference"),
+    ("/ai/predict", "ai_inference"),
+    ("/ai/infer", "ai_inference"),
+    ("/llm/query", "ai_inference"),
+    ("/llm/generate", "ai_inference"),
+    ("/predict", "ai_inference"),
+    ("/infer", "ai_inference"),
+    ("/generate", "ai_inference"),
+    ("/embed", "ai_inference"),
+    # Hugging Face / Gradio
+    ("/api/predict", "huggingface"),
+    ("/run/predict", "gradio"),
+    ("/api/queue/push", "gradio"),
+    # Vector DB endpoints
+    ("/collections", "vector_db"),
+    ("/points/search", "vector_db"),
+    # Well-known AI config
+    ("/.well-known/openid-configuration", "openid_ai"),
+    ("/.well-known/ai-plugin.json", "chatgpt_plugin"),
+]
+
+# Technique #9: Fuzzing seeds — combined with path prefixes
+_AI_FUZZ_SEEDS = [
+    "completions", "chat", "generate", "infer", "predict", "embed",
+    "query", "llm", "ai", "gpt", "claude", "prompt", "model", "models",
+    "assistant", "agent", "copilot", "rag", "search",
+]
+_AI_FUZZ_PREFIXES = ["/api/", "/api/v1/", "/v1/", "/"]
+
+# Technique #4: Response body fingerprints — indicators of LLM responses
+_AI_RESPONSE_PATTERNS = [
+    (re.compile(r'"choices"\s*:\s*\['), "openai_response"),
+    (re.compile(r'"usage"\s*:\s*\{[^}]*"prompt_tokens"'), "openai_response"),
+    (re.compile(r'"completion_tokens"\s*:\s*\d+'), "openai_response"),
+    (re.compile(r'"model"\s*:\s*"(gpt-|claude-|llama|mistral|gemma|phi-)'), "llm_model"),
+    (re.compile(r'"content"\s*:\s*\[.*?"type"\s*:\s*"text"'), "anthropic_response"),
+    (re.compile(r'"stop_reason"\s*:\s*"end_turn"'), "anthropic_response"),
+    (re.compile(r'"object"\s*:\s*"(chat\.completion|text_completion|embedding|list)"'), "openai_object"),
+    (re.compile(r'data:\s*\{"id":"chatcmpl-'), "openai_streaming"),
+    (re.compile(r'data:\s*\{"model"\s*:\s*"(gpt-|claude-)'), "llm_streaming"),
+    (re.compile(r'"embedding"\s*:\s*\[[\d\.\-,\s]+\]'), "embedding_response"),
+    (re.compile(r'"models"\s*:\s*\[.*?"name"\s*:\s*"'), "model_listing"),
+    (re.compile(r'"modelfile"\s*:'), "ollama_response"),
+    (re.compile(r'"done"\s*:\s*(true|false).*"total_duration"'), "ollama_response"),
+    (re.compile(r'"response"\s*:\s*".*"done"'), "ollama_response"),
+]
+
+# Technique #8: AI-specific headers indicating proxy/gateway to AI backends
+_AI_PROXY_HEADERS = {
+    "openai-organization": "openai",
+    "openai-model": "openai",
+    "openai-processing-ms": "openai",
+    "openai-version": "openai",
+    "x-openai-thread-id": "openai",
+    "anthropic-ratelimit-tokens-limit": "anthropic",
+    "anthropic-ratelimit-requests-limit": "anthropic",
+    "x-ratelimit-limit-tokens": "llm_api",
+    "x-ratelimit-remaining-tokens": "llm_api",
+    "x-ratelimit-limit-requests": "llm_api",
+    "x-groq-id": "groq",
+    "cf-aig-cache-status": "cloudflare_ai_gateway",
+    "cf-aig-serving": "cloudflare_ai_gateway",
+    "x-kong-upstream-latency": "ai_gateway",
+    "x-kong-proxy-latency": "ai_gateway",
+    "x-litellm-model-id": "litellm",
+    "x-litellm-cache-key": "litellm",
+    "x-model-id": "llm_api",
+    "x-inference-time": "ai_inference",
+    "x-model-version": "llm_api",
+    "x-request-id": "_maybe_ai",  # common in AI APIs — checked with other signals
+}
+
+# Technique #7: Self-hosted AI service ports
+_AI_PORTS: List[Tuple[int, str, str]] = [
+    (11434, "/api/tags",          "ollama"),
+    (11434, "/api/version",       "ollama"),
+    (8080,  "/v1/models",         "localai"),
+    (8080,  "/models",            "localai"),
+    (3000,  "/v1/models",         "litellm"),
+    (3000,  "/models",            "litellm"),
+    (1234,  "/v1/models",         "lm_studio"),
+    (1234,  "/v1/chat/completions", "lm_studio"),
+    (5000,  "/v1/models",         "flask_ai"),
+    (5000,  "/api/predict",       "flask_ai"),
+    (8000,  "/v1/models",         "fastapi_ai"),
+    (8000,  "/docs",              "fastapi_ai"),
+    (7860,  "/api/predict",       "gradio"),
+    (7860,  "/info",              "gradio"),
+    (8501,  "/healthz",           "streamlit"),
+    (9090,  "/v2/models",         "triton"),
+    (8501,  "/_stcore/health",    "streamlit"),
+]
+
+
+def check_ai_endpoints(host: str, port: int, use_ssl: bool,
+                       timeout: int = 5,
+                       extra_headers: Optional[Dict[str, str]] = None,
+                       origin_ips: Optional[List[str]] = None,
+                       ) -> Dict[str, Any]:
+    """Discover AI/LLM endpoints via path probing, response fingerprinting,
+    header leakage detection, self-hosted port scanning, and fuzzing.
+
+    Implements techniques:
+      #1 — Common AI API path probing
+      #2/#4 — Request/response fingerprinting
+      #7 — Self-hosted AI port scanning (Ollama, LocalAI, LiteLLM, etc.)
+      #8 — API gateway/proxy header leakage
+      #9 — AI endpoint fuzzing with wordlist seeds
+
+    Returns:
+        Dict with 'endpoints', 'ai_headers', 'port_scan', 'technologies',
+        and 'summary' keys.
+    """
+    from fray.recon.http import _fetch_url
+    import concurrent.futures
+
+    scheme = "https" if use_ssl else "http"
+    port_str = "" if (use_ssl and port == 443) or (not use_ssl and port == 80) else f":{port}"
+    base = f"{scheme}://{host}{port_str}"
+
+    found_endpoints: List[Dict[str, Any]] = []
+    ai_headers_found: Dict[str, str] = {}  # header -> detected service
+    technologies_detected: set = set()
+    seen_paths: set = set()
+
+    def _classify_response(status: int, body: str, hdrs: dict,
+                           path: str, category: str) -> Optional[Dict[str, Any]]:
+        """Analyze a response for AI/LLM indicators."""
+        if status == 0 or status == 404 or status >= 500:
+            return None
+
+        lower_body = body.lower() if body else ""
+        ct = hdrs.get("content-type", "")
+
+        # Technique #8: Check response headers for AI proxy indicators
+        path_ai_headers = {}
+        for hdr_name, svc in _AI_PROXY_HEADERS.items():
+            val = hdrs.get(hdr_name, "")
+            if val:
+                if hdr_name == "x-request-id" and svc == "_maybe_ai":
+                    # x-request-id alone is not conclusive — only flag with other signals
+                    continue
+                path_ai_headers[hdr_name] = val
+                ai_headers_found[hdr_name] = svc
+                technologies_detected.add(svc)
+
+        # Technique #4: Check body for AI response patterns
+        body_signals = []
+        for pat, sig_type in _AI_RESPONSE_PATTERNS:
+            if pat.search(body or ""):
+                body_signals.append(sig_type)
+                technologies_detected.add(sig_type)
+
+        # Check SSE streaming indicator
+        is_sse = "text/event-stream" in ct
+        if is_sse and ("data:" in (body or "")):
+            body_signals.append("sse_streaming")
+
+        # Determine if this is an AI endpoint
+        is_ai = bool(body_signals) or bool(path_ai_headers)
+
+        # Also accept 200 + JSON with model/chat-like content for known paths
+        if not is_ai and status == 200 and "json" in ct:
+            if any(k in lower_body for k in (
+                '"model"', '"models"', '"prompt"', '"messages"',
+                '"temperature"', '"max_tokens"', '"tokens"',
+                '"embedding"', '"inference"',
+            )):
+                is_ai = True
+                body_signals.append("json_ai_keywords")
+
+        # Accept 401/403 on known AI paths — protected AI endpoint
+        if not is_ai and status in (401, 403) and category != "fuzz":
+            is_ai = True
+            body_signals.append("protected")
+
+        # Accept redirects on known AI paths
+        if not is_ai and status in (301, 302, 303, 307, 308) and category != "fuzz":
+            loc = hdrs.get("location", "")
+            if any(k in loc.lower() for k in ("auth", "login", "sso", "oauth")):
+                is_ai = True
+                body_signals.append("auth_redirect")
+
+        if not is_ai:
+            return None
+
+        entry: Dict[str, Any] = {
+            "path": path,
+            "status": status,
+            "category": category,
+            "signals": body_signals,
+        }
+        if path_ai_headers:
+            entry["ai_headers"] = path_ai_headers
+        if status in (401, 403):
+            entry["protected"] = True
+            www_auth = hdrs.get("www-authenticate", "")
+            if www_auth:
+                entry["auth_scheme"] = www_auth.split()[0]
+        if status in (301, 302, 303, 307, 308):
+            entry["redirect"] = hdrs.get("location", "")
+        return entry
+
+    def _probe_path(path: str, category: str) -> Optional[Dict[str, Any]]:
+        """Probe a single path on the target."""
+        if path in seen_paths:
+            return None
+        seen_paths.add(path)
+        url = f"{base}{path}"
+        try:
+            status, body, hdrs = _fetch_url(url, timeout=timeout,
+                                             verify_ssl=True,
+                                             headers=extra_headers)
+            if status == 0 and use_ssl:
+                status, body, hdrs = _fetch_url(url, timeout=timeout,
+                                                 verify_ssl=False,
+                                                 headers=extra_headers)
+        except Exception:
+            return None
+        return _classify_response(status, body, hdrs, path, category)
+
+    # ── Phase 1: Probe known AI API paths (technique #1) ──
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+        futures = {
+            pool.submit(_probe_path, path, cat): (path, cat)
+            for path, cat in _AI_API_PATHS
+        }
+        for f in concurrent.futures.as_completed(futures, timeout=timeout * 4):
+            try:
+                result = f.result()
+                if result:
+                    found_endpoints.append(result)
+            except Exception:
+                pass
+
+    # ── Phase 2: AI endpoint fuzzing (technique #9) ──
+    # Only fuzz paths we haven't already probed
+    fuzz_paths = []
+    for prefix in _AI_FUZZ_PREFIXES:
+        for seed in _AI_FUZZ_SEEDS:
+            p = f"{prefix}{seed}"
+            if p not in seen_paths:
+                fuzz_paths.append(p)
+    # Limit fuzz to avoid excessive requests
+    fuzz_paths = fuzz_paths[:40]
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {
+            pool.submit(_probe_path, p, "fuzz"): p
+            for p in fuzz_paths
+        }
+        for f in concurrent.futures.as_completed(futures, timeout=timeout * 3):
+            try:
+                result = f.result()
+                if result:
+                    found_endpoints.append(result)
+            except Exception:
+                pass
+
+    # ── Phase 3: Self-hosted AI port scan (technique #7) ──
+    port_scan_results: List[Dict[str, Any]] = []
+    scan_targets: List[str] = []
+    # Scan origin IPs if available (behind WAF/CDN)
+    if origin_ips:
+        for ip in origin_ips[:3]:
+            scan_targets.append(ip)
+    # Also try the host itself
+    scan_targets.append(host)
+
+    def _probe_port(target_ip: str, ai_port: int, probe_path: str,
+                    svc_name: str) -> Optional[Dict[str, Any]]:
+        """Try to connect to a self-hosted AI service port."""
+        # Quick TCP check first
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(min(timeout, 3))
+        try:
+            sock.connect((target_ip, ai_port))
+            sock.close()
+        except (socket.error, OSError):
+            return None
+        finally:
+            try:
+                sock.close()
+            except Exception:
+                pass
+
+        # Port is open — try HTTP probe
+        url = f"http://{target_ip}:{ai_port}{probe_path}"
+        try:
+            status, body, hdrs = _fetch_url(url, timeout=min(timeout, 3),
+                                             verify_ssl=False)
+        except Exception:
+            return {"ip": target_ip, "port": ai_port, "service": svc_name,
+                    "status": "open", "detail": "Port open, HTTP probe failed"}
+
+        if status == 0:
+            return {"ip": target_ip, "port": ai_port, "service": svc_name,
+                    "status": "open", "detail": "Port open, no HTTP response"}
+
+        entry = {"ip": target_ip, "port": ai_port, "service": svc_name,
+                 "status": "confirmed" if status == 200 else f"http_{status}",
+                 "path": probe_path, "http_status": status}
+
+        # Check body for confirmation
+        for pat, sig_type in _AI_RESPONSE_PATTERNS:
+            if pat.search(body or ""):
+                entry["confirmed"] = True
+                entry["signal"] = sig_type
+                technologies_detected.add(svc_name)
+                break
+        # Ollama version check
+        if svc_name == "ollama" and status == 200:
+            if "ollama" in (body or "").lower() or '"models"' in (body or ""):
+                entry["confirmed"] = True
+                technologies_detected.add("ollama")
+        # Gradio/Streamlit check
+        if svc_name in ("gradio", "streamlit") and status == 200:
+            if svc_name in (body or "").lower():
+                entry["confirmed"] = True
+                technologies_detected.add(svc_name)
+        # FastAPI docs check
+        if probe_path == "/docs" and status == 200:
+            if "swagger" in (body or "").lower() or "openapi" in (body or "").lower():
+                entry["confirmed"] = True
+                entry["signal"] = "fastapi_docs"
+
+        return entry
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+        port_futures = {}
+        for target_ip in scan_targets:
+            for ai_port, probe_path, svc_name in _AI_PORTS:
+                f = pool.submit(_probe_port, target_ip, ai_port, probe_path, svc_name)
+                port_futures[f] = (target_ip, ai_port, svc_name)
+        for f in concurrent.futures.as_completed(port_futures, timeout=timeout * 3):
+            try:
+                result = f.result()
+                if result:
+                    port_scan_results.append(result)
+            except Exception:
+                pass
+
+    # ── Phase 4: Technique #8 — Check main page headers for AI proxy leakage ──
+    # Already captured during path probing; also check the main page
+    try:
+        status, body, hdrs = _fetch_url(f"{base}/", timeout=timeout,
+                                         verify_ssl=True,
+                                         headers=extra_headers)
+        for hdr_name, svc in _AI_PROXY_HEADERS.items():
+            val = hdrs.get(hdr_name, "")
+            if val and svc != "_maybe_ai":
+                ai_headers_found[hdr_name] = svc
+                technologies_detected.add(svc)
+        # Also look for AI JS SDK references in the main page body (technique #2)
+        _JS_AI_PATTERNS = [
+            (re.compile(r'openai\.com/v1|api\.openai\.com', re.I), "openai_js"),
+            (re.compile(r'anthropic\.com/v1|api\.anthropic\.com', re.I), "anthropic_js"),
+            (re.compile(r'api\.cohere\.ai|cohere\.com', re.I), "cohere_js"),
+            (re.compile(r'api\.groq\.com|groq\.com/openai', re.I), "groq_js"),
+            (re.compile(r'api\.mistral\.ai', re.I), "mistral_js"),
+            (re.compile(r'generativelanguage\.googleapis\.com|ai\.google', re.I), "google_ai_js"),
+            (re.compile(r'api\.replicate\.com', re.I), "replicate_js"),
+            (re.compile(r'api\.together\.xyz|together\.ai', re.I), "together_js"),
+            (re.compile(r'inference\.huggingface\.co|api-inference\.huggingface', re.I), "huggingface_js"),
+            (re.compile(r'ollama\.(?:ai|com)|localhost:11434', re.I), "ollama_js"),
+            (re.compile(r'litellm|\/chat\/completions', re.I), "litellm_js"),
+            (re.compile(r'langchain|langserve|langsmith', re.I), "langchain_js"),
+            (re.compile(r'pinecone\.io|pinecone-client', re.I), "pinecone_js"),
+            (re.compile(r'weaviate\.io|weaviate-client', re.I), "weaviate_js"),
+            (re.compile(r'qdrant\.tech|qdrant-js', re.I), "qdrant_js"),
+        ]
+        for pat, tech in _JS_AI_PATTERNS:
+            if pat.search(body or ""):
+                technologies_detected.add(tech)
+    except Exception:
+        pass
+
+    # ── Build summary ──
+    confirmed_endpoints = [e for e in found_endpoints if e.get("signals")]
+    confirmed_ports = [p for p in port_scan_results if p.get("confirmed")]
+    open_ai_ports = [p for p in port_scan_results
+                     if p.get("status") in ("open", "confirmed") or
+                     (isinstance(p.get("http_status"), int) and p["http_status"] < 500)]
+
+    return {
+        "endpoints": found_endpoints,
+        "ai_headers": dict(ai_headers_found),
+        "port_scan": port_scan_results,
+        "open_ports": open_ai_ports,
+        "confirmed_ports": confirmed_ports,
+        "technologies": sorted(technologies_detected),
+        "total_probed": len(seen_paths),
+        "total_found": len(found_endpoints),
+        "total_confirmed_ports": len(confirmed_ports),
+        "summary": (f"{len(found_endpoints)} AI endpoint(s) found, "
+                    f"{len(ai_headers_found)} AI header(s) detected, "
+                    f"{len(open_ai_ports)} open AI port(s), "
+                    f"{len(confirmed_ports)} confirmed self-hosted service(s)"),
+    }
