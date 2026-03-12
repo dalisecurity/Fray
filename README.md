@@ -17,6 +17,88 @@ Fray is the missing link between [wafw00f](https://github.com/EnableSecurity/waf
 
 ---
 
+## 🆕 What's New
+
+### Interactive Post-Recon Menu
+
+After `fray recon` completes, Fray now presents a smart interactive menu with targeted next steps — no more guessing what to run next.
+
+```
+  ┌────────────────────────────────────────────────────────────┐
+  │  🎯 Recon Complete — What next?                           │
+  ├────────────────────────────────────────────────────────────┤
+  │  Findings: 🔴 2 critical, 🟠 2 high, 🟡 1 medium          │
+  │  WAF: Cloudflare                                          │
+  │  Risk: 85/100 (CRITICAL)                                  │
+  ├────────────────────────────────────────────────────────────┤
+  │  [1] 📄 Generate HTML Report                              │
+  │  [2] 🔴 Test XSS — Reflected XSS in search param q        │
+  │  [3] 🔴 Test SQLi — error-based on /api/users?id=1        │
+  │  [4] 🟠 Test Cache Poisoning — X-Forwarded-Host header    │
+  │  [5] 🔬 Deep Scan — All Vulnerabilities                   │
+  │  [6] 🚀 Auto-Pilot (Report + Test All)                    │
+  │  [q] Exit                                                 │
+  └────────────────────────────────────────────────────────────┘
+```
+
+Options are **dynamically generated** from actual findings — not random payloads. If recon found reflected XSS, it tests XSS. If it found SQL errors, it tests SQLi. Select a number and Fray runs the appropriate deep module (`XSSScanner`, `SQLiInjector`, `CMDiScanner`, `CachePoisonScanner`, etc.) directly. Use `--no-interactive` to skip.
+
+### CVE-Specific Payloads
+
+| CVE | Product | Technique | Module |
+|-----|---------|-----------|--------|
+| **CVE-2026-1281** | Ivanti Endpoint Manager Mobile | Shell arithmetic expansion `$((7*7))` via Apache RewriteMap | `fray/cmdi.py` |
+| **CVE-2026-1340** | Ivanti Endpoint Manager Mobile | Unsanitized Bash scripts at `/mi/bin/map-appstore-url` | `fray/cmdi.py` |
+| **Generic XSS in CSP Header** | Cloudflare Emergency WAF Rule 2026-03-12 | Malicious `Content-Security-Policy` header injection | `fray/xss.py` |
+
+### 🤖 LLM / AI Endpoint Discovery
+
+Fray's recon pipeline detects exposed AI/LLM infrastructure — the fastest-growing attack surface in 2025-2026:
+
+- **50+ AI API paths** — Ollama, LocalAI, LiteLLM, OpenWebUI, vLLM, Hugging Face TGI, NVIDIA Triton
+- **14 response fingerprints** — detects LLM-style streaming responses, model metadata, token usage
+- **17 port probes** — common AI service ports (11434, 8080, 3000, 7860, 8501, etc.)
+- **21 AI proxy headers** — `X-AI-Model`, `X-LLM-Provider`, `X-OpenAI-*`, Anthropic/Cohere/Replicate headers
+- **Prompt injection payloads** — 370 built-in payloads in `ai_llm_injection` category
+
+```bash
+fray recon https://target.com     # Auto-discovers LLM/AI endpoints in Tier 3
+fray test https://target.com -c ai_llm_injection --smart   # Test prompt injection
+```
+
+### 🔐 VPN Gateway Detection
+
+Recon identifies exposed VPN login portals — common targets in enterprise breach chains:
+
+| Vendor | Paths Checked |
+|--------|--------------|
+| **Fortinet FortiGate** | `/remote/login`, `/remote/fgt_lang` |
+| **Palo Alto GlobalProtect** | `/ssl-vpn/login.esp`, `/global-protect/login.esp` |
+| **Cisco AnyConnect** | `/+CSCOE+/logon.html` |
+| **Citrix NetScaler** | `/vpn/index.html`, `/logon/LogonPoint/` |
+| **Check Point** | `/sslvpn/Login/Login` |
+| **Juniper/Pulse** | `/dana-na/auth/url_default/welcome.cgi` |
+| **OpenVPN** | `/__session_start__/` |
+
+### Deep Scan Modules
+
+Six new deep vulnerability testing modules — not random payloads, but technique-driven scanners:
+
+| Module | Techniques | Key Features |
+|--------|-----------|--------------|
+| **`CMDiScanner`** | Results-based, time-blind, file-based, error-based, nested, **Ivanti CVE** | OS detection, 9 separators, anti-FP |
+| **`XSSScanner`** | Context-aware, DOM analysis, WAF evasion, **CSP header injection** | 6 reflection contexts, filter detection |
+| **`SQLiInjector`** | Error-based, UNION, boolean blind, time-blind | Column enumeration, DBMS fingerprint |
+| **`CachePoisonScanner`** | 15 unkeyed headers, path confusion, deception | CDN detection, cache key analysis |
+| **`MassAssignScanner`** | Hidden params, HPP, type juggling | Privilege escalation, account state |
+| **`DeserScanner`** | Tech detection, gadget chain probing | Java, PHP, Python, .NET, Ruby |
+
+### Unified v11 Dark Theme Reports
+
+All HTML reports now use the same dark theme — consistent font (Inter), colors, and layout across recon reports, scan reports, and WAF test reports.
+
+---
+
 ## How Fray Compares
 
 | | Fray | Nuclei | XSStrike | wafw00f | sqlmap |

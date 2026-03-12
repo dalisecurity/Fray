@@ -17,6 +17,88 @@ Frayは[wafw00f](https://github.com/EnableSecurity/wafw00f)（検出）と[sqlma
 
 ---
 
+## 🆕 最新アップデート
+
+### インタラクティブ・ポストリコンメニュー
+
+`fray recon` 完了後、検出結果に基づいたスマートな対話メニューを自動表示します。
+
+```
+  ┌────────────────────────────────────────────────────────────┐
+  │  🎯 リコン完了 — 次のステップは？                          │
+  ├────────────────────────────────────────────────────────────┤
+  │  検出: 🔴 2 critical, 🟠 2 high, 🟡 1 medium              │
+  │  WAF: Cloudflare                                          │
+  │  リスク: 85/100 (CRITICAL)                                │
+  ├────────────────────────────────────────────────────────────┤
+  │  [1] 📄 HTMLレポート生成                                   │
+  │  [2] 🔴 XSSテスト — 検索パラメータqに反射型XSS             │
+  │  [3] 🔴 SQLiテスト — /api/users?id=1でエラーベース         │
+  │  [4] 🟠 キャッシュポイズニング — X-Forwarded-Hostヘッダ    │
+  │  [5] 🔬 ディープスキャン — 全脆弱性テスト                  │
+  │  [6] 🚀 オートパイロット（レポート＋全テスト）             │
+  │  [q] 終了                                                 │
+  └────────────────────────────────────────────────────────────┘
+```
+
+オプションは**実際の検出結果から動的に生成**されます。ランダムなペイロードではなく、リコンでXSSが見つかればXSSをテストし、SQLエラーが見つかればSQLiをテストします。`--no-interactive` で無効化可能。
+
+### CVE固有ペイロード
+
+| CVE | 製品 | 手法 | モジュール |
+|-----|------|------|-----------|
+| **CVE-2026-1281** | Ivanti Endpoint Manager Mobile | Apache RewriteMap経由のシェル算術展開 `$((7*7))` | `fray/cmdi.py` |
+| **CVE-2026-1340** | Ivanti Endpoint Manager Mobile | `/mi/bin/map-appstore-url` のBashスクリプト未サニタイズ | `fray/cmdi.py` |
+| **CSPヘッダXSS** | Cloudflare緊急WAFルール 2026-03-12 | `Content-Security-Policy` ヘッダインジェクション | `fray/xss.py` |
+
+### 🤖 LLM / AIエンドポイント検出
+
+リコンパイプラインが公開されたAI/LLMインフラを自動検出 — 2025-2026年最大の攻撃対象領域：
+
+- **50以上のAI APIパス** — Ollama、LocalAI、LiteLLM、OpenWebUI、vLLM、Hugging Face TGI、NVIDIA Triton
+- **14のレスポンスフィンガープリント** — LLMストリーミング応答、モデルメタデータ、トークン使用量を検出
+- **17のポートプローブ** — 一般的なAIサービスポート（11434、8080、3000、7860、8501等）
+- **21のAIプロキシヘッダ** — `X-AI-Model`、`X-LLM-Provider`、`X-OpenAI-*`、Anthropic/Cohere/Replicate
+- **プロンプトインジェクション** — `ai_llm_injection` カテゴリに370のペイロード内蔵
+
+```bash
+fray recon https://target.com     # Tier 3でLLM/AIエンドポイントを自動検出
+fray test https://target.com -c ai_llm_injection --smart   # プロンプトインジェクションテスト
+```
+
+### 🔐 VPNゲートウェイ検出
+
+リコンが公開されたVPNログインポータルを特定 — エンタープライズ侵入チェーンの一般的な標的：
+
+| ベンダー | 検出パス |
+|---------|---------|
+| **Fortinet FortiGate** | `/remote/login`、`/remote/fgt_lang` |
+| **Palo Alto GlobalProtect** | `/ssl-vpn/login.esp`、`/global-protect/login.esp` |
+| **Cisco AnyConnect** | `/+CSCOE+/logon.html` |
+| **Citrix NetScaler** | `/vpn/index.html`、`/logon/LogonPoint/` |
+| **Check Point** | `/sslvpn/Login/Login` |
+| **Juniper/Pulse** | `/dana-na/auth/url_default/welcome.cgi` |
+| **OpenVPN** | `/__session_start__/` |
+
+### ディープスキャンモジュール
+
+6つの新しい深層脆弱性テストモジュール — ランダムペイロードではなく、手法駆動型スキャナ：
+
+| モジュール | 手法 | 特徴 |
+|-----------|------|------|
+| **`CMDiScanner`** | 結果ベース、タイムブラインド、ファイルベース、エラーベース、ネスト、**Ivanti CVE** | OS検出、9セパレータ、偽陽性防止 |
+| **`XSSScanner`** | コンテキスト認識、DOM解析、WAF回避、**CSPヘッダインジェクション** | 6反射コンテキスト、フィルタ検出 |
+| **`SQLiInjector`** | エラーベース、UNION、ブールブラインド、タイムブラインド | カラム列挙、DBMSフィンガープリント |
+| **`CachePoisonScanner`** | 15のアンキーヘッダ、パス混乱、デセプション | CDN検出、キャッシュキー分析 |
+| **`MassAssignScanner`** | 隠しパラメータ、HPP、型ジャグリング | 権限昇格、アカウント状態 |
+| **`DeserScanner`** | 技術検出、ガジェットチェーン探索 | Java、PHP、Python、.NET、Ruby |
+
+### 統一v11ダークテーマレポート
+
+全HTMLレポートが同一ダークテーマを使用 — リコンレポート、スキャンレポート、WAFテストレポート間でフォント（Inter）、配色、レイアウトが統一されました。
+
+---
+
 ## Frayと他ツールの比較
 
 | | Fray | Nuclei | XSStrike | wafw00f | sqlmap |
