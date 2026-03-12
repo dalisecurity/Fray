@@ -559,3 +559,290 @@ class ReconInteractive:
         sys.stderr.write(f"\n  → {selected.emoji} {selected.label}\n")
         self.execute(selected)
         return selected.action
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Next-step hints — printed after any fray command to guide the user
+# ═══════════════════════════════════════════════════════════════════════
+
+def next_steps(target: str, context: str = "recon", *,
+               recon: dict = None, findings_count: int = 0,
+               bypassed: int = 0, blocked: int = 0,
+               categories: list = None, waf: str = "") -> None:
+    """Print smart 'what to type next' hints after any fray command.
+
+    context: "recon", "test", "scan", "bypass", "harden"
+    """
+    if not sys.stderr.isatty():
+        return
+
+    out = sys.stderr
+    out.write("\n")
+    out.write("  ┌─ Next Steps ────────────────────────────────────────┐\n")
+
+    if context == "recon":
+        cats = categories or []
+        if cats:
+            top = cats[0] if isinstance(cats[0], str) else cats[0].get("category", "xss")
+            out.write(f"  │  fray test {target} -c {top} --smart          │\n")
+            out.write(f"  │    → Test top recommended category ({top})      \n")
+        out.write(f"  │  fray go {target}                              │\n")
+        out.write(f"  │    → Full guided pipeline (recon+test+report)   \n")
+        if waf:
+            out.write(f"  │  fray bypass {target} -c xss                  │\n")
+            out.write(f"  │    → Try WAF bypass ({waf})                    \n")
+        out.write(f"  │  fray harden {target}                          │\n")
+        out.write(f"  │    → Security headers audit (A-F grade)         \n")
+
+    elif context == "test":
+        if bypassed > 0:
+            out.write(f"  │  fray report -i results.json -o report.html   │\n")
+            out.write(f"  │    → Generate report ({bypassed} bypasses found) \n")
+            out.write(f"  │  fray bypass {target} -c xss                  │\n")
+            out.write(f"  │    → AI-powered bypass amplification           \n")
+        else:
+            other_cats = ["sqli", "ssrf", "ssti", "cmdi"]
+            if categories:
+                other_cats = [c for c in other_cats if c not in categories]
+            cat_str = ",".join(other_cats[:3])
+            out.write(f"  │  fray test {target} -c {cat_str} --smart     │\n")
+            out.write(f"  │    → Try different categories (all blocked)     \n")
+            out.write(f"  │  fray agent {target} -c xss --rounds 3        │\n")
+            out.write(f"  │    → Self-learning agent (mutate+retry)         \n")
+        out.write(f"  │  fray harden {target}                          │\n")
+        out.write(f"  │    → Check security posture                     \n")
+
+    elif context == "scan":
+        if bypassed > 0:
+            out.write(f"  │  fray report -i results.json -o report.html   │\n")
+            out.write(f"  │    → Generate client-ready report               \n")
+        out.write(f"  │  fray recon {target} --deep                    │\n")
+        out.write(f"  │    → Deep recon (extended DNS, 300 subdomains)   \n")
+        out.write(f"  │  fray harden {target}                          │\n")
+        out.write(f"  │    → OWASP hardening audit                      \n")
+
+    elif context == "bypass":
+        out.write(f"  │  fray agent {target} -c xss --rounds 5         │\n")
+        out.write(f"  │    → Self-improving agent (longer run)           \n")
+        out.write(f"  │  fray report -i results.json -o report.html   │\n")
+        out.write(f"  │    → Generate HTML report                       \n")
+
+    out.write("  └─────────────────────────────────────────────────────┘\n\n")
+    out.flush()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# GuidedPipeline — `fray go <url>` zero-knowledge full pipeline
+# ═══════════════════════════════════════════════════════════════════════
+
+class GuidedPipeline:
+    """Zero-knowledge guided pipeline: recon → smart test → report.
+
+    Usage:
+        fray go https://target.com          # Full auto pipeline
+        fray go https://target.com --deep   # Deep mode
+        fray go https://target.com -o out/  # Custom output dir
+    """
+
+    def __init__(self, target: str, *, timeout: int = 8, deep: bool = False,
+                 output_dir: str = "", headers: dict = None,
+                 stealth: bool = False, quiet: bool = False):
+        self.target = target
+        self.timeout = timeout
+        self.deep = deep
+        self.output_dir = output_dir
+        self.headers = headers
+        self.stealth = stealth
+        self.quiet = quiet
+        self.recon_result = None
+        self.test_results = []
+        self.report_path = ""
+
+    def run(self) -> dict:
+        """Execute the full guided pipeline. Returns summary dict."""
+        t0 = time.monotonic()
+        out = sys.stderr
+        summary = {"target": self.target, "phases": []}
+
+        # ── Banner ─────────────────────────────────────────────────────
+        if not self.quiet:
+            out.write("\n")
+            out.write("  ╔════════════════════════════════════════════════════╗\n")
+            out.write("  ║  ⚔️  Fray — Guided Security Pipeline              ║\n")
+            out.write("  ║                                                    ║\n")
+            out.write(f"  ║  Target: {self.target[:42]:<42} ║\n")
+            out.write("  ║                                                    ║\n")
+            out.write("  ║  Phase 1: Reconnaissance                          ║\n")
+            out.write("  ║  Phase 2: Smart Vulnerability Testing              ║\n")
+            out.write("  ║  Phase 3: Report Generation                        ║\n")
+            out.write("  ╚════════════════════════════════════════════════════╝\n\n")
+            out.flush()
+
+        # ── Phase 1: Recon ─────────────────────────────────────────────
+        self._phase_header(1, "Reconnaissance")
+        self.recon_result = self._run_recon()
+
+        if not self.recon_result:
+            out.write("  ❌ Recon failed — cannot continue.\n")
+            return summary
+
+        atk = self.recon_result.get("attack_surface", {})
+        risk = atk.get("risk_score", 0)
+        risk_level = atk.get("risk_level", "?")
+        waf = atk.get("waf_vendor", "")
+        findings = atk.get("findings", [])
+        recs = self.recon_result.get("recommended_categories", [])
+
+        summary["phases"].append({
+            "name": "recon",
+            "risk_score": risk,
+            "risk_level": risk_level,
+            "waf": waf,
+            "findings": len(findings),
+        })
+
+        if not self.quiet:
+            out.write(f"\n  ✅ Recon complete\n")
+            out.write(f"     Risk: {risk}/100 ({risk_level})")
+            if waf:
+                out.write(f" | WAF: {waf}")
+            out.write(f" | Findings: {len(findings)}\n")
+            out.flush()
+
+        # ── Phase 2: Smart Testing ─────────────────────────────────────
+        self._phase_header(2, "Smart Vulnerability Testing")
+
+        # Build interactive menu to determine what to test
+        menu = ReconInteractive(self.target, self.recon_result)
+        classified = menu._classify_findings()
+
+        # Determine vuln types to test — from findings or recommendations
+        vuln_types = []
+        for vuln_type, vuln_findings in classified.items():
+            if vuln_type != "other" and vuln_type in _VULN_MODULE_MAP:
+                info = _VULN_MODULE_MAP[vuln_type]
+                if info[0]:  # Has a runnable module
+                    vuln_types.append(vuln_type)
+
+        if not vuln_types and recs:
+            for cat in recs[:3]:
+                cat_name = cat if isinstance(cat, str) else cat.get("category", "")
+                if cat_name in _VULN_MODULE_MAP and _VULN_MODULE_MAP[cat_name][0]:
+                    vuln_types.append(cat_name)
+
+        # Fallback: test xss + sqli
+        if not vuln_types:
+            vuln_types = ["xss", "sqli"]
+
+        if not self.quiet:
+            out.write(f"     Testing: {', '.join(vuln_types)}\n\n")
+            out.flush()
+
+        # Run each module
+        total_vulns = 0
+        for vtype in vuln_types[:5]:
+            menu._run_module(vtype, self.target, {})
+
+        # Collect test result count from stdout (modules print JSON)
+        summary["phases"].append({
+            "name": "test",
+            "modules_tested": vuln_types[:5],
+            "count": len(vuln_types[:5]),
+        })
+
+        # ── Phase 3: Report ────────────────────────────────────────────
+        self._phase_header(3, "Report Generation")
+
+        domain = self.recon_result.get("host", "target")
+        if self.output_dir:
+            self.report_path = os.path.join(self.output_dir, f"{domain}_report.html")
+        else:
+            self.report_path = f"{domain}_report.html"
+
+        try:
+            from fray.reporter import SecurityReportGenerator
+            gen = SecurityReportGenerator()
+            gen.generate_recon_html_report(self.recon_result, self.report_path)
+            if not self.quiet:
+                out.write(f"  ✅ HTML report: {self.report_path}\n")
+                out.write(f"     Open: file://{os.path.abspath(self.report_path)}\n")
+        except Exception as e:
+            if not self.quiet:
+                out.write(f"  ⚠  Report generation failed: {e}\n")
+
+        summary["phases"].append({
+            "name": "report",
+            "path": self.report_path,
+        })
+
+        # ── Final Summary ──────────────────────────────────────────────
+        elapsed = time.monotonic() - t0
+        minutes = int(elapsed // 60)
+        seconds = int(elapsed % 60)
+        duration = f"{minutes}m {seconds}s" if minutes > 0 else f"{seconds}s"
+        summary["duration"] = duration
+
+        if not self.quiet:
+            out.write("\n")
+            out.write("  ╔════════════════════════════════════════════════════╗\n")
+            out.write("  ║  🏁 Pipeline Complete                              ║\n")
+            out.write(f"  ║  Duration: {duration:<40} ║\n")
+            out.write(f"  ║  Risk: {risk}/100 ({risk_level}){' ' * (35 - len(str(risk)) - len(risk_level))} ║\n")
+            if waf:
+                out.write(f"  ║  WAF: {waf[:42]:<42} ║\n")
+            out.write(f"  ║  Findings: {len(findings):<39} ║\n")
+            out.write(f"  ║  Modules tested: {len(vuln_types[:5]):<33} ║\n")
+            out.write(f"  ║  Report: {self.report_path[:41]:<41} ║\n")
+            out.write("  ╚════════════════════════════════════════════════════╝\n")
+
+            # Next steps
+            out.write("\n")
+            out.write("  ┌─ What's Next ────────────────────────────────────────┐\n")
+            if recs:
+                top = recs[0] if isinstance(recs[0], str) else recs[0].get("category", "xss")
+                out.write(f"  │  fray test {self.target} -c {top} --smart --max 100   \n")
+                out.write(f"  │    → Deep test top category with more payloads        \n")
+            if waf:
+                out.write(f"  │  fray agent {self.target} -c xss --rounds 5           \n")
+                out.write(f"  │    → Self-learning agent vs {waf[:20]}                 \n")
+                out.write(f"  │  fray bypass {self.target} -c xss                     \n")
+                out.write(f"  │    → AI-powered WAF bypass                            \n")
+            out.write(f"  │  fray harden {self.target}                             \n")
+            out.write(f"  │    → Security headers + OWASP hardening audit          \n")
+            out.write(f"  │  fray recon {self.target} --deep                       \n")
+            out.write(f"  │    → Extended DNS, 300 subdomains, Wayback 500         \n")
+            out.write("  └──────────────────────────────────────────────────────┘\n\n")
+            out.flush()
+
+        # Also export recon JSON
+        try:
+            recon_json_path = self.report_path.replace(".html", ".json")
+            with open(recon_json_path, "w", encoding="utf-8") as f:
+                json.dump(self.recon_result, f, indent=2, ensure_ascii=False)
+            summary["recon_json"] = recon_json_path
+        except Exception:
+            pass
+
+        return summary
+
+    def _phase_header(self, num: int, name: str) -> None:
+        if not self.quiet:
+            sys.stderr.write(f"\n  ── Phase {num}: {name} {'─' * (40 - len(name))}──\n\n")
+            sys.stderr.flush()
+
+    def _run_recon(self) -> Optional[dict]:
+        """Run recon and return result dict."""
+        try:
+            from fray.recon import run_recon
+            mode = "deep" if self.deep else "default"
+            return run_recon(
+                self.target,
+                timeout=self.timeout,
+                headers=self.headers,
+                mode=mode,
+                stealth=self.stealth,
+                quiet=self.quiet,
+            )
+        except Exception as e:
+            sys.stderr.write(f"  Error: {e}\n")
+            return None

@@ -3,6 +3,7 @@
 Fray CLI — Unified command-line interface
 
 Usage:
+    fray go <url>               Guided pipeline: recon → smart test → report (zero-knowledge)
     fray detect <url>           Detect WAF vendor
     fray test <url>             Test WAF with payloads
     fray test <url> -c xss      Test specific category
@@ -1421,6 +1422,18 @@ def cmd_test(args):
         }
         send_generic_notification(notify_url, "test", args.target, summary)
 
+    # Next-step hints (TTY only)
+    if not getattr(args, 'json', False) and not getattr(args, 'quiet', False):
+        try:
+            from fray.interactive import next_steps
+            _bypassed = sum(1 for r in results if not r.get("blocked"))
+            _blocked = sum(1 for r in results if r.get("blocked"))
+            _cats = [getattr(args, 'category', 'xss')]
+            next_steps(args.target, "test", bypassed=_bypassed, blocked=_blocked,
+                       categories=_cats)
+        except Exception:
+            pass
+
 
 def cmd_report(args):
     """Generate HTML or Markdown report from results"""
@@ -1631,6 +1644,17 @@ def cmd_scan(args):
             "_severity": sev,
         }
         send_generic_notification(notify_url, "scan", args.target, summary)
+
+    # Next-step hints (TTY only)
+    if not getattr(args, 'json', False):
+        try:
+            from fray.interactive import next_steps
+            sd = scan.to_dict()
+            sm = sd.get("summary", {})
+            _bypassed = sm.get("passed", 0)
+            next_steps(args.target, "scan", bypassed=_bypassed)
+        except Exception:
+            pass
 
 
 def cmd_stats(args):
@@ -2971,6 +2995,50 @@ def cmd_harden(args):
         with open(args.output, 'w', encoding='utf-8') as f:
             json.dump(report, f, indent=2, ensure_ascii=False)
         console.print(f"  Report saved to {args.output}")
+
+
+def cmd_go(args):
+    """Zero-knowledge guided pipeline: recon → smart test → report.
+
+    One command, no flags needed. Fray figures out what to test based on recon.
+    """
+    if not args.target:
+        print("Usage: fray go <url>")
+        print("  Example: fray go https://example.com")
+        sys.exit(1)
+
+    target = args.target
+    if not target.startswith("http"):
+        target = f"https://{target}"
+
+    from fray.interactive import GuidedPipeline
+
+    auth_headers = build_auth_headers(args) or None
+    json_mode = getattr(args, 'json', False)
+
+    pipeline = GuidedPipeline(
+        target,
+        timeout=getattr(args, 'timeout', 8),
+        deep=getattr(args, 'deep', False),
+        output_dir=getattr(args, 'output_dir', "") or "",
+        headers=auth_headers,
+        stealth=getattr(args, 'stealth', False),
+        quiet=json_mode,
+    )
+
+    summary = pipeline.run()
+
+    if json_mode:
+        _json_print(summary)
+
+    # Save JSON output if requested
+    output_file = getattr(args, 'output', None)
+    if output_file:
+        _validate_output_path(output_file)
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(summary, f, indent=2, ensure_ascii=False)
+        if not json_mode:
+            print(f"  Pipeline results saved to {output_file}")
 
 
 def cmd_auto(args):
@@ -4743,6 +4811,27 @@ Documentation: https://github.com/dalisecurity/fray
     p_harden.set_defaults(func=cmd_harden)
 
     # auto
+    # go — zero-knowledge guided pipeline
+    p_go = subparsers.add_parser("go",
+        help="Guided pipeline: recon → smart test → report (zero-knowledge, one command)")
+    p_go.add_argument("target", nargs="?", default=None, help="Target URL (e.g. example.com)")
+    p_go.add_argument("-t", "--timeout", type=int, default=8, help="Request timeout (default: 8)")
+    p_go.add_argument("--deep", action="store_true", help="Deep mode: extended DNS, 300 subdomains, Wayback 500")
+    p_go.add_argument("--stealth", action="store_true", help="Stealth mode: slower, randomized requests")
+    p_go.add_argument("-o", "--output", default=None, help="Save pipeline summary JSON to file")
+    p_go.add_argument("--output-dir", dest="output_dir", default=None, help="Output directory for report + JSON")
+    p_go.add_argument("--json", action="store_true", help="Output pipeline summary as JSON")
+    p_go.add_argument("--cookie", default=None, help="Cookie header for authenticated testing")
+    p_go.add_argument("--bearer", default=None, help="Bearer token for Authorization header")
+    p_go.add_argument("-H", "--header", action="append", help="Custom header (repeatable)")
+    p_go.add_argument("--login-flow", default=None, help="Form login: 'URL,field=value,field=value'")
+    p_go.add_argument("--load-session", dest="load_session", default=None, metavar="NAME",
+                       help="Load a saved session from ~/.fray/sessions/NAME.json")
+    p_go.add_argument("--save-session", dest="save_session", default=None, metavar="NAME",
+                       help="Save session cookies/tokens after pipeline")
+    p_go.set_defaults(func=cmd_go)
+
+    # auto — full pipeline (legacy, more flags)
     p_auto = subparsers.add_parser("auto",
         help="Full pipeline: recon → scan → ai-bypass in one command")
     p_auto.add_argument("target", nargs="?", default=None, help="Target URL")
