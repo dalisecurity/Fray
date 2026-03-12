@@ -144,6 +144,30 @@ def build(rd: Dict[str, Any]) -> str:
     staging_envs = atk.get('staging_envs', [])
     checks = rd.get('security_checks', {}) or {}
 
+    # VPN endpoints
+    vpn_data = rd.get('vpn_endpoints', {}) or {}
+    vpn_list = vpn_data.get('vpn_endpoints', []) if isinstance(vpn_data, dict) else []
+    vpn_cve_findings = vpn_data.get('cve_findings', []) if isinstance(vpn_data, dict) else []
+    n_vpn = len(vpn_list)
+
+    # API security
+    api_sec = rd.get('api_security', {}) or {}
+    api_specs = api_sec.get('specs', api_sec.get('exposed_specs', [])) if isinstance(api_sec, dict) else []
+    api_endpoints = api_sec.get('endpoints', api_sec.get('api_endpoints', [])) if isinstance(api_sec, dict) else []
+    api_gw = api_sec.get('api_gateway', api_sec.get('gateway_info', {})) if isinstance(api_sec, dict) else {}
+    api_rate = api_sec.get('rate_limiting', api_sec.get('rate_limit_info', {})) if isinstance(api_sec, dict) else {}
+    api_auth = api_sec.get('authentication', api_sec.get('auth_info', {})) if isinstance(api_sec, dict) else {}
+    n_api_specs = api_sec.get('total_specs', len(api_specs) if isinstance(api_specs, list) else 0)
+
+    # Cloud buckets
+    bucket_data = rd.get('cloud_buckets', {}) or {}
+    bucket_list = bucket_data.get('buckets', []) if isinstance(bucket_data, dict) else []
+    n_buckets = bucket_data.get('total_found', len(bucket_list)) if isinstance(bucket_data, dict) else 0
+    n_public_buckets = bucket_data.get('total_public', 0) if isinstance(bucket_data, dict) else 0
+
+    # Per-subdomain security
+    sub_sec = rd.get('subdomain_security', {}) or {}
+
     # Emoji map for attack vectors
     _VEC_EMOJI = {
         'WAF Bypass': '\U0001f6e1\ufe0f', 'Unprotected Subdomain': '\U0001f310',
@@ -214,7 +238,7 @@ def build(rd: Dict[str, Any]) -> str:
     <div><div style="font-size:0.72em;font-weight:600;color:var(--red);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Threats</div>
       <div style="display:flex;flex-wrap:wrap;gap:5px;"><a href="#vectors" class="toc-link">Attack Vectors</a><a href="#priorities" class="toc-link">Priorities</a><a href="#cves" class="toc-link">CVEs</a><a href="#checks" class="toc-link">Security Checks</a></div></div>
     <div><div style="font-size:0.72em;font-weight:600;color:var(--cyan);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Infrastructure</div>
-      <div style="display:flex;flex-wrap:wrap;gap:5px;"><a href="#headers" class="toc-link">Headers</a><a href="#csp" class="toc-link">CSP</a><a href="#tech" class="toc-link">Tech</a><a href="#dns" class="toc-link">DNS</a><a href="#waf-cdn" class="toc-link">WAF/CDN</a><a href="#gap" class="toc-link">Gap Analysis</a><a href="#rl" class="toc-link">Rate Limits</a></div></div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px;"><a href="#headers" class="toc-link">Headers</a><a href="#csp" class="toc-link">CSP</a><a href="#tech" class="toc-link">Tech</a><a href="#dns" class="toc-link">DNS</a><a href="#waf-cdn" class="toc-link">WAF/CDN</a><a href="#gap" class="toc-link">Gap Analysis</a><a href="#rl" class="toc-link">Rate Limits</a><a href="#vpn" class="toc-link">VPN</a><a href="#apisec" class="toc-link">API Security</a><a href="#buckets" class="toc-link">Cloud Buckets</a></div></div>
     <div><div style="font-size:0.72em;font-weight:600;color:var(--orange);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Targets</div>
       <div style="display:flex;flex-wrap:wrap;gap:5px;"><a href="#subs" class="toc-link">Subdomains</a><a href="#probes" class="toc-link">Probes</a><a href="#origin" class="toc-link">Origin IPs</a><a href="#admin" class="toc-link">Admin Panels</a><a href="#hvt" class="toc-link">HVT</a><a href="#tests" class="toc-link">Tests</a><a href="#cats" class="toc-link">Categories</a></div></div>
   </div>
@@ -813,6 +837,223 @@ def build(rd: Dict[str, Any]) -> str:
     <tr><td class="kv-key">Threshold</td><td>{rl_thresh or '<span class="muted">Not detected via headers</span>'}</td></tr>
   </table>
   {rl_hdr_html}{rl_crit_html}{rl_inferred}
+</div>''')
+
+    # ── VPN Endpoints ──
+    if vpn_list:
+        vpn_rows = ''
+        for v in vpn_list:
+            prod = _esc(v.get('label', ''))
+            paths = ', '.join(v.get('paths', [])[:3])
+            sigs = ', '.join(v.get('signals', [])[:2])
+            sev_note = v.get('severity_note') or ''
+            verified = v.get('verified_cves', [])
+            potential = v.get('potential_cves', [])
+
+            # Severity color
+            if sev_note.startswith('Critical') or verified:
+                sev_col = '#ef4444'
+                sev_label = 'CRITICAL'
+            elif sev_note.startswith('High'):
+                sev_col = '#f97316'
+                sev_label = 'HIGH'
+            else:
+                sev_col = '#eab308'
+                sev_label = 'MEDIUM'
+
+            cve_badges = ''
+            for cv in verified:
+                cve_badges += f'<span class="sev-badge" style="background:#ef444420;color:#ef4444;font-size:0.78em;">{_esc(cv)} &#x2713;</span> '
+            for cv in potential:
+                cve_badges += f'<span class="sev-badge" style="background:#eab30820;color:#eab308;font-size:0.78em;">{_esc(cv)} ?</span> '
+
+            vpn_rows += f'''<tr>
+  <td><strong style="color:{sev_col};">{prod}</strong></td>
+  <td><span class="sev-badge" style="background:{sev_col}20;color:{sev_col};">{sev_label}</span></td>
+  <td class="mono" style="font-size:0.82em;">{_esc(paths)}</td>
+  <td style="font-size:0.82em;">{cve_badges or '<span class="muted">—</span>'}</td>
+  <td class="muted" style="font-size:0.82em;">{_esc(sigs[:80])}</td>
+</tr>'''
+
+        # CVE detail table
+        cve_detail = ''
+        if vpn_cve_findings:
+            cve_rows = ''
+            for c in sorted(vpn_cve_findings, key=lambda x: -(x.get('cvss', 0) or 0)):
+                cvss = c.get('cvss', 0)
+                cvss_col = '#ef4444' if cvss >= 9 else '#f97316' if cvss >= 7 else '#eab308'
+                verified_icon = '&#x2713;' if c.get('verified') else '&#x26a0;'
+                ver_col = 'var(--green)' if c.get('verified') else 'var(--yellow)'
+                evidence = '; '.join(c.get('evidence', [])[:2])
+                cve_rows += f'''<tr>
+  <td><strong>{_esc(c.get("cve_id", ""))}</strong></td>
+  <td style="color:{cvss_col};font-weight:700;">{cvss}</td>
+  <td style="color:{ver_col};">{verified_icon}</td>
+  <td style="font-size:0.84em;">{_esc(c.get("description", "")[:100])}</td>
+  <td class="muted" style="font-size:0.82em;">{_esc(c.get("affected_versions", "")[:60])}</td>
+  <td style="font-size:0.82em;">{_esc(c.get("remediation", "")[:80])}</td>
+</tr>'''
+            cve_detail = f'''<details style="margin-top:14px;"><summary style="cursor:pointer;font-weight:600;font-size:0.92em;color:var(--accent);">CVE Verification Details ({len(vpn_cve_findings)})</summary>
+  <table style="margin-top:8px;"><tr><th>CVE</th><th>CVSS</th><th>Status</th><th>Description</th><th>Affected</th><th>Remediation</th></tr>{cve_rows}</table>
+</details>'''
+
+        # Sub-VPN findings
+        sub_vpn_rows = ''
+        sub_vpn_list = sub_sec.get('vpn_endpoints', []) if isinstance(sub_sec, dict) else []
+        if sub_vpn_list:
+            for sf, vd in sub_vpn_list[:10]:
+                for sv in vd.get('vpn_endpoints', []):
+                    sub_vpn_rows += f'<tr><td class="mono">{_esc(sf)}</td><td><strong>{_esc(sv.get("label", ""))}</strong></td><td class="mono" style="font-size:0.82em;">{_esc(", ".join(sv.get("paths", [])[:2]))}</td></tr>'
+            if sub_vpn_rows:
+                sub_vpn_rows = f'<details style="margin-top:14px;"><summary style="cursor:pointer;font-size:0.85em;color:var(--accent);">Subdomain VPN Findings ({len(sub_vpn_list)})</summary><table style="margin-top:8px;"><tr><th>Subdomain</th><th>Vendor</th><th>Paths</th></tr>{sub_vpn_rows}</table></details>'
+
+        n_verified = len(vpn_data.get('verified_cves', []))
+        n_potential = len(vpn_data.get('potential_cves', []))
+        cve_summary = ''
+        if n_verified:
+            cve_summary += f' <span style="color:var(--red);font-weight:600;">{n_verified} verified CVE(s)</span>'
+        if n_potential:
+            cve_summary += f' <span style="color:var(--yellow);">{n_potential} potential</span>'
+
+        parts.append(f'''
+<div class="sec" id="vpn">
+  <h2>VPN / Remote Access Endpoints <span class="count">({n_vpn} vendor(s){cve_summary})</span></h2>
+  <div style="margin-bottom:14px;background:var(--surface2);border-radius:10px;padding:14px 18px;border-left:3px solid #ef4444;">
+    <p style="font-size:0.9em;line-height:1.6;margin:0;">Enterprise VPN concentrators are high-priority targets — consistently in <strong>CISA KEV</strong> and exploited by ransomware groups for initial network access. Each detected vendor is checked against known CVEs with safe, non-destructive probes.</p>
+  </div>
+  <table><tr><th>Vendor</th><th>Severity</th><th>Detected Paths</th><th>CVEs</th><th>Detection Signals</th></tr>{vpn_rows}</table>
+  {cve_detail}{sub_vpn_rows}
+</div>''')
+
+    # ── API Security ──
+    _api_has_data = (n_api_specs > 0 or
+                     (isinstance(api_gw, dict) and api_gw.get('detected')) or
+                     (isinstance(api_rate, dict) and api_rate.get('detected')) or
+                     (isinstance(api_auth, dict) and api_auth.get('detected')) or
+                     (isinstance(api_endpoints, list) and len(api_endpoints) > 0))
+    if _api_has_data:
+        # Gateway info
+        gw_html = '<span class="muted">Not detected</span>'
+        if isinstance(api_gw, dict) and api_gw.get('detected'):
+            gw_vendors = []
+            for hdr, info in api_gw.items():
+                if hdr == 'detected':
+                    continue
+                if isinstance(info, dict):
+                    gw_vendors.append(info.get('vendor', hdr))
+            gw_html = ', '.join(f'<strong style="color:var(--cyan);">{_esc(v)}</strong>' for v in gw_vendors) if gw_vendors else '<span style="color:var(--green);">Detected</span>'
+
+        # Rate limiting
+        rl_api_html = '<span style="color:var(--red);font-weight:600;">&#x2717; Not Detected</span>'
+        if isinstance(api_rate, dict) and api_rate.get('detected'):
+            rl_api_html = '<span style="color:var(--green);font-weight:600;">&#x2713; Detected</span>'
+            rl_hdrs = {k: v for k, v in api_rate.items() if k != 'detected'}
+            if rl_hdrs:
+                rl_api_html += ' <span class="muted" style="font-size:0.82em;">(' + ', '.join(f'{k}={v}' for k, v in list(rl_hdrs.items())[:3]) + ')</span>'
+
+        # Authentication
+        auth_html = '<span style="color:var(--red);font-weight:600;">&#x2717; Not Detected</span>'
+        if isinstance(api_auth, dict) and api_auth.get('detected'):
+            auth_html = '<span style="color:var(--green);font-weight:600;">&#x2713; Detected</span>'
+            auth_schemes = {k: v for k, v in api_auth.items() if k != 'detected'}
+            if auth_schemes:
+                auth_html += ' <span class="muted" style="font-size:0.82em;">(' + ', '.join(list(auth_schemes.keys())[:3]) + ')</span>'
+
+        # Exposed specs table
+        spec_rows = ''
+        if isinstance(api_specs, list) and api_specs:
+            for s in api_specs[:10]:
+                if isinstance(s, dict):
+                    spath = _esc(s.get('path', ''))
+                    scat = _esc(s.get('category', ''))
+                    sst = s.get('status', 0)
+                    ssev = s.get('severity', 'info')
+                    sc = SEV_COLORS.get(ssev, '#64748b')
+                    spec_rows += f'<tr><td class="mono">{spath}</td><td>{scat}</td><td style="color:{sc};font-weight:600;">{sst}</td><td><span class="sev-badge" style="background:{sc}20;color:{sc};">{ssev.upper()}</span></td></tr>'
+            spec_rows = f'<details style="margin-top:14px;"><summary style="cursor:pointer;font-size:0.85em;color:var(--accent);">Exposed API Specs / Docs ({len(api_specs)})</summary><table style="margin-top:8px;"><tr><th>Path</th><th>Category</th><th>Status</th><th>Severity</th></tr>{spec_rows}</table></details>'
+
+        # Sub-API findings
+        sub_api_list = sub_sec.get('api_security', []) if isinstance(sub_sec, dict) else []
+        sub_api_html = ''
+        if sub_api_list:
+            sa_rows = ''
+            for sf, ad in sub_api_list[:10]:
+                n_sp = ad.get('total_specs', 0)
+                gw_det = '&#x2713;' if ad.get('api_gateway', {}).get('detected') else '&#x2717;'
+                rl_det = '&#x2713;' if ad.get('rate_limiting', {}).get('detected') else '&#x2717;'
+                au_det = '&#x2713;' if ad.get('authentication', {}).get('detected') else '&#x2717;'
+                sa_rows += f'<tr><td class="mono">{_esc(sf)}</td><td>{n_sp}</td><td>{gw_det}</td><td>{rl_det}</td><td>{au_det}</td></tr>'
+            sub_api_html = f'<details style="margin-top:14px;"><summary style="cursor:pointer;font-size:0.85em;color:var(--accent);">Subdomain API Findings ({len(sub_api_list)})</summary><table style="margin-top:8px;"><tr><th>Subdomain</th><th>Specs</th><th>Gateway</th><th>Rate Limit</th><th>Auth</th></tr>{sa_rows}</table></details>'
+
+        api_summary = api_sec.get('summary', '') if isinstance(api_sec, dict) else ''
+        parts.append(f'''
+<div class="sec" id="apisec">
+  <h2>API Security <span class="count">({n_api_specs} spec(s) exposed)</span></h2>
+  <table>
+    <tr><td class="kv-key">API Gateway</td><td>{gw_html}</td></tr>
+    <tr><td class="kv-key">Rate Limiting</td><td>{rl_api_html}</td></tr>
+    <tr><td class="kv-key">Authentication</td><td>{auth_html}</td></tr>
+    <tr><td class="kv-key">Specs Exposed</td><td>{"<span style=\"color:var(--red);font-weight:600;\">" + str(n_api_specs) + " spec(s)</span>" if n_api_specs else "<span style=\"color:var(--green);\">None exposed</span>"}</td></tr>
+  </table>
+  {f'<p class="muted" style="margin-top:8px;font-size:0.85em;">{_esc(api_summary)}</p>' if api_summary else ''}
+  {spec_rows}{sub_api_html}
+</div>''')
+
+    # ── Cloud Buckets ──
+    if n_buckets > 0 or n_public_buckets > 0:
+        _BUCKET_VENDOR_COLORS = {
+            's3': ('#f97316', 'AWS S3'), 'azure': ('#3b82f6', 'Azure Blob'),
+            'gcs': ('#22c55e', 'Google Cloud Storage'),
+        }
+        bkt_rows = ''
+        for b in bucket_list[:30]:
+            if not isinstance(b, dict):
+                continue
+            bname = _esc(b.get('name', ''))
+            burl = _esc(b.get('url', ''))
+            bvendor_key = b.get('provider', b.get('vendor', ''))
+            bvendor_col, bvendor_label = _BUCKET_VENDOR_COLORS.get(
+                bvendor_key.lower() if isinstance(bvendor_key, str) else '',
+                ('#64748b', _esc(str(bvendor_key)) if bvendor_key else 'Unknown'))
+            pub_read = b.get('public_read', False)
+            pub_list = b.get('public_listing', False)
+            found_on = b.get('found_on', '')
+            status = b.get('status', '')
+
+            access_badges = ''
+            if pub_read:
+                access_badges += '<span class="sev-badge" style="background:#ef444420;color:#ef4444;">PUBLIC READ</span> '
+            if pub_list:
+                access_badges += '<span class="sev-badge" style="background:#ef444420;color:#ef4444;">PUBLIC LIST</span> '
+            if not pub_read and not pub_list:
+                access_badges = '<span class="muted">Private</span>'
+
+            bkt_rows += f'''<tr>
+  <td class="mono" style="font-size:0.85em;">{bname}</td>
+  <td><span class="type-badge" style="background:{bvendor_col}20;color:{bvendor_col};">{bvendor_label}</span></td>
+  <td>{access_badges}</td>
+  <td class="mono" style="font-size:0.82em;">{_esc(found_on) if found_on else _esc(host)}</td>
+  <td class="muted" style="font-size:0.82em;">{status}</td>
+</tr>'''
+
+        # Sub-bucket findings
+        sub_bkt_list = sub_sec.get('cloud_buckets', []) if isinstance(sub_sec, dict) else []
+        sub_bkt_html = ''
+        if sub_bkt_list:
+            sb_rows = ''
+            for sf, bd in sub_bkt_list[:10]:
+                n_pub = bd.get('total_public', 0)
+                n_found = bd.get('total_found', 0)
+                sb_rows += f'<tr><td class="mono">{_esc(sf)}</td><td>{n_found}</td><td style="color:{"var(--red)" if n_pub else "var(--green)"};">{n_pub}</td></tr>'
+            sub_bkt_html = f'<details style="margin-top:14px;"><summary style="cursor:pointer;font-size:0.85em;color:var(--accent);">Subdomain Bucket Findings ({len(sub_bkt_list)})</summary><table style="margin-top:8px;"><tr><th>Subdomain</th><th>Total</th><th>Public</th></tr>{sb_rows}</table></details>'
+
+        pub_color = 'var(--red)' if n_public_buckets else 'var(--green)'
+        parts.append(f'''
+<div class="sec" id="buckets">
+  <h2>Cloud Storage Buckets <span class="count">({n_buckets} found, <span style="color:{pub_color};">{n_public_buckets} public</span>)</span></h2>
+  {"<div style=\"margin-bottom:14px;background:var(--surface2);border-radius:10px;padding:14px 18px;border-left:3px solid #ef4444;\"><p style=\"font-size:0.9em;line-height:1.6;margin:0;\"><strong style=\"color:var(--red);\">Public buckets detected!</strong> These cloud storage containers are accessible without authentication. Data exfiltration, backup leakage, and sensitive file exposure are immediate risks.</p></div>" if n_public_buckets else ""}
+  <table><tr><th>Bucket</th><th>Vendor</th><th>Access</th><th>Found On</th><th>Status</th></tr>{bkt_rows}</table>
+  {sub_bkt_html}
 </div>''')
 
     # Subdomains
