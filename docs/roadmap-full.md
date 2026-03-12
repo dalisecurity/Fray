@@ -1,6 +1,6 @@
 # Fray Full Roadmap — 222 Items Across 27 Layers
 
-**Status:** 109 done · 113 pending  
+**Status:** 114 done · 108 pending  
 **Last updated:** 2026-03-11
 
 ---
@@ -41,13 +41,13 @@
 |---|------|----------|--------|
 | 20 | Server-Side Request Forgery (SSRF) deep testing | HIGH | done |
 | 21 | Insecure Deserialization payloads | HIGH | done |
-| 22 | Mass Assignment / parameter pollution | MEDIUM | pending |
+| 22 | Mass Assignment / parameter pollution | MEDIUM | done |
 | 23 | GraphQL-specific attacks (batching, introspection abuse) | MEDIUM | done |
 | 24 | Race condition testing (TOCTOU) | MEDIUM | pending |
 | 25 | Business logic bypass templates | MEDIUM | pending |
 | 26 | HTTP/2 specific attacks (HPACK bomb, etc.) | LOW | pending |
-| 27 | Cache poisoning via headers | MEDIUM | pending |
-| 28 | Web cache deception | MEDIUM | pending |
+| 27 | Cache poisoning via headers | MEDIUM | done |
+| 28 | Web cache deception | MEDIUM | done |
 | 29 | Client-side prototype pollution verification | LOW | pending |
 
 ## L5 — Supply Chain Pipeline (3 items)
@@ -233,7 +233,7 @@
 | 155 | Template Bounty Program ($25-100 per template) | HIGH | pending |
 | 156 | Deep SQLi Module (sqlmap-level: 6 techniques, 34+ DBMS) | HIGH | done |
 | 157 | Deep XSS Module (XSStrike-level: context-aware, DOM verify) | HIGH | done |
-| 158 | Deep CMDi Module (commix-level: auto-shell) | MEDIUM | pending |
+| 158 | Deep CMDi Module (commix-level: auto-shell) | MEDIUM | done |
 | 159 | Content Discovery / Fuzzing (ffuf-like FUZZ keyword) | HIGH | done |
 | 160 | Stdin/Stdout Pipeline (cat | fray recon -) | HIGH | done |
 | 161 | WAF Fingerprint DB Expansion (30→150+ WAFs) | HIGH | done |
@@ -329,7 +329,7 @@
 ## L27 — Architecture + Code Quality (5 items)
 | # | Item | Priority | Status |
 |---|------|----------|--------|
-| 218 | Parallel/async request execution (asyncio + aiohttp) | HIGH | pending |
+| 218 | Parallel/async request execution (asyncio + aiohttp) | HIGH | done |
 | 219 | Response diffing / false positive reduction | MEDIUM | done |
 | 220 | Redirect chain following in testing | MEDIUM | pending |
 | 221 | --resume flag for interrupted scan checkpoint | MEDIUM | done |
