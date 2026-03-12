@@ -1836,76 +1836,434 @@ _CLOUD_PROVIDERS = {
 # Many CDN providers bundle WAF (Akamai Kona, Azure Front Door WAF,
 # AWS WAF+CloudFront, Cloudflare WAF) — we detect them as both.
 _WAF_CDN_SIGNATURES = [
-    # ── Cloudflare (WAF + CDN) ──
+    # ═══════════════════════════════════════════════════════════════════
+    # WAF + CDN Combo Products (detect both WAF and CDN)
+    # ═══════════════════════════════════════════════════════════════════
+
+    # ── Cloudflare ──
     {"name": "Cloudflare", "waf": "Cloudflare", "cdn": "Cloudflare",
      "headers": {"server": "cloudflare", "cf-ray": "", "cf-cache-status": ""},
      "cname_hints": ["cloudflare"]},
 
-    # ── Akamai (Kona Site Defender / App & API Protector + CDN) ──
+    # ── Akamai (Kona Site Defender / App & API Protector) ──
     {"name": "Akamai", "waf": "Akamai (Kona/AAP)", "cdn": "Akamai",
      "headers": {"server": "akamaighost", "x-akamai-transformed": "",
                  "x-akamai-session-info": "", "x-akamai-request-id": ""},
      "server_contains": ["akamai"],
      "cname_hints": ["akamai", "edgesuite", "edgekey", "akamaized",
                      "akamaiedge", "akamaitechnologies"]},
-    # Akamai NetStorage (CDN only, no WAF)
     {"name": "Akamai NetStorage", "waf": None, "cdn": "Akamai",
      "headers": {"server": "akamainetstorage"},
      "server_contains": ["akamainetstorag"],
      "cname_hints": ["netstorage"]},
+    {"name": "Akamai Bot Manager", "waf": "Akamai Bot Manager", "cdn": "Akamai",
+     "headers": {"x-akamai-session-info": ""},
+     "cname_hints": []},
 
     # ── AWS CloudFront + WAF ──
     {"name": "CloudFront", "waf": "AWS WAF", "cdn": "CloudFront",
      "headers": {"x-amz-cf-id": "", "x-amz-cf-pop": "", "via": "cloudfront",
                  "x-cache": ""},
      "cname_hints": ["cloudfront.net"]},
-    # Explicit AWS WAF header (may appear without CloudFront)
     {"name": "AWS WAF", "waf": "AWS WAF", "cdn": None,
      "headers": {"x-amzn-waf-action": ""},
      "cname_hints": ["awswaf"]},
+    {"name": "AWS Shield", "waf": "AWS Shield", "cdn": None,
+     "headers": {"x-amzn-ddos-protection": ""},
+     "cname_hints": []},
 
-    # ── Azure Front Door (bundled WAF + CDN) ──
+    # ── Azure ──
     {"name": "Azure Front Door", "waf": "Azure Front Door WAF", "cdn": "Azure Front Door",
      "headers": {"x-azure-ref": ""},
      "cname_hints": ["azurefd", "afd.", "trafficmanager.net"]},
-    # Azure CDN (Verizon/Akamai backend, may or may not have WAF)
     {"name": "Azure CDN", "waf": None, "cdn": "Azure CDN",
      "headers": {"x-msedge-ref": "", "x-ec-custom-error": ""},
      "cname_hints": ["azureedge", "msecnd"]},
+    {"name": "Azure Application Gateway", "waf": "Azure App Gateway WAF", "cdn": None,
+     "headers": {"server": "microsoft-azure-application-gateway"},
+     "cname_hints": []},
 
-    # ── Imperva / Incapsula (WAF + CDN) ──
+    # ── Google Cloud ──
+    {"name": "Google Cloud Armor", "waf": "Google Cloud Armor", "cdn": "Google CDN",
+     "headers": {"via": "google", "x-goog-": ""},
+     "cname_hints": ["googleusercontent", "googlevideo", "withgoogle"]},
+    {"name": "Google Cloud CDN", "waf": None, "cdn": "Google CDN",
+     "headers": {"x-goog-hash": ""},
+     "cname_hints": ["storage.googleapis.com"]},
+
+    # ── Imperva / Incapsula ──
     {"name": "Imperva", "waf": "Imperva", "cdn": "Imperva",
      "headers": {"x-iinfo": "", "x-cdn": "imperva", "x-iinfo-origin-env": ""},
      "cname_hints": ["incapsula", "imperva"]},
+    {"name": "Imperva Advanced Bot Protection", "waf": "Imperva ABP", "cdn": "Imperva",
+     "headers": {"x-cdn": "incapsula"},
+     "cname_hints": []},
 
-    # ── Fastly (Signal Sciences WAF + CDN) ──
+    # ── Fastly ──
     {"name": "Fastly", "waf": "Fastly (Signal Sciences)", "cdn": "Fastly",
      "headers": {"x-served-by": "", "x-fastly-request-id": ""},
      "cname_hints": ["fastly"]},
+    {"name": "Fastly Next-Gen WAF", "waf": "Fastly (Signal Sciences)", "cdn": "Fastly",
+     "headers": {"x-sigsci-decision": ""},
+     "cname_hints": []},
 
-    # ── Sucuri (WAF + CDN) ──
+    # ── Sucuri ──
     {"name": "Sucuri", "waf": "Sucuri", "cdn": "Sucuri",
      "headers": {"x-sucuri-id": "", "x-sucuri-cache": ""},
      "cname_hints": ["sucuri"]},
 
-    # ── Google Cloud CDN / Cloud Armor (WAF) ──
-    {"name": "Google Cloud", "waf": "Google Cloud Armor", "cdn": "Google CDN",
-     "headers": {"via": "google", "x-goog-": ""},
-     "cname_hints": ["googleusercontent", "googlevideo", "withgoogle"]},
+    # ── Verizon / Edgecast ──
+    {"name": "Verizon Digital Media / Edgecast", "waf": "Verizon WAF", "cdn": "Edgecast",
+     "headers": {"server": "ecacc", "x-ec-custom-error": ""},
+     "server_contains": ["ecacc", "ecd"],
+     "cname_hints": ["edgecast"]},
 
-    # ── Standalone WAFs (no CDN) ──
-    {"name": "F5 BIG-IP", "waf": "F5 BIG-IP ASM", "cdn": None,
-     "headers": {"server": "big-ip", "x-cnection": ""},
+    # ── StackPath / MaxCDN ──
+    {"name": "StackPath", "waf": "StackPath WAF", "cdn": "StackPath",
+     "headers": {"x-sp-waf-id": "", "server": "stackpath"},
+     "cname_hints": ["stackpath", "stackpathdns"]},
+    {"name": "MaxCDN", "waf": None, "cdn": "MaxCDN/StackPath",
+     "headers": {"x-cdn": "maxcdn"},
+     "cname_hints": ["maxcdn"]},
+
+    # ── KeyCDN ──
+    {"name": "KeyCDN", "waf": None, "cdn": "KeyCDN",
+     "headers": {"server": "keycdn"},
+     "cname_hints": ["kxcdn"]},
+
+    # ── CDN77 ──
+    {"name": "CDN77", "waf": None, "cdn": "CDN77",
+     "headers": {"server": "cdn77", "x-cdn77-cache": ""},
+     "cname_hints": ["cdn77"]},
+
+    # ── BunnyCDN ──
+    {"name": "BunnyCDN", "waf": None, "cdn": "BunnyCDN",
+     "headers": {"server": "bunnycdn", "cdn-pullzone": "", "cdn-uid": ""},
+     "cname_hints": ["b-cdn.net", "bunny"]},
+
+    # ── Limelight / Edgio ──
+    {"name": "Limelight / Edgio", "waf": "Edgio WAF", "cdn": "Limelight",
+     "headers": {"server": "globalredir", "x-cdn": "llnw"},
+     "cname_hints": ["limelight", "llnw", "edgio", "edgecast"]},
+
+    # ── Alibaba Cloud CDN / WAF ──
+    {"name": "Alibaba Cloud WAF", "waf": "Alibaba Cloud WAF", "cdn": "Alibaba CDN",
+     "headers": {"server": "tengine", "eagleid": ""},
+     "cname_hints": ["alicdn", "aliyuncs", "alicloudccp"]},
+
+    # ── Tencent Cloud CDN / WAF ──
+    {"name": "Tencent Cloud WAF", "waf": "Tencent Cloud WAF", "cdn": "Tencent CDN",
+     "headers": {"x-nws-log-uuid": "", "server": "tencent"},
+     "cname_hints": ["tencent", "dnsv1"]},
+
+    # ── Baidu Cloud CDN / WAF ──
+    {"name": "Baidu Cloud WAF", "waf": "Baidu Yundun", "cdn": "Baidu CDN",
+     "headers": {"server": "yunjiasu-nginx"},
+     "cname_hints": ["yunjiasu", "baidustatic", "bdstatic"]},
+
+    # ── Huawei Cloud CDN / WAF ──
+    {"name": "Huawei Cloud WAF", "waf": "Huawei Cloud WAF", "cdn": "Huawei CDN",
+     "headers": {"x-hw-id": ""},
+     "cname_hints": ["huaweicloud", "myhuaweicloud"]},
+
+    # ── ChinaCache ──
+    {"name": "ChinaCache", "waf": None, "cdn": "ChinaCache",
+     "headers": {"server": "chinacache"},
+     "cname_hints": ["chinacache"]},
+
+    # ── CDNetworks ──
+    {"name": "CDNetworks", "waf": "CDNetworks WAF", "cdn": "CDNetworks",
+     "headers": {"x-cdn-origin": "", "server": "cdnetworks"},
+     "cname_hints": ["cdnetworks", "cdnple"]},
+
+    # ── BitNinja ──
+    {"name": "BitNinja", "waf": "BitNinja", "cdn": None,
+     "headers": {"server": "bitninja"},
      "cname_hints": []},
+
+    # ── Vercel / Next.js Edge ──
+    {"name": "Vercel", "waf": "Vercel Firewall", "cdn": "Vercel Edge",
+     "headers": {"server": "vercel", "x-vercel-id": "", "x-vercel-cache": ""},
+     "cname_hints": ["vercel", "vercel-dns"]},
+
+    # ── Netlify ──
+    {"name": "Netlify", "waf": None, "cdn": "Netlify",
+     "headers": {"server": "netlify", "x-nf-request-id": ""},
+     "cname_hints": ["netlify"]},
+
+    # ── Fly.io ──
+    {"name": "Fly.io", "waf": None, "cdn": "Fly.io",
+     "headers": {"server": "fly/", "fly-request-id": ""},
+     "cname_hints": ["fly.dev", "fly.io"]},
+
+    # ── Render ──
+    {"name": "Render", "waf": None, "cdn": "Render",
+     "headers": {"server": "render", "rndr-id": ""},
+     "cname_hints": ["onrender"]},
+
+    # ── Railway ──
+    {"name": "Railway", "waf": None, "cdn": "Railway",
+     "headers": {"server": "railway"},
+     "cname_hints": ["railway.app"]},
+
+    # ═══════════════════════════════════════════════════════════════════
+    # Standalone WAFs (no CDN)
+    # ═══════════════════════════════════════════════════════════════════
+
+    # ── F5 BIG-IP ASM / Advanced WAF ──
+    {"name": "F5 BIG-IP", "waf": "F5 BIG-IP ASM", "cdn": None,
+     "headers": {"server": "big-ip", "x-cnection": "", "x-wa-info": ""},
+     "cname_hints": []},
+
+    # ── Barracuda WAF ──
     {"name": "Barracuda", "waf": "Barracuda WAF", "cdn": None,
      "headers": {"server": "barracuda"},
      "cname_hints": ["barracuda"]},
+
+    # ── FortiWeb ──
     {"name": "FortiWeb", "waf": "FortiWeb", "cdn": None,
      "headers": {"server": "fortiweb"},
      "cname_hints": []},
+
+    # ── Citrix NetScaler / ADC ──
     {"name": "Citrix NetScaler", "waf": "Citrix NetScaler", "cdn": None,
      "headers": {"via": "ns-cache", "cneonction": "", "x-nsprotect": ""},
      "cname_hints": []},
+
+    # ── ModSecurity ──
+    {"name": "ModSecurity", "waf": "ModSecurity", "cdn": None,
+     "headers": {"server": "mod_security", "x-modsecurity-id": ""},
+     "cname_hints": []},
+
+    # ── NAXSI (nginx) ──
+    {"name": "NAXSI", "waf": "NAXSI", "cdn": None,
+     "headers": {"x-naxsi-sig": ""},
+     "cname_hints": []},
+
+    # ── WebKnight (IIS) ──
+    {"name": "WebKnight", "waf": "WebKnight", "cdn": None,
+     "headers": {"server": "webknight"},
+     "cname_hints": []},
+
+    # ── Wallarm ──
+    {"name": "Wallarm", "waf": "Wallarm", "cdn": None,
+     "headers": {"x-wallarm-waf-check": "", "server": "wallarm"},
+     "cname_hints": ["wallarm"]},
+
+    # ── Radware AppWall / DefensePro ──
+    {"name": "Radware", "waf": "Radware AppWall", "cdn": None,
+     "headers": {"x-sl-compstate": "", "server": "radware"},
+     "cname_hints": ["radware"]},
+
+    # ── DenyAll / Rohde & Schwarz ──
+    {"name": "DenyAll", "waf": "DenyAll / R&S WAF", "cdn": None,
+     "headers": {"server": "denyall", "x-denyall-id": ""},
+     "cname_hints": []},
+
+    # ── SonicWall WAF ──
+    {"name": "SonicWall WAF", "waf": "SonicWall WAF", "cdn": None,
+     "headers": {"server": "sonicwall"},
+     "cname_hints": ["sonicwall"]},
+
+    # ── Comodo / Sectigo WAF ──
+    {"name": "Comodo WAF", "waf": "Comodo WAF", "cdn": None,
+     "headers": {"server": "comodo", "x-cwaf-detected": ""},
+     "cname_hints": []},
+
+    # ── Wordfence (WordPress) ──
+    {"name": "Wordfence", "waf": "Wordfence", "cdn": None,
+     "headers": {"x-wf-log": ""},
+     "cname_hints": []},
+
+    # ── Shield Security (WordPress) ──
+    {"name": "Shield Security", "waf": "Shield Security", "cdn": None,
+     "headers": {"x-shield-security": ""},
+     "cname_hints": []},
+
+    # ── NinjaFirewall (WordPress) ──
+    {"name": "NinjaFirewall", "waf": "NinjaFirewall", "cdn": None,
+     "headers": {"x-ninjafirewall": ""},
+     "cname_hints": []},
+
+    # ── Palo Alto Prisma Cloud / WAAS ──
+    {"name": "Prisma Cloud WAAS", "waf": "Prisma Cloud WAAS", "cdn": None,
+     "headers": {"x-prisma-event-id": ""},
+     "cname_hints": []},
+
+    # ── Check Point CloudGuard ──
+    {"name": "Check Point CloudGuard", "waf": "Check Point CloudGuard", "cdn": None,
+     "headers": {"x-checkpoint-id": "", "server": "cloudguard"},
+     "cname_hints": []},
+
+    # ── Sophos UTM / XG WAF ──
+    {"name": "Sophos WAF", "waf": "Sophos WAF", "cdn": None,
+     "headers": {"server": "sophos"},
+     "cname_hints": []},
+
+    # ── Juniper Web App Secure ──
+    {"name": "Juniper WAS", "waf": "Juniper WAS", "cdn": None,
+     "headers": {"x-was-id": ""},
+     "cname_hints": []},
+
+    # ── Airlock (Ergon) ──
+    {"name": "Airlock", "waf": "Airlock WAF", "cdn": None,
+     "headers": {"server": "airlock", "al-req-id": ""},
+     "cname_hints": []},
+
+    # ── Fortinet FortiADC ──
+    {"name": "FortiADC", "waf": "FortiADC", "cdn": None,
+     "headers": {"server": "fortiadc"},
+     "cname_hints": []},
+
+    # ── A10 Thunder / vThunder WAF ──
+    {"name": "A10 Thunder", "waf": "A10 Thunder WAF", "cdn": None,
+     "headers": {"server": "a10"},
+     "cname_hints": []},
+
+    # ── Qualys WAF ──
+    {"name": "Qualys WAF", "waf": "Qualys WAF", "cdn": None,
+     "headers": {"x-qualys-waf": ""},
+     "cname_hints": []},
+
+    # ── Reblaze ──
+    {"name": "Reblaze", "waf": "Reblaze", "cdn": None,
+     "headers": {"x-reblaze-id": "", "server": "reblaze"},
+     "cname_hints": ["reblaze"]},
+
+    # ── PerimeterX / HUMAN ──
+    {"name": "PerimeterX / HUMAN", "waf": "PerimeterX", "cdn": None,
+     "headers": {"x-px-id": "", "x-px-block-score": ""},
+     "cname_hints": ["perimeterx", "human"]},
+
+    # ── DataDome ──
+    {"name": "DataDome", "waf": "DataDome", "cdn": None,
+     "headers": {"x-datadome": "", "x-dd-b": "", "server": "datadome"},
+     "cname_hints": ["datadome"]},
+
+    # ── Kasada ──
+    {"name": "Kasada", "waf": "Kasada", "cdn": None,
+     "headers": {"x-kpsdk-cd": "", "x-kpsdk-ct": ""},
+     "cname_hints": []},
+
+    # ── Shape Security (F5 Distributed Cloud) ──
+    {"name": "Shape Security", "waf": "Shape Security", "cdn": None,
+     "headers": {"x-distil-cs": ""},
+     "cname_hints": ["shape"]},
+
+    # ── ThreatX ──
+    {"name": "ThreatX", "waf": "ThreatX", "cdn": None,
+     "headers": {"x-threatx-id": ""},
+     "cname_hints": ["threatx"]},
+
+    # ── AppTrana (Indusface) ──
+    {"name": "AppTrana", "waf": "AppTrana", "cdn": None,
+     "headers": {"x-apptrana-id": "", "server": "apptrana"},
+     "cname_hints": ["apptrana", "indusface"]},
+
+    # ── Prophaze WAF ──
+    {"name": "Prophaze", "waf": "Prophaze WAF", "cdn": None,
+     "headers": {"server": "prophaze"},
+     "cname_hints": ["prophaze"]},
+
+    # ── AWS Elastic Load Balancer (not WAF, but infra detection) ──
+    {"name": "AWS ELB", "waf": None, "cdn": None,
+     "headers": {"server": "awselb"},
+     "cname_hints": ["elb.amazonaws.com"]},
+
+    # ── LiteSpeed (with built-in WAF) ──
+    {"name": "LiteSpeed", "waf": "LiteSpeed WAF", "cdn": None,
+     "headers": {"server": "litespeed"},
+     "cname_hints": []},
+
+    # ── OpenResty (nginx + Lua WAF capabilities) ──
+    {"name": "OpenResty", "waf": "OpenResty", "cdn": None,
+     "headers": {"server": "openresty"},
+     "cname_hints": []},
+
+    # ── Zenedge (Oracle / Dyn) ──
+    {"name": "Zenedge", "waf": "Zenedge", "cdn": None,
+     "headers": {"x-zen-fury": ""},
+     "cname_hints": ["zenedge"]},
+
+    # ── DDoS-Guard ──
+    {"name": "DDoS-Guard", "waf": "DDoS-Guard", "cdn": "DDoS-Guard",
+     "headers": {"server": "ddos-guard"},
+     "cname_hints": ["ddos-guard"]},
+
+    # ── Qrator ──
+    {"name": "Qrator", "waf": "Qrator", "cdn": None,
+     "headers": {"x-qrator-request-id": ""},
+     "cname_hints": ["qrator"]},
+
+    # ── StormWall ──
+    {"name": "StormWall", "waf": "StormWall", "cdn": None,
+     "headers": {"server": "stormwall"},
+     "cname_hints": ["stormwall"]},
+
+    # ── ArvanCloud ──
+    {"name": "ArvanCloud", "waf": "ArvanCloud WAF", "cdn": "ArvanCloud",
+     "headers": {"server": "arvancloud", "x-arvan-cache": ""},
+     "cname_hints": ["arvancloud"]},
+
+    # ── Section.io ──
+    {"name": "Section.io", "waf": "Section.io", "cdn": "Section.io",
+     "headers": {"section-io-id": ""},
+     "cname_hints": ["section.io"]},
+
+    # ── CacheFly ──
+    {"name": "CacheFly", "waf": None, "cdn": "CacheFly",
+     "headers": {"server": "cachefly"},
+     "cname_hints": ["cachefly"]},
+
+    # ── Highwinds / StackPath Legacy ──
+    {"name": "Highwinds", "waf": None, "cdn": "Highwinds",
+     "headers": {"x-hw": ""},
+     "cname_hints": ["hwcdn"]},
+
+    # ── Incapsula Legacy ──
+    {"name": "Incapsula", "waf": "Incapsula", "cdn": "Incapsula",
+     "headers": {"x-cdn": "incapsula"},
+     "cname_hints": ["incapsula"]},
+
+    # ── Yottaa ──
+    {"name": "Yottaa", "waf": None, "cdn": "Yottaa",
+     "headers": {"x-yottaa-optimizations": ""},
+     "cname_hints": ["yottaa"]},
+
+    # ── Instart Logic ──
+    {"name": "Instart", "waf": "Instart", "cdn": "Instart",
+     "headers": {"x-instart-request-id": ""},
+     "cname_hints": ["instart"]},
+
+    # ── GCore CDN ──
+    {"name": "GCore", "waf": None, "cdn": "GCore",
+     "headers": {"server": "gcore", "x-gc-cache": ""},
+     "cname_hints": ["gcore", "gcdn"]},
+
+    # ── Webscale Networks ──
+    {"name": "Webscale", "waf": "Webscale WAF", "cdn": "Webscale",
+     "headers": {"x-webscale-id": ""},
+     "cname_hints": ["webscale"]},
+
+    # ── Bot Protection Only ──
+    {"name": "FingerprintJS", "waf": "FingerprintJS Bot Protection", "cdn": None,
+     "headers": {"x-fp-botd": ""},
+     "cname_hints": []},
+
+    # ── Sqreen (now DataDog) ──
+    {"name": "Sqreen / DataDog ASM", "waf": "DataDog ASM", "cdn": None,
+     "headers": {"x-sqreen-request-id": "", "x-dd-version": ""},
+     "cname_hints": []},
+
+    # ── Contrast Security RASP ──
+    {"name": "Contrast Security", "waf": "Contrast RASP", "cdn": None,
+     "headers": {"x-contrast-security": ""},
+     "cname_hints": []},
+
+    # ── Signal Sciences (standalone, before Fastly acquisition) ──
+    {"name": "Signal Sciences", "waf": "Signal Sciences", "cdn": None,
+     "headers": {"x-sigsci-tags": ""},
+     "cname_hints": ["sigsci"]},
 ]
 
 
