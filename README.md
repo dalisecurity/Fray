@@ -22,7 +22,7 @@ Fray is the missing link between [wafw00f](https://github.com/EnableSecurity/waf
 | | Fray | Nuclei | XSStrike | wafw00f | sqlmap |
 |-|------|--------|----------|---------|--------|
 | **WAF bypass engine** | ✅ AI + mutation | ❌ | Partial | ❌ | Tamper scripts |
-| **WAF detection** | 68 vendors | Via templates | Basic | 150+ vendors | Basic |
+| **WAF detection** | 98 WAF/CDN vendors | Via templates | Basic | 150+ vendors | Basic |
 | **Recon pipeline** | 35+ checks | Separate tools | Crawl only | ❌ | ❌ |
 | **Content discovery** | ✅ ffuf-like fuzzer | Via templates | ❌ | ❌ | ❌ |
 | **Template DSL** | ✅ Nuclei-compatible YAML | ✅ Native | ❌ | ❌ | ❌ |
@@ -72,7 +72,7 @@ If Fray helped your recon workflow, please [⭐ star the repo](https://github.co
 | **`fray harden`** | Security headers (A-F grade) + OWASP Top 10 misconfig checks + fix snippets |
 | **`fray fuzz`** | ffuf-like content discovery — FUZZ keyword, filters, recursion, built-in wordlists |
 | **`fray template`** | Nuclei-compatible YAML templates with WAF bypass logic |
-| **`fray detect`** | Fingerprint 68 WAF vendors (header, CNAME, cookie detection) |
+| **`fray detect`** | Fingerprint 98 WAF/CDN vendors (header, CNAME, cookie, signature detection) |
 | **`fray test`** | 4,000+ payloads across 23 categories with adaptive throttling and cross-domain WAF learning |
 | **`fray cache`** | Inspect, manage, and clear the adaptive payload cache per domain |
 | **`fray bounty`** | HackerOne / Bugcrowd scope auto-fetch + batch scan |
