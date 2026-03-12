@@ -1,6 +1,6 @@
 # Fray Full Roadmap — 222 Items Across 27 Layers
 
-**Status:** 97 done · 125 pending  
+**Status:** 103 done · 119 pending  
 **Last updated:** 2026-03-11
 
 ---
@@ -10,8 +10,8 @@
 |---|------|----------|--------|
 | 1 | JavaScript endpoint extraction from page source | HIGH | done |
 | 2 | Wayback Machine historical URL discovery | HIGH | done |
-| 3 | Parameter mining from HTML forms + JS | HIGH | pending |
-| 4 | Technology stack fingerprinting (Wappalyzer-level) | HIGH | pending |
+| 3 | Parameter mining from HTML forms + JS | HIGH | done |
+| 4 | Technology stack fingerprinting (Wappalyzer-level) | HIGH | done |
 | 5 | Cloud asset enumeration (S3, Azure Blob, GCS) | MEDIUM | done |
 
 ## L2 — Endpoint Classification (8 items)
@@ -175,7 +175,7 @@
 ## L15 — Bug Bounty Enhancement (11 items)
 | # | Item | Priority | Status |
 |---|------|----------|--------|
-| 112 | HackerOne API scope auto-fetch | HIGH | pending |
+| 112 | HackerOne API scope auto-fetch | HIGH | done |
 | 113 | Bugcrowd API scope auto-fetch | MEDIUM | pending |
 | 114 | Auto-submit findings to HackerOne | MEDIUM | pending |
 | 115 | Bounty program recommendation engine | LOW | pending |
@@ -229,14 +229,14 @@
 ## L18 — Competitive Parity / Surpass (16 items)
 | # | Item | Priority | Status |
 |---|------|----------|--------|
-| 154 | YAML Template DSL (Nuclei-like with WAF bypass logic) | HIGH | pending |
+| 154 | YAML Template DSL (Nuclei-like with WAF bypass logic) | HIGH | done |
 | 155 | Template Bounty Program ($25-100 per template) | HIGH | pending |
 | 156 | Deep SQLi Module (sqlmap-level: 6 techniques, 34+ DBMS) | HIGH | pending |
 | 157 | Deep XSS Module (XSStrike-level: context-aware, DOM verify) | HIGH | pending |
 | 158 | Deep CMDi Module (commix-level: auto-shell) | MEDIUM | pending |
-| 159 | Content Discovery / Fuzzing (ffuf-like FUZZ keyword) | HIGH | pending |
+| 159 | Content Discovery / Fuzzing (ffuf-like FUZZ keyword) | HIGH | done |
 | 160 | Stdin/Stdout Pipeline (cat | fray recon -) | HIGH | done |
-| 161 | WAF Fingerprint DB Expansion (30→150+ WAFs) | HIGH | pending |
+| 161 | WAF Fingerprint DB Expansion (30→150+ WAFs) | HIGH | done |
 | 162 | Vulnerability Verification/Proof (dump data, screenshot XSS) | HIGH | pending |
 | 163 | Plugin / Extension API (Python hooks, marketplace) | MEDIUM | pending |
 | 164 | Multi-Protocol (WebSocket, GraphQL, gRPC testing) | MEDIUM | pending |
