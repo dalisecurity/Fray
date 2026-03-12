@@ -1,6 +1,6 @@
 # Fray Full Roadmap — 222 Items Across 27 Layers
 
-**Status:** 75 done · 147 pending  
+**Status:** 89 done · 133 pending  
 **Last updated:** 2026-03-11
 
 ---
@@ -8,20 +8,20 @@
 ## L1 — Core Discovery (5 items)
 | # | Item | Priority | Status |
 |---|------|----------|--------|
-| 1 | JavaScript endpoint extraction from page source | HIGH | pending |
+| 1 | JavaScript endpoint extraction from page source | HIGH | done |
 | 2 | Wayback Machine historical URL discovery | HIGH | pending |
 | 3 | Parameter mining from HTML forms + JS | HIGH | pending |
 | 4 | Technology stack fingerprinting (Wappalyzer-level) | HIGH | pending |
-| 5 | Cloud asset enumeration (S3, Azure Blob, GCS) | MEDIUM | pending |
+| 5 | Cloud asset enumeration (S3, Azure Blob, GCS) | MEDIUM | done |
 
 ## L2 — Endpoint Classification (8 items)
 | # | Item | Priority | Status |
 |---|------|----------|--------|
 | 6 | API endpoint auto-classification (REST/GraphQL/gRPC) | HIGH | pending |
 | 7 | Authentication endpoint detection | MEDIUM | pending |
-| 8 | File upload endpoint detection | MEDIUM | pending |
+| 8 | File upload endpoint detection | MEDIUM | done |
 | 9 | Admin panel fingerprinting | MEDIUM | pending |
-| 10 | WebSocket endpoint discovery | MEDIUM | pending |
+| 10 | WebSocket endpoint discovery | MEDIUM | done |
 | 11 | Server-Sent Events (SSE) endpoint detection | LOW | pending |
 | 12 | Health/status endpoint enumeration | LOW | done |
 | 13 | OpenAPI/Swagger spec auto-discovery | HIGH | done |
@@ -31,10 +31,10 @@
 |---|------|----------|--------|
 | 14 | Exposed .env / config file detection | HIGH | done |
 | 15 | Git repository exposure (.git/HEAD) | HIGH | done |
-| 16 | API key pattern matching in responses | HIGH | pending |
-| 17 | JWT token analysis (weak signing, expired, none alg) | MEDIUM | pending |
-| 18 | Hardcoded credential detection in JS bundles | MEDIUM | pending |
-| 19 | Source map detection and analysis | LOW | pending |
+| 16 | API key pattern matching in responses | HIGH | done |
+| 17 | JWT token analysis (weak signing, expired, none alg) | MEDIUM | done |
+| 18 | Hardcoded credential detection in JS bundles | MEDIUM | done |
+| 19 | Source map detection and analysis | LOW | done |
 
 ## L4 — New Attack Classes / OWASP 2025 (10 items)
 | # | Item | Priority | Status |
@@ -91,9 +91,9 @@
 ## L9 — Bot Detection (5 items)
 | # | Item | Priority | Status |
 |---|------|----------|--------|
-| 52 | Cloudflare Turnstile detection | MEDIUM | pending |
-| 53 | reCAPTCHA v2/v3 detection | MEDIUM | pending |
-| 54 | Browser fingerprint challenge detection | MEDIUM | pending |
+| 52 | Cloudflare Turnstile detection | MEDIUM | done |
+| 53 | reCAPTCHA v2/v3 detection | MEDIUM | done |
+| 54 | Browser fingerprint challenge detection | MEDIUM | done |
 | 55 | JavaScript challenge solver integration | LOW | pending |
 | 56 | Anti-bot header rotation (Sec-Fetch-*, etc.) | HIGH | done |
 
@@ -197,9 +197,9 @@
 | 127 | Dark web mention check (via API) | LOW | pending |
 | 128 | Certificate transparency log monitoring | MEDIUM | pending |
 | 129 | Exposed database detection (Shodan-like) | MEDIUM | pending |
-| 130 | S3 bucket permission check | MEDIUM | pending |
-| 131 | Azure Blob public access check | MEDIUM | pending |
-| 132 | GCS bucket permission check | MEDIUM | pending |
+| 130 | S3 bucket permission check | MEDIUM | done |
+| 131 | Azure Blob public access check | MEDIUM | done |
+| 132 | GCS bucket permission check | MEDIUM | done |
 | 133 | Docker registry exposure | LOW | pending |
 | 134 | NPM package typosquatting detection | LOW | pending |
 | 135 | PyPI package typosquatting detection | LOW | pending |
@@ -341,22 +341,22 @@
 
 | Layer | Items | Done | Pending |
 |-------|-------|------|---------|
-| L1 Core Discovery | 5 | 0 | 5 |
-| L2 Endpoint Classification | 8 | 2 | 6 |
-| L3 Secret/Credential Detection | 6 | 2 | 4 |
+| L1 Core Discovery | 5 | 2 | 3 |
+| L2 Endpoint Classification | 8 | 4 | 4 |
+| L3 Secret/Credential Detection | 6 | 6 | 0 |
 | L4 New Attack Classes | 10 | 0 | 10 |
 | L5 Supply Chain | 3 | 2 | 1 |
 | L6 OSINT | 6 | 6 | 0 |
 | L7 Cache + D1 Sync | 8 | 5 | 3 |
 | L8 DNS Recon Phase 2 | 5 | 5 | 0 |
-| L9 Bot Detection | 5 | 1 | 4 |
+| L9 Bot Detection | 5 | 4 | 1 |
 | L10 Dashboard / Web UI | 13 | 0 | 13 |
 | L11 Nikkei 225 | 10 | 6 | 4 |
 | L12 Integrations | 4 | 4 | 0 |
 | L13 GitHub Repos | 12 | 6 | 6 |
 | L14 Growth / Stars | 16 | 3 | 13 |
 | L15 Bug Bounty | 11 | 2 | 9 |
-| L16 Credential OSINT | 13 | 2 | 11 |
+| L16 Credential OSINT | 13 | 5 | 8 |
 | L17 Interactive + Self-Learning | 18 | 7 | 11 |
 | L18 Competitive Parity | 16 | 3 | 13 |
 | L19 Recent Session | 10 | 10 | 0 |
@@ -368,4 +368,4 @@
 | L25 AI Intelligence | 5 | 0 | 5 |
 | L26 CF Workers AI Gateway | 7 | 0 | 7 |
 | L27 Architecture + Quality | 5 | 2 | 3 |
-| **TOTAL** | **222** | **75** | **147** |
+| **TOTAL** | **222** | **89** | **133** |
