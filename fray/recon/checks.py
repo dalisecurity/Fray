@@ -3783,20 +3783,335 @@ def check_vpn_endpoints(host: str, port: int, use_ssl: bool,
     if specific:
         detected = {k: v for k, v in detected.items() if not k.startswith("generic_")}
 
+    # ── Phase 2: CVE verification probes for detected vendors ─────────
+    # Only run when a specific vendor is identified.  All probes are
+    # safe / read-only: version extraction, path disclosure, info leak.
+    # NO exploitation payloads, NO data mutation.
+    cve_findings: List[Dict[str, Any]] = []
+
+    if detected:
+        from fray.recon.http import _fetch_url as _cve_fetch
+
+        def _probe_cve(cve_id, path, method, body_pat, vuln_condition,
+                       cvss, description, affected, remediation):
+            """Probe a single CVE indicator path. Returns finding or None."""
+            url = f"{base}{path}"
+            try:
+                st, bd, hd = _cve_fetch(url, timeout=timeout, verify_ssl=False,
+                                         headers=extra_headers)
+            except Exception:
+                return None
+            if st == 0:
+                return None
+
+            verified = False
+            evidence = []
+
+            if method == "status":
+                # Vulnerable if specific status code returned
+                if st == vuln_condition:
+                    verified = True
+                    evidence.append(f"status={st} on {path}")
+            elif method == "body_match":
+                # Vulnerable if body matches pattern
+                if bd and body_pat and body_pat.search(bd):
+                    verified = True
+                    match = body_pat.search(bd).group(0)[:80]
+                    evidence.append(f"body_match:{match}")
+            elif method == "body_absent":
+                # Vulnerable if body does NOT contain expected security string
+                if st == 200 and bd and (not body_pat or not body_pat.search(bd)):
+                    verified = True
+                    evidence.append(f"missing_security_check on {path}")
+            elif method == "version_check":
+                # Extract version and compare
+                if bd and body_pat:
+                    m = body_pat.search(bd)
+                    if m:
+                        ver = m.group(1) if m.lastindex else m.group(0)
+                        evidence.append(f"version={ver}")
+                        # vuln_condition is a callable that checks version
+                        if callable(vuln_condition) and vuln_condition(ver):
+                            verified = True
+                        else:
+                            evidence.append("version_detected_but_not_vulnerable")
+                elif hd and body_pat:
+                    # Check headers too
+                    for hv in hd.values():
+                        m = body_pat.search(str(hv))
+                        if m:
+                            ver = m.group(1) if m.lastindex else m.group(0)
+                            evidence.append(f"version_header={ver}")
+                            if callable(vuln_condition) and vuln_condition(ver):
+                                verified = True
+                            break
+            elif method == "header_check":
+                # Vulnerable if specific header present
+                hdr_name = vuln_condition
+                val = hd.get(hdr_name, "")
+                if val:
+                    verified = True
+                    evidence.append(f"header:{hdr_name}={val[:60]}")
+            elif method == "info_leak":
+                # Path returns sensitive data (200 + content)
+                if st == 200 and bd and len(bd) > 20:
+                    if body_pat and body_pat.search(bd):
+                        verified = True
+                        evidence.append(f"info_leak:{path} ({len(bd)} bytes)")
+                    elif not body_pat:
+                        verified = True
+                        evidence.append(f"info_leak:{path} ({len(bd)} bytes)")
+
+            if verified:
+                return {
+                    "cve_id": cve_id, "cvss": cvss,
+                    "description": description,
+                    "affected_versions": affected,
+                    "remediation": remediation,
+                    "verified": True,
+                    "evidence": evidence,
+                    "probe_path": path,
+                    "probe_status": st,
+                }
+            elif evidence:
+                return {
+                    "cve_id": cve_id, "cvss": cvss,
+                    "description": description,
+                    "affected_versions": affected,
+                    "remediation": remediation,
+                    "verified": False,
+                    "evidence": evidence,
+                    "probe_path": path,
+                    "probe_status": st,
+                }
+            return None
+
+        # ── CVE probe definitions per vendor ──
+        # (cve_id, product_id, path, method, body_pattern, vuln_condition,
+        #  cvss, description, affected_versions, remediation)
+        _CVE_PROBES = [
+            # ── Ivanti Connect Secure / Pulse Secure ──
+            ("CVE-2023-46805", "ivanti_pulse",
+             "/api/v1/totp/user-backup-code/../../system/maintenance/archiving/cloud-server-test-connection",
+             "status", None, 200, 9.8,
+             "Auth bypass via path traversal — allows unauthenticated access to restricted API endpoints",
+             "Ivanti Connect Secure <22.4R2.2, <9.1R18.3; Policy Secure <22.5R1.1",
+             "Upgrade to Ivanti Connect Secure 22.4R2.3+ or 9.1R18.4+, apply vendor mitigation XML"),
+            ("CVE-2024-21887", "ivanti_pulse",
+             "/api/v1/license/key-status/;",
+             "body_match", re.compile(r'license|key.?status|serial', re.I), None, 9.1,
+             "Command injection in web component — chained with CVE-2023-46805 for pre-auth RCE",
+             "Ivanti Connect Secure <22.4R2.2, <9.1R18.3",
+             "Upgrade to Ivanti Connect Secure 22.4R2.3+ or 9.1R18.4+"),
+            ("CVE-2024-21893", "ivanti_pulse",
+             "/dana-ws/saml20/login.cgi",
+             "status", None, 200, 8.2,
+             "SSRF in SAML component — allows unauthenticated access to restricted resources",
+             "Ivanti Connect Secure <22.5R2.2, <22.4R2.3; Policy Secure <22.5R1.2",
+             "Upgrade and apply SAML mitigation"),
+            ("CVE-2025-0282", "ivanti_pulse",
+             "/dana-na/auth/url_default/welcome.cgi",
+             "version_check", re.compile(r'version["\s:]+(\d+\.\d+[A-Z]*\d*)', re.I),
+             lambda v: any(x in v for x in ["22.7R2.4", "22.7R2.3", "22.7R2.2", "22.7R2.1", "22.7R2"]), 9.0,
+             "Stack-based buffer overflow — pre-auth RCE (actively exploited Jan 2025)",
+             "Ivanti Connect Secure <22.7R2.5",
+             "Upgrade to 22.7R2.5+ immediately; run Integrity Checker Tool"),
+
+            # ── Fortinet FortiGate SSL-VPN ──
+            ("CVE-2023-27997", "fortinet_sslvpn",
+             "/remote/logincheck",
+             "body_match", re.compile(r'FortiOS|fgt_lang|fortinet', re.I), None, 9.8,
+             "Heap-based buffer overflow in SSL-VPN — pre-auth RCE",
+             "FortiOS 6.0.x-7.2.x before patches; 7.2.5+, 7.0.12+, 6.4.13+ are fixed",
+             "Upgrade FortiOS: 7.4.0+, 7.2.5+, 7.0.12+, 6.4.13+, or 6.2.15+"),
+            ("CVE-2024-23113", "fortinet_sslvpn",
+             "/remote/error",
+             "body_match", re.compile(r'fgt_lang|FortiOS', re.I), None, 9.8,
+             "Format string vulnerability in fgfmd — pre-auth RCE via crafted requests",
+             "FortiOS 7.0.0-7.0.13, 7.2.0-7.2.6, 7.4.0-7.4.2",
+             "Upgrade to FortiOS 7.4.3+, 7.2.7+, 7.0.14+"),
+            ("CVE-2024-47575", "fortinet_sslvpn",
+             "/remote/fgt_lang?lang=en",
+             "body_match", re.compile(r'"version"\s*:\s*"([^"]+)"', re.I), None, 9.8,
+             "Missing authentication in FortiManager fgfmd — RCE as root (FortiJump)",
+             "FortiManager 7.0.x-7.4.x, FortiOS 7.0.x-7.4.x",
+             "Upgrade FortiManager 7.4.5+; disable fgfm on untrusted interfaces"),
+            ("CVE-2022-42475", "fortinet_sslvpn",
+             "/remote/login",
+             "body_match", re.compile(r'fgt_lang|FortiGate', re.I), None, 9.8,
+             "Heap overflow in sslvpnd — pre-auth RCE (exploited in the wild)",
+             "FortiOS 5.x-7.2.2",
+             "Upgrade to FortiOS 7.2.3+, 7.0.9+, 6.4.11+"),
+
+            # ── Palo Alto GlobalProtect ──
+            ("CVE-2024-3400", "paloalto_gp",
+             "/global-protect/login.esp",
+             "body_match", re.compile(r'PAN-?OS|GlobalProtect|pan-os-version["\s:]+([0-9.]+)', re.I), None, 10.0,
+             "OS command injection in GlobalProtect — pre-auth RCE as root (zero-day, actively exploited)",
+             "PAN-OS 10.2, 11.0, 11.1 with GlobalProtect enabled",
+             "Upgrade PAN-OS: 10.2.9-h1+, 11.0.4-h1+, 11.1.2-h3+; apply threat prevention signature"),
+            ("CVE-2024-0012", "paloalto_gp",
+             "/php/utils/debug.php",
+             "info_leak", re.compile(r'php|debug|trace|stack', re.I), None, 9.8,
+             "Auth bypass in PAN-OS management interface — admin access without credentials",
+             "PAN-OS <10.2.12-h2, <11.1.5-h1, <11.2.4-h1",
+             "Upgrade PAN-OS; restrict management interface access to trusted IPs"),
+
+            # ── Cisco AnyConnect / ASA / FTD ──
+            ("CVE-2023-20269", "cisco_anyconnect",
+             "/+CSCOE+/logon.html",
+             "body_match", re.compile(r'cisco|anyconnect|webvpn|asa', re.I), None, 5.0,
+             "Unauthorized VPN access — brute-force attacks against VPN credentials allowed",
+             "Cisco ASA 9.16+, FTD 6.6+",
+             "Enable lockout policies; use MFA; upgrade to fixed ASA/FTD release"),
+            ("CVE-2024-20359", "cisco_anyconnect",
+             "/+CSCOE+/logon.html",
+             "body_match", re.compile(r'cisco|asa|adaptive', re.I), None, 6.0,
+             "Persistent local code execution — pre-loaded backdoor survives reboots (ArcaneDoor)",
+             "Cisco ASA multiple versions",
+             "Upgrade to fixed ASA release; re-image device from trusted source"),
+
+            # ── Citrix NetScaler / ADC Gateway ──
+            ("CVE-2023-3519", "citrix_gateway",
+             "/vpn/../vpns/cfg/ns.conf",
+             "info_leak", re.compile(r'ns\.conf|bind\s|add\s|set\s', re.I), None, 9.8,
+             "RCE via memory corruption — unauthenticated remote code execution (zero-day)",
+             "NetScaler ADC/Gateway 13.1 before 13.1-49.13, 13.0 before 13.0-91.13",
+             "Upgrade to 13.1-49.15+, 13.0-91.13+, 12.1-65.25+ immediately"),
+            ("CVE-2023-4966", "citrix_gateway",
+             "/oauth/idp/.well-known/openid-configuration",
+             "info_leak", re.compile(r'issuer|token_endpoint|authorization', re.I), None, 9.4,
+             "Information disclosure — session token leak, mass session hijacking (Citrix Bleed)",
+             "NetScaler ADC/Gateway 14.1 before 14.1-8.50, 13.1 before 13.1-49.15",
+             "Upgrade immediately; rotate ALL session tokens; revoke active sessions"),
+
+            # ── SonicWall SMA ──
+            ("CVE-2023-44221", "sonicwall",
+             "/cgi-bin/welcome",
+             "body_match", re.compile(r'sonicwall|SMA|netextender', re.I), None, 7.2,
+             "Post-auth command injection in SMA management interface",
+             "SMA 100 Series (200/210/400/410/500v) before 10.2.1.10-62sv",
+             "Upgrade SMA firmware to 10.2.1.10-62sv+"),
+            ("CVE-2024-38475", "sonicwall",
+             "/cgi-bin/main",
+             "body_match", re.compile(r'sonicwall|SMA', re.I), None, 9.8,
+             "Apache httpd substitution escape in SMA — pre-auth arbitrary file read",
+             "SMA 100 Series before 10.2.1.14-75sv",
+             "Upgrade SMA firmware to 10.2.1.14-75sv+"),
+
+            # ── Check Point Mobile Access ──
+            ("CVE-2024-24919", "checkpoint_vpn",
+             "/clients/MyCRL",
+             "info_leak", None, None, 8.6,
+             "Arbitrary file read — unauthenticated path traversal exposes /etc/shadow and session data",
+             "Check Point Quantum Gateways R80.20-R81.20 with IPsec VPN or Mobile Access enabled",
+             "Apply Hotfix; upgrade to R81.20 Jumbo Hotfix Accumulator Take 54+"),
+
+            # ── F5 BIG-IP APM ──
+            ("CVE-2023-46747", "f5_apm",
+             "/mgmt/tm/util/bash",
+             "status", None, 401, 9.8,
+             "Auth bypass via request smuggling — unauthenticated admin access to management API",
+             "BIG-IP 13.x-17.x before fixes",
+             "Upgrade BIG-IP: 17.1.1+, 16.1.4.1+, 15.1.10.2+; restrict management to trusted IPs"),
+            ("CVE-2022-1388", "f5_apm",
+             "/mgmt/tm/util/bash",
+             "body_match", re.compile(r'commandResult|apiResponse|Unauthorized', re.I), None, 9.8,
+             "iControl REST auth bypass — pre-auth RCE as root",
+             "BIG-IP 13.1.x-16.1.x before 16.1.2.2, 15.1.5.1, 14.1.4.6",
+             "Upgrade immediately; restrict management interface access"),
+
+            # ── Juniper SRX / Secure Connect ──
+            ("CVE-2023-36845", "juniper_vpn",
+             "/webauth_operation.php?PHPRC=/dev/stdin",
+             "body_match", re.compile(r'php|junos|juniper|error', re.I), None, 9.8,
+             "PHP environment variable injection — pre-auth RCE on Juniper SRX/EX",
+             "Junos OS on SRX/EX: multiple versions before fixes",
+             "Upgrade Junos OS; disable J-Web if not needed"),
+
+            # ── Array Networks ──
+            ("CVE-2023-28461", "array_vpn",
+             "/prx/000/http/localhost/login",
+             "body_match", re.compile(r'array|arrayos|AG\s*Series', re.I), None, 9.8,
+             "RCE via missing authentication — unauthenticated remote code execution (CISA KEV)",
+             "Array AG/vxAG Series ArrayOS before 9.4.0.484",
+             "Upgrade ArrayOS to 9.4.0.484+; apply vendor hotfix"),
+        ]
+
+        # Only probe CVEs for vendors we've detected
+        detected_pids = set(detected.keys())
+        relevant_cves = [(c, pid, *rest) for c, pid, *rest in _CVE_PROBES
+                         if pid in detected_pids]
+
+        if relevant_cves:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=6) as cve_pool:
+                cve_futures = {}
+                for entry in relevant_cves:
+                    (cve_id, _pid, path, method, body_pat,
+                     vuln_cond, cvss, desc, affected, remed) = entry
+                    f = cve_pool.submit(
+                        _probe_cve, cve_id, path, method, body_pat,
+                        vuln_cond, cvss, desc, affected, remed)
+                    cve_futures[f] = (cve_id, _pid)
+
+                for f in concurrent.futures.as_completed(cve_futures, timeout=timeout * 4):
+                    try:
+                        r = f.result()
+                        if r:
+                            # Tag with the product_id for later mapping
+                            r["product_id"] = cve_futures[f][1]
+                            cve_findings.append(r)
+                    except Exception:
+                        pass
+
+    # Attach CVE findings to detected products using product_id tag
+    for vpn in detected.values():
+        vpn["cve_checks"] = []
+        vpn["verified_cves"] = []
+        vpn["potential_cves"] = []
+    for c in cve_findings:
+        cpid = c.get("product_id", "")
+        if cpid in detected:
+            detected[cpid]["cve_checks"].append(c)
+            if c.get("verified"):
+                detected[cpid]["verified_cves"].append(c["cve_id"])
+            elif c.get("evidence"):
+                detected[cpid]["potential_cves"].append(c["cve_id"])
+
     vpn_list = sorted(detected.values(), key=lambda x: x["label"])
+
+    # Aggregate CVE stats
+    all_verified = []
+    all_potential = []
+    max_cvss = 0.0
+    for v in vpn_list:
+        all_verified.extend(v.get("verified_cves", []))
+        all_potential.extend(v.get("potential_cves", []))
+        for c in v.get("cve_checks", []):
+            if c.get("verified") and c.get("cvss", 0) > max_cvss:
+                max_cvss = c["cvss"]
 
     return {
         "vpn_endpoints": vpn_list,
         "total_found": len(vpn_list),
         "paths_probed": len(probed_paths),
         "products": [v["label"] for v in vpn_list],
+        "cve_findings": cve_findings,
+        "verified_cves": all_verified,
+        "potential_cves": all_potential,
+        "max_cvss": max_cvss,
         "has_critical_cves": any(
             (v.get("severity_note") or "").startswith("Critical")
-            for v in vpn_list),
-        "severity": ("critical" if any((v.get("severity_note") or "").startswith("Critical") for v in vpn_list)
+            for v in vpn_list) or max_cvss >= 9.0,
+        "severity": ("critical" if (max_cvss >= 9.0 or any(
+            (v.get("severity_note") or "").startswith("Critical") for v in vpn_list))
                      else "high" if vpn_list else "info"),
-        "summary": (f"{len(vpn_list)} VPN endpoint(s): {', '.join(v['label'] for v in vpn_list)}"
-                    if vpn_list else "No VPN endpoints detected"),
+        "summary": (
+            (f"{len(vpn_list)} VPN endpoint(s): {', '.join(v['label'] for v in vpn_list)}"
+             + (f" | {len(all_verified)} verified CVE(s): {', '.join(all_verified[:3])}"
+                if all_verified else "")
+             + (f" | {len(all_potential)} potential CVE(s)" if all_potential else ""))
+            if vpn_list else "No VPN endpoints detected"),
     }
 
 

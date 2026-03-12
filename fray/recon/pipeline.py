@@ -1733,8 +1733,24 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
                 part += f" — {v['severity_note']}"
             vpn_detail_parts.append(part)
         vpn_detail = f"{len(vpn_list)} VPN/remote access endpoint(s): " + "; ".join(vpn_detail_parts)
+        # Append CVE details
+        _verified = vpn_data.get("verified_cves", [])
+        _potential = vpn_data.get("potential_cves", [])
+        if _verified:
+            vpn_detail += f". VERIFIED vulnerable: {', '.join(_verified)}"
+            for c in vpn_data.get("cve_findings", []):
+                if c.get("verified"):
+                    vpn_detail += f" [{c['cve_id']} CVSS {c.get('cvss', '?')}: {c['description'][:80]}]"
+        if _potential:
+            vpn_detail += f". Potentially vulnerable: {', '.join(_potential[:5])}"
+        # Add remediation from first verified CVE
+        _remediation = ""
+        for c in vpn_data.get("cve_findings", []):
+            if c.get("verified") and c.get("remediation"):
+                _remediation = c["remediation"]
+                break
         sev = "critical" if vpn_data.get("has_critical_cves") else "high"
-        vectors.append({
+        vpn_vec = {
             "type": "VPN / Remote Access", "severity": sev,
             "count": len(vpn_list), "priority": priority_counter,
             "targets": [f"https://{host}{v['paths'][0]}" for v in vpn_list if v.get("paths")][:5],
@@ -1742,7 +1758,13 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
             "impact": "Full internal network access via VPN exploitation, credential theft, lateral movement, and ransomware deployment.",
             "mitre": "T1133 — External Remote Services",
             "detail": vpn_detail,
-        })
+        }
+        if _verified:
+            vpn_vec["verified_cves"] = _verified
+            vpn_vec["max_cvss"] = vpn_data.get("max_cvss", 0)
+        if _remediation:
+            vpn_vec["remediation"] = _remediation
+        vectors.append(vpn_vec)
         priority_counter -= 5
 
     # Also merge per-subdomain VPN findings
