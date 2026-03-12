@@ -4988,3 +4988,236 @@ def classify_api_endpoints(api_security_data: Dict[str, Any],
         "rate_limiting": rl,
         "authentication": auth,
     }
+
+
+# ---------------------------------------------------------------------------
+# #30  Dependency Confusion Detection
+# ---------------------------------------------------------------------------
+
+# Well-known public npm scopes and packages to exclude from checks
+_PUBLIC_NPM_SCOPES = frozenset({
+    "@angular", "@babel", "@emotion", "@eslint", "@types", "@testing-library",
+    "@aws-sdk", "@azure", "@google-cloud", "@grpc", "@nestjs", "@nuxtjs",
+    "@vue", "@react-native", "@storybook", "@tanstack", "@trpc",
+    "@prisma", "@mui", "@chakra-ui", "@radix-ui", "@headlessui",
+    "@fortawesome", "@sentry", "@datadog", "@stripe", "@auth0",
+})
+
+_PUBLIC_NPM_PACKAGES = frozenset({
+    "react", "vue", "angular", "express", "next", "nuxt", "svelte",
+    "lodash", "axios", "moment", "dayjs", "date-fns", "jquery",
+    "bootstrap", "tailwindcss", "webpack", "vite", "rollup", "esbuild",
+    "typescript", "eslint", "prettier", "jest", "mocha", "chai",
+    "graphql", "apollo", "prisma", "sequelize", "mongoose", "knex",
+    "socket.io", "redis", "pg", "mysql2", "mongodb", "sqlite3",
+})
+
+
+def check_dependency_confusion(host: str, port: int, use_ssl: bool,
+                                timeout: int = 5,
+                                extra_headers: Optional[Dict[str, str]] = None,
+                                body: str = "",
+                                ) -> Dict[str, Any]:
+    """#30 — Detect dependency confusion risks.
+
+    Extracts package names from:
+    1. package.json / package-lock.json if publicly accessible
+    2. JS bundle source (webpack chunk names, require() calls)
+    3. HTML body (script src attributes with scoped packages)
+
+    Then checks if internal-looking package names (scoped @company/*
+    or names containing the host) exist on the public npm registry.
+    If a scoped package does NOT exist on npm, it's a dependency confusion
+    candidate — an attacker could register it.
+
+    Returns list of at-risk packages with registry status.
+    """
+    import urllib.request
+    import urllib.error
+    from fray.recon.http import _fetch_url
+
+    scheme = "https" if use_ssl else "http"
+    port_str = "" if (use_ssl and port == 443) or (not use_ssl and port == 80) else f":{port}"
+    base = f"{scheme}://{host}{port_str}"
+
+    # Derive company keywords from host
+    host_parts = host.lower().replace("www.", "").split(".")
+    company_kw = {p for p in host_parts if len(p) > 2 and p not in ("com", "org", "net", "io", "co", "jp", "uk", "de", "fr")}
+
+    candidates: Dict[str, Dict[str, Any]] = {}  # pkg_name -> info
+    all_packages: set = set()
+
+    # ── Phase 1: Try to fetch package.json / package-lock.json ──
+    for pkg_path in ("/package.json", "/package-lock.json"):
+        try:
+            status, pkg_body, _ = _fetch_url(f"{base}{pkg_path}", timeout=timeout,
+                                              verify_ssl=True, headers=extra_headers)
+            if status == 0 and use_ssl:
+                status, pkg_body, _ = _fetch_url(f"{base}{pkg_path}", timeout=timeout,
+                                                  verify_ssl=False, headers=extra_headers)
+        except Exception:
+            continue
+
+        if status != 200 or not pkg_body or not pkg_body.strip().startswith("{"):
+            continue
+
+        try:
+            pkg_data = json.loads(pkg_body[:500000])
+            # Extract dependency names
+            for dep_key in ("dependencies", "devDependencies", "peerDependencies",
+                            "optionalDependencies"):
+                deps = pkg_data.get(dep_key, {})
+                if isinstance(deps, dict):
+                    all_packages.update(deps.keys())
+            # package-lock has "packages" with nested deps
+            if "packages" in pkg_data:
+                for pkg_name in pkg_data["packages"]:
+                    if pkg_name.startswith("node_modules/"):
+                        name = pkg_name.replace("node_modules/", "", 1)
+                        if name:
+                            all_packages.add(name)
+        except Exception:
+            pass
+
+    # ── Phase 2: Extract from JS bundle source ──
+    # Look for webpack chunk names, scoped imports in bundles
+    _SCOPE_RE = re.compile(r'(@[\w-]+/[\w.-]+)', re.I)
+    _REQUIRE_RE = re.compile(r'''require\s*\(\s*['"](@?[\w-]+(?:/[\w.-]+)?)['"]''', re.I)
+    _IMPORT_RE = re.compile(r'''from\s+['"](@?[\w-]+(?:/[\w.-]+)?)['"]''', re.I)
+
+    for pat in (_SCOPE_RE, _REQUIRE_RE, _IMPORT_RE):
+        for m in pat.finditer(body[:200000]):
+            pkg = m.group(1)
+            if pkg and not pkg.startswith("@types/"):
+                all_packages.add(pkg)
+
+    # ── Phase 3: Filter to internal-looking packages ──
+    for pkg in all_packages:
+        # Skip known public packages
+        if pkg in _PUBLIC_NPM_PACKAGES:
+            continue
+        # Skip known public scopes
+        scope = pkg.split("/")[0] if "/" in pkg else ""
+        if scope in _PUBLIC_NPM_SCOPES:
+            continue
+
+        is_suspicious = False
+        reason = ""
+
+        # Scoped packages with company-like names
+        if pkg.startswith("@"):
+            scope_name = scope.lstrip("@")
+            if scope_name in company_kw:
+                is_suspicious = True
+                reason = f"Scope @{scope_name} matches host"
+            elif any(kw in scope_name for kw in company_kw):
+                is_suspicious = True
+                reason = f"Scope contains company keyword"
+            else:
+                # Any non-public scope is worth checking
+                is_suspicious = True
+                reason = "Private scope — potential confusion target"
+        else:
+            # Non-scoped packages containing company name
+            pkg_lower = pkg.lower()
+            for kw in company_kw:
+                if kw in pkg_lower and len(kw) > 3:
+                    is_suspicious = True
+                    reason = f"Package name contains '{kw}'"
+                    break
+
+        if is_suspicious:
+            candidates[pkg] = {"name": pkg, "reason": reason, "source": "js_bundle"}
+
+    if not candidates:
+        return {
+            "packages_checked": len(all_packages),
+            "at_risk": [],
+            "total_at_risk": 0,
+            "has_confusion_risk": False,
+        }
+
+    # ── Phase 4: Check npm registry for each candidate ──
+    at_risk: List[Dict[str, Any]] = []
+
+    for pkg_name, info in list(candidates.items())[:20]:  # Cap at 20 checks
+        npm_url = f"https://registry.npmjs.org/{pkg_name}"
+        exists_on_npm = None
+        try:
+            req = urllib.request.Request(npm_url, method="HEAD", headers={
+                "User-Agent": "Mozilla/5.0 (compatible; Fray/1.0)",
+            })
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                exists_on_npm = resp.status == 200
+        except urllib.error.HTTPError as e:
+            exists_on_npm = False if e.code == 404 else None
+        except Exception:
+            exists_on_npm = None
+
+        if exists_on_npm is False:
+            # Package does NOT exist on npm — confusion risk!
+            at_risk.append({
+                "name": pkg_name,
+                "registry": "npm",
+                "exists_on_registry": False,
+                "severity": "high",
+                "reason": info["reason"],
+                "description": (f"Package '{pkg_name}' is used internally but not registered "
+                                f"on npm. An attacker could register this name and inject "
+                                f"malicious code via dependency confusion."),
+            })
+        elif exists_on_npm is True:
+            # Exists — check if it might be a squatted/suspicious package
+            # (low confidence, just note it)
+            info["exists_on_registry"] = True
+            info["registry"] = "npm"
+
+    # ── Phase 5: Also check PyPI for requirements.txt ──
+    try:
+        status, req_body, _ = _fetch_url(f"{base}/requirements.txt", timeout=timeout,
+                                          verify_ssl=True, headers=extra_headers)
+        if status == 200 and req_body:
+            for line in req_body.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or line.startswith("-"):
+                    continue
+                # Extract package name (before ==, >=, etc.)
+                pypi_pkg = re.split(r'[>=<!\[\];]', line)[0].strip()
+                if not pypi_pkg or len(pypi_pkg) < 2:
+                    continue
+                # Check if internal-looking
+                pypi_lower = pypi_pkg.lower().replace("-", "").replace("_", "")
+                for kw in company_kw:
+                    if kw in pypi_lower and len(kw) > 3:
+                        # Check PyPI
+                        pypi_url = f"https://pypi.org/pypi/{pypi_pkg}/json"
+                        try:
+                            req = urllib.request.Request(pypi_url, method="HEAD", headers={
+                                "User-Agent": "Mozilla/5.0 (compatible; Fray/1.0)",
+                            })
+                            with urllib.request.urlopen(req, timeout=5) as resp:
+                                pass  # exists on PyPI, likely fine
+                        except urllib.error.HTTPError as e:
+                            if e.code == 404:
+                                at_risk.append({
+                                    "name": pypi_pkg,
+                                    "registry": "pypi",
+                                    "exists_on_registry": False,
+                                    "severity": "high",
+                                    "reason": f"Package contains '{kw}'",
+                                    "description": (f"Python package '{pypi_pkg}' is used internally "
+                                                    f"but not on PyPI. Dependency confusion risk."),
+                                })
+                        except Exception:
+                            pass
+                        break
+    except Exception:
+        pass
+
+    return {
+        "packages_checked": len(all_packages),
+        "candidates_checked": len(candidates),
+        "at_risk": at_risk,
+        "total_at_risk": len(at_risk),
+        "has_confusion_risk": bool(at_risk),
+    }
