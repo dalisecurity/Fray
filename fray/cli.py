@@ -2082,6 +2082,21 @@ def cmd_recon(args):
             total_bytes = sum(_os.path.getsize(p) for p in created.values())
             print(f"\n  📁 Saved to {export_dir}/  ({n_files} files, {total_bytes:,} bytes)")
 
+        # ── Interactive menu (TTY only, single target, non-pipe) ──
+        no_interactive = getattr(args, 'no_interactive', False)
+        is_interactive = (sys.stdin.isatty() and sys.stdout.isatty()
+                          and not json_mode and not ai_mode
+                          and not ci_mode and not quiet_mode
+                          and not no_interactive)
+        if is_interactive:
+            try:
+                from fray.interactive import ReconInteractive
+                menu = ReconInteractive(target, result,
+                                        export_dir=export_dir if not no_export else "")
+                menu.run()
+            except Exception:
+                pass  # Never break recon flow due to interactive menu
+
     # Multi-target summary
     if multi and all_results:
         total = len(all_results)
@@ -4442,6 +4457,8 @@ Documentation: https://github.com/dalisecurity/fray
                           help="Disable auto-export of structured results")
     p_recon.add_argument("--ai-summary", dest="ai_summary", action="store_true",
                           help="AI-powered summary: prioritized findings + recommended next fray commands (needs OPENAI_API_KEY or ANTHROPIC_API_KEY)")
+    p_recon.add_argument("--no-interactive", dest="no_interactive", action="store_true",
+                          help="Skip interactive menu after recon (default: show menu in TTY)")
     p_recon.set_defaults(func=cmd_recon)
 
     # detect
