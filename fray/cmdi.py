@@ -57,21 +57,15 @@ _SEPARATOR_RISK = {
 
 # Results-based payloads — command whose output we can detect
 _RESULTS_PAYLOADS_UNIX = [
-    ("id", r"uid=\d+"),
-    ("whoami", r"\w+"),
-    ("uname -a", r"(Linux|Darwin|FreeBSD)"),
-    ("cat /etc/passwd", r"root:.*:0:0"),
-    ("echo fray_cmdi_marker", r"fray_cmdi_marker"),
-    ("pwd", r"^/"),
+    ("id", r"uid=\d+\(\w+\)\s+gid=\d+"),
+    ("uname -a", r"(Linux|Darwin|FreeBSD)\s+\S+\s+\d+"),
+    ("cat /etc/passwd", r"root:[x*]:0:0"),
 ]
 
 _RESULTS_PAYLOADS_WIN = [
-    ("whoami", r"\\"),
-    ("echo fray_cmdi_marker", r"fray_cmdi_marker"),
-    ("hostname", r"\w+"),
-    ("ver", r"(Microsoft|Windows)"),
+    ("ver", r"Microsoft Windows \[Version \d+"),
     ("type C:\\Windows\\win.ini", r"\[fonts\]"),
-    ("set", r"(PATH|COMSPEC|SystemRoot)="),
+    ("set", r"(COMSPEC|SystemRoot)=.*\\\\"),
 ]
 
 # Time-based blind payloads (delay in seconds)
@@ -294,6 +288,13 @@ class CMDiScanner:
 
                         # Check if command output appears in response
                         if re.search(pattern, body) and not re.search(pattern, self._baseline_body):
+                            # Anti-FP: verify it's not just parameter reflection
+                            # If the command text itself appears near the match, it's reflection
+                            match_text = re.search(pattern, body).group(0)
+                            cmd_reflected = cmd in body
+                            if cmd_reflected and match_text in cmd:
+                                continue  # Skip — command text reflected, not executed
+
                             detected_os = self._detect_os(body)
                             self._detected_os = detected_os or os_type
                             self._working_separator = sep
@@ -305,7 +306,7 @@ class CMDiScanner:
                                 param=self.param,
                                 payload=payload,
                                 separator=sep,
-                                evidence=re.search(pattern, body).group(0)[:100],
+                                evidence=match_text[:100],
                                 confidence="confirmed",
                                 details={"command": cmd, "prefix": prefix_name},
                             ))
