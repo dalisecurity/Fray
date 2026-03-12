@@ -62,7 +62,7 @@ _DESER_PAYLOADS: List[Tuple[str, str, str, List[str]]] = [
 
     ("php", "laravel_unserialize",
      'a:2:{i:0;O:40:"Illuminate\\Broadcasting\\PendingBroadcast":1:{s:9:"\\0*\\0event";s:4:"test";}i:1;s:4:"test";}',
-     ["PendingBroadcast", "Illuminate\\", "unserialize"]),
+     ["PendingBroadcast", "Illuminate", "unserialize"]),
 
     # ── Python ──
     ("python", "pickle_basic",
