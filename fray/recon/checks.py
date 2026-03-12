@@ -2879,3 +2879,585 @@ def check_ai_endpoints(host: str, port: int, use_ssl: bool,
                     f"{len(open_ai_ports)} open AI port(s), "
                     f"{len(confirmed_ports)} confirmed self-hosted service(s)"),
     }
+
+
+# ---------------------------------------------------------------------------
+# Bot / Anti-Automation Detection (#52, #53, #54)
+# ---------------------------------------------------------------------------
+
+_BOT_PROTECTION_PATTERNS = [
+    # Cloudflare Turnstile (#52)
+    (re.compile(r'challenges\.cloudflare\.com/turnstile', re.I), "cloudflare_turnstile", "Cloudflare Turnstile"),
+    (re.compile(r'cf-turnstile', re.I), "cloudflare_turnstile", "Cloudflare Turnstile"),
+    (re.compile(r'data-sitekey=["\'][0-9a-fx]', re.I), "turnstile_or_recaptcha", "CAPTCHA (sitekey)"),
+    # Cloudflare JS Challenge
+    (re.compile(r'cf-browser-verification|cf_chl_opt|_cf_chl_tk', re.I), "cloudflare_js_challenge", "Cloudflare JS Challenge"),
+    (re.compile(r'jschl-answer|jschl_vc', re.I), "cloudflare_js_challenge", "Cloudflare JS Challenge (legacy)"),
+    (re.compile(r'/cdn-cgi/challenge-platform', re.I), "cloudflare_challenge", "Cloudflare Challenge Platform"),
+    # reCAPTCHA (#53)
+    (re.compile(r'google\.com/recaptcha/api\.js', re.I), "recaptcha_v2", "Google reCAPTCHA v2"),
+    (re.compile(r'google\.com/recaptcha/enterprise\.js', re.I), "recaptcha_enterprise", "Google reCAPTCHA Enterprise"),
+    (re.compile(r'grecaptcha\.execute\s*\(', re.I), "recaptcha_v3", "Google reCAPTCHA v3 (invisible)"),
+    (re.compile(r'g-recaptcha', re.I), "recaptcha", "Google reCAPTCHA"),
+    # hCaptcha
+    (re.compile(r'hcaptcha\.com/1/api\.js', re.I), "hcaptcha", "hCaptcha"),
+    (re.compile(r'h-captcha', re.I), "hcaptcha", "hCaptcha"),
+    # Browser fingerprinting (#54)
+    (re.compile(r'fingerprintjs|fpjs\.io|fingerprint\.com', re.I), "fingerprintjs", "FingerprintJS"),
+    (re.compile(r'datadome\.co|datadome\.js', re.I), "datadome", "DataDome Bot Protection"),
+    (re.compile(r'imperva\.com/incap|incapsula\.com|reese84', re.I), "imperva_bot", "Imperva Bot Protection"),
+    (re.compile(r'perimeterx\.com|_pxhd|_px3|px-captcha', re.I), "perimeterx", "PerimeterX / HUMAN"),
+    (re.compile(r'kasada\.io|cd_kbt_|__kBT', re.I), "kasada", "Kasada Bot Protection"),
+    (re.compile(r'shape\.com|shapedetect|f5aas', re.I), "shape_security", "F5 Shape Security"),
+    (re.compile(r'distil\.js|distilnetworks', re.I), "distil", "Distil Networks Bot Protection"),
+    (re.compile(r'akamai.*bot.*manager|akam-sw|ak_bmsc', re.I), "akamai_bot_manager", "Akamai Bot Manager"),
+    (re.compile(r'_abck=', re.I), "akamai_bot_manager", "Akamai Bot Manager (cookie)"),
+    # Generic challenges
+    (re.compile(r'please\s+verify\s+you\s+are\s+(?:a\s+)?human', re.I), "generic_challenge", "Human verification challenge"),
+    (re.compile(r'browser\s+(?:integrity|verification)\s+check', re.I), "generic_challenge", "Browser integrity check"),
+]
+
+_BOT_HEADER_INDICATORS = {
+    "x-datadome": "datadome",
+    "x-px-cookies": "perimeterx",
+    "x-distil-cs": "distil",
+    "x-kpsdk-ct": "kasada",
+    "cf-mitigated": "cloudflare_challenge",
+    "cf-chl-bypass": "cloudflare_challenge",
+}
+
+
+def check_bot_protection(host: str, port: int, use_ssl: bool,
+                         timeout: int = 5,
+                         extra_headers: Optional[Dict[str, str]] = None,
+                         body: str = "", resp_headers: Optional[Dict[str, str]] = None,
+                         ) -> Dict[str, Any]:
+    """Detect bot protection / anti-automation mechanisms.
+
+    Checks for Cloudflare Turnstile, reCAPTCHA v2/v3, hCaptcha,
+    browser fingerprinting (FingerprintJS, DataDome, PerimeterX, Kasada),
+    and JS challenge pages.
+    """
+    result: Dict[str, Any] = {
+        "protections": [],
+        "captcha": [],
+        "fingerprinting": [],
+        "js_challenge": False,
+        "summary": "",
+    }
+    seen: set = set()
+    hdrs = resp_headers or {}
+
+    # Check body patterns
+    for pat, tech_id, label in _BOT_PROTECTION_PATTERNS:
+        if pat.search(body):
+            if tech_id not in seen:
+                seen.add(tech_id)
+                cat = "captcha" if "captcha" in tech_id or "recaptcha" in tech_id or "hcaptcha" in tech_id or "turnstile" in tech_id else "fingerprinting" if "fingerprint" in tech_id or tech_id in ("datadome", "perimeterx", "kasada", "shape_security", "distil", "akamai_bot_manager", "imperva_bot") else "js_challenge"
+                entry = {"id": tech_id, "label": label, "category": cat}
+                result["protections"].append(entry)
+                if cat == "captcha":
+                    result["captcha"].append(label)
+                elif cat == "fingerprinting":
+                    result["fingerprinting"].append(label)
+                elif cat == "js_challenge":
+                    result["js_challenge"] = True
+
+    # Check response headers
+    for hdr, tech_id in _BOT_HEADER_INDICATORS.items():
+        if hdrs.get(hdr):
+            if tech_id not in seen:
+                seen.add(tech_id)
+                result["protections"].append({"id": tech_id, "label": tech_id, "category": "header", "header": hdr})
+
+    # Check cookies for bot protection
+    cookie_str = hdrs.get("set-cookie", "")
+    _BOT_COOKIES = [("_cf_bm", "cloudflare_bot_mgmt"), ("cf_clearance", "cloudflare_challenge"),
+                    ("__cf_bm", "cloudflare_bot_mgmt"), ("ak_bmsc", "akamai_bot_manager"),
+                    ("_abck", "akamai_bot_manager"), ("datadome", "datadome"),
+                    ("_pxhd", "perimeterx"), ("reese84", "imperva_bot")]
+    for cname, tech_id in _BOT_COOKIES:
+        if cname in cookie_str.lower() and tech_id not in seen:
+            seen.add(tech_id)
+            result["protections"].append({"id": tech_id, "label": tech_id, "category": "cookie"})
+
+    n = len(result["protections"])
+    result["summary"] = f"{n} bot protection mechanism(s) detected" if n else "No bot protection detected"
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Secret / Credential Detection (#16, #17, #18, #19)
+# ---------------------------------------------------------------------------
+
+_API_KEY_PATTERNS = [
+    # Cloud providers
+    (re.compile(r'AKIA[0-9A-Z]{16}'), "aws_access_key", "critical"),
+    (re.compile(r'(?:aws_secret|AWS_SECRET)["\s:=]+[A-Za-z0-9/+=]{40}'), "aws_secret_key", "critical"),
+    (re.compile(r'AIza[0-9A-Za-z\-_]{35}'), "google_api_key", "high"),
+    (re.compile(r'ya29\.[0-9A-Za-z\-_]+'), "google_oauth_token", "critical"),
+    # GitHub
+    (re.compile(r'gh[pousr]_[A-Za-z0-9_]{36,255}'), "github_token", "critical"),
+    (re.compile(r'github_pat_[A-Za-z0-9_]{22,255}'), "github_pat", "critical"),
+    # Stripe
+    (re.compile(r'sk_live_[0-9a-zA-Z]{24,}'), "stripe_secret_key", "critical"),
+    (re.compile(r'pk_live_[0-9a-zA-Z]{24,}'), "stripe_publishable_key", "medium"),
+    (re.compile(r'rk_live_[0-9a-zA-Z]{24,}'), "stripe_restricted_key", "high"),
+    # Twilio
+    (re.compile(r'SK[0-9a-fA-F]{32}'), "twilio_api_key", "high"),
+    # Slack
+    (re.compile(r'xox[bpors]-[0-9]{10,13}-[0-9a-zA-Z-]{24,}'), "slack_token", "critical"),
+    (re.compile(r'https://hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+/[a-zA-Z0-9]+'), "slack_webhook", "high"),
+    # SendGrid / Mailgun
+    (re.compile(r'SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}'), "sendgrid_api_key", "high"),
+    (re.compile(r'key-[0-9a-zA-Z]{32}'), "mailgun_api_key", "high"),
+    # Firebase
+    (re.compile(r'(?:firebase|FIREBASE)["\s:=]*[A-Za-z0-9_-]{20,}'), "firebase_key", "medium"),
+    # Generic patterns
+    (re.compile(r'(?:api[_-]?key|apikey|api_secret|auth_token|access_token|secret_key|private_key)["\s:=]+["\']([a-zA-Z0-9_\-]{20,})["\']', re.I), "generic_api_key", "medium"),
+    (re.compile(r'(?:password|passwd|pwd)["\s:=]+["\']([^\s"\']{8,})["\']', re.I), "hardcoded_password", "high"),
+    # OpenAI / Anthropic
+    (re.compile(r'sk-[a-zA-Z0-9]{20,}T3BlbkFJ[a-zA-Z0-9]{20,}'), "openai_api_key", "critical"),
+    (re.compile(r'sk-ant-[a-zA-Z0-9_-]{80,}'), "anthropic_api_key", "critical"),
+    # Private keys
+    (re.compile(r'-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----'), "private_key", "critical"),
+    (re.compile(r'-----BEGIN OPENSSH PRIVATE KEY-----'), "ssh_private_key", "critical"),
+]
+
+
+def check_secrets_in_response(body: str, url: str = "") -> Dict[str, Any]:
+    """Scan response body for exposed API keys, tokens, and credentials (#16).
+
+    Returns list of findings with type, severity, and masked value.
+    """
+    findings: List[Dict[str, Any]] = []
+    seen: set = set()
+
+    for pat, secret_type, severity in _API_KEY_PATTERNS:
+        m = pat.search(body)
+        if m and secret_type not in seen:
+            seen.add(secret_type)
+            value = m.group(0)
+            # Mask the value — show first 8 and last 4 chars
+            if len(value) > 16:
+                masked = value[:8] + "…" + value[-4:]
+            else:
+                masked = value[:4] + "…"
+            findings.append({
+                "type": secret_type,
+                "severity": severity,
+                "masked_value": masked,
+                "url": url,
+            })
+
+    return {
+        "findings": findings,
+        "total": len(findings),
+        "has_critical": any(f["severity"] == "critical" for f in findings),
+    }
+
+
+def check_jwt_tokens(body: str, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    """Analyze JWT tokens found in response body or headers (#17).
+
+    Checks for: weak/none algorithm, expired tokens, missing claims.
+    """
+    import base64 as _b64
+
+    results: List[Dict[str, Any]] = []
+    jwt_pattern = re.compile(r'eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]*')
+
+    # Search body and auth headers
+    search_text = body or ""
+    if headers:
+        for h in ("authorization", "x-auth-token", "x-access-token", "set-cookie"):
+            if headers.get(h):
+                search_text += " " + headers[h]
+
+    for m in jwt_pattern.finditer(search_text):
+        token = m.group(0)
+        parts = token.split(".")
+        if len(parts) < 2:
+            continue
+
+        entry: Dict[str, Any] = {"token_preview": token[:40] + "…", "issues": []}
+
+        # Decode header
+        try:
+            hdr_pad = parts[0] + "=" * (4 - len(parts[0]) % 4)
+            hdr_json = json.loads(_b64.urlsafe_b64decode(hdr_pad))
+            alg = hdr_json.get("alg", "")
+            entry["algorithm"] = alg
+            if alg.lower() == "none":
+                entry["issues"].append({"issue": "none_algorithm", "severity": "critical",
+                                        "description": "JWT uses 'none' algorithm — signature not verified"})
+            elif alg.lower() in ("hs256", "hs384", "hs512"):
+                entry["issues"].append({"issue": "symmetric_algorithm", "severity": "medium",
+                                        "description": f"JWT uses symmetric algorithm ({alg}) — vulnerable to brute-force if secret is weak"})
+        except Exception:
+            pass
+
+        # Decode payload
+        try:
+            payload_pad = parts[1] + "=" * (4 - len(parts[1]) % 4)
+            payload = json.loads(_b64.urlsafe_b64decode(payload_pad))
+            entry["claims"] = list(payload.keys())[:10]
+
+            # Check expiration
+            exp = payload.get("exp")
+            if exp:
+                import time as _time
+                if exp < _time.time():
+                    entry["issues"].append({"issue": "expired", "severity": "medium",
+                                            "description": "JWT token is expired"})
+            elif "exp" not in payload:
+                entry["issues"].append({"issue": "no_expiry", "severity": "medium",
+                                        "description": "JWT has no expiration claim (exp)"})
+
+            # Check for sensitive data in payload
+            sensitive_keys = {"password", "secret", "ssn", "credit_card", "api_key"}
+            exposed = [k for k in payload.keys() if k.lower() in sensitive_keys]
+            if exposed:
+                entry["issues"].append({"issue": "sensitive_data", "severity": "high",
+                                        "description": f"JWT payload contains sensitive claims: {', '.join(exposed)}"})
+        except Exception:
+            pass
+
+        # Empty signature (none alg exploitation)
+        if len(parts) >= 3 and not parts[2]:
+            entry["issues"].append({"issue": "empty_signature", "severity": "critical",
+                                    "description": "JWT has empty signature — may be exploitable"})
+
+        if entry.get("issues"):
+            results.append(entry)
+
+    return {
+        "tokens_found": len(jwt_pattern.findall(search_text)),
+        "vulnerable_tokens": results,
+        "total_issues": sum(len(t["issues"]) for t in results),
+    }
+
+
+def check_source_maps(host: str, port: int, use_ssl: bool,
+                      timeout: int = 5,
+                      extra_headers: Optional[Dict[str, str]] = None,
+                      body: str = "",
+                      ) -> Dict[str, Any]:
+    """Detect exposed JavaScript source maps (#19).
+
+    Checks for .map file references in HTML and probes common paths.
+    """
+    from fray.recon.http import _fetch_url
+
+    scheme = "https" if use_ssl else "http"
+    port_str = "" if (use_ssl and port == 443) or (not use_ssl and port == 80) else f":{port}"
+    base = f"{scheme}://{host}{port_str}"
+
+    found_maps: List[Dict[str, Any]] = []
+
+    # 1. Extract sourceMappingURL references from body
+    map_refs = re.findall(r'//[#@]\s*sourceMappingURL=(\S+)', body)
+    # Also check for .js.map or .css.map links
+    map_refs += re.findall(r'(?:src|href)=["\']([^"\']*\.(?:js|css)\.map)', body, re.I)
+
+    # 2. Extract JS file paths and try .map suffix
+    js_files = re.findall(r'(?:src)=["\']([^"\']*\.js(?:\?[^"\']*)?)["\']', body, re.I)
+    for js in js_files[:10]:
+        map_path = js.split("?")[0] + ".map"
+        if map_path not in map_refs:
+            map_refs.append(map_path)
+
+    # 3. Probe each map file
+    probed: set = set()
+    for ref in map_refs[:15]:
+        if ref.startswith("data:"):
+            continue
+        if ref.startswith("http"):
+            url = ref
+        elif ref.startswith("/"):
+            url = f"{base}{ref}"
+        else:
+            url = f"{base}/{ref}"
+        if url in probed:
+            continue
+        probed.add(url)
+
+        try:
+            status, map_body, hdrs = _fetch_url(url, timeout=timeout, verify_ssl=True,
+                                                  headers=extra_headers)
+            if status == 0 and use_ssl:
+                status, map_body, hdrs = _fetch_url(url, timeout=timeout, verify_ssl=False,
+                                                      headers=extra_headers)
+        except Exception:
+            continue
+
+        if status == 200 and map_body:
+            ct = hdrs.get("content-type", "")
+            is_map = ("json" in ct or "sourcemap" in ct or
+                      map_body.strip().startswith("{") and '"sources"' in map_body[:500])
+            if is_map:
+                # Extract source file list
+                try:
+                    map_data = json.loads(map_body[:100000])
+                    sources = map_data.get("sources", [])
+                    found_maps.append({
+                        "url": url,
+                        "sources_count": len(sources),
+                        "sources_preview": sources[:5],
+                        "size": len(map_body),
+                    })
+                except Exception:
+                    found_maps.append({"url": url, "size": len(map_body)})
+
+    return {
+        "exposed": found_maps,
+        "total": len(found_maps),
+        "severity": "medium" if found_maps else "info",
+        "description": "Source maps expose original source code, variable names, and internal paths" if found_maps else "",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Cloud Bucket Detection (#5, #130, #131, #132)
+# ---------------------------------------------------------------------------
+
+def check_cloud_buckets(host: str, timeout: int = 5,
+                        extra_headers: Optional[Dict[str, str]] = None,
+                        body: str = "",
+                        ) -> Dict[str, Any]:
+    """Enumerate and check permissions on cloud storage buckets (S3, Azure Blob, GCS).
+
+    Discovers buckets from DNS, page content, and common naming patterns,
+    then checks each for public read/list access.
+    """
+    from fray.recon.http import _fetch_url
+    import concurrent.futures
+
+    domain = host.replace("www.", "")
+    base_name = domain.split(".")[0]  # e.g. "softbank" from "softbank.jp"
+
+    found_buckets: List[Dict[str, Any]] = []
+    seen: set = set()
+
+    # Generate candidate bucket names
+    candidates: List[Tuple[str, str, str]] = []  # (url, name, provider)
+
+    # S3 patterns (#130)
+    s3_names = [base_name, f"{base_name}-assets", f"{base_name}-static",
+                f"{base_name}-media", f"{base_name}-backup", f"{base_name}-data",
+                f"{base_name}-public", f"{base_name}-private", f"{base_name}-uploads",
+                f"{base_name}-prod", f"{base_name}-staging", f"{base_name}-dev"]
+    for name in s3_names:
+        candidates.append((f"https://{name}.s3.amazonaws.com", name, "aws_s3"))
+        candidates.append((f"https://s3.amazonaws.com/{name}", name, "aws_s3"))
+
+    # Azure Blob patterns (#131)
+    for name in [base_name, f"{base_name}storage", f"{base_name}data"]:
+        candidates.append((f"https://{name}.blob.core.windows.net", name, "azure_blob"))
+        candidates.append((f"https://{name}.blob.core.windows.net/$web", name, "azure_blob"))
+
+    # GCS patterns (#132)
+    for name in [base_name, f"{base_name}-assets", f"{base_name}-public"]:
+        candidates.append((f"https://storage.googleapis.com/{name}", name, "gcs"))
+        candidates.append((f"https://{name}.storage.googleapis.com", name, "gcs"))
+
+    # Also check for bucket references in page body
+    s3_refs = re.findall(r'([a-z0-9][a-z0-9.\-]{1,62})\.s3[.\-]amazonaws\.com', body, re.I)
+    for ref in s3_refs[:5]:
+        if ref not in seen:
+            candidates.append((f"https://{ref}.s3.amazonaws.com", ref, "aws_s3"))
+    azure_refs = re.findall(r'([a-z0-9]{3,24})\.blob\.core\.windows\.net', body, re.I)
+    for ref in azure_refs[:5]:
+        candidates.append((f"https://{ref}.blob.core.windows.net", ref, "azure_blob"))
+    gcs_refs = re.findall(r'storage\.googleapis\.com/([a-z0-9][a-z0-9.\-_]{1,62})', body, re.I)
+    for ref in gcs_refs[:5]:
+        candidates.append((f"https://storage.googleapis.com/{ref}", ref, "gcs"))
+
+    def _check_bucket(url: str, name: str, provider: str) -> Optional[Dict[str, Any]]:
+        if url in seen:
+            return None
+        seen.add(url)
+        try:
+            status, resp_body, hdrs = _fetch_url(url, timeout=timeout, verify_ssl=True)
+        except Exception:
+            return None
+
+        entry: Dict[str, Any] = {"name": name, "provider": provider, "url": url, "status": status}
+
+        if status == 200:
+            # Check if listing is enabled
+            if "<ListBucketResult" in (resp_body or "") or "<EnumerationResults" in (resp_body or ""):
+                entry["public_listing"] = True
+                entry["severity"] = "critical"
+                # Count objects
+                keys = re.findall(r'<Key>([^<]+)</Key>', resp_body or "")
+                entry["objects_preview"] = keys[:5]
+                entry["objects_count"] = len(keys)
+            else:
+                entry["public_read"] = True
+                entry["severity"] = "high"
+            return entry
+        elif status == 403:
+            entry["exists"] = True
+            entry["public_read"] = False
+            entry["severity"] = "info"
+            return entry
+        # 404 = doesn't exist, skip
+        return None
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {pool.submit(_check_bucket, url, name, prov): (url, name, prov)
+                   for url, name, prov in candidates}
+        for f in concurrent.futures.as_completed(futures, timeout=timeout * 4):
+            try:
+                r = f.result()
+                if r:
+                    found_buckets.append(r)
+            except Exception:
+                pass
+
+    public = [b for b in found_buckets if b.get("public_listing") or b.get("public_read")]
+    return {
+        "buckets": found_buckets,
+        "total_found": len(found_buckets),
+        "public_buckets": public,
+        "total_public": len(public),
+        "providers_checked": ["aws_s3", "azure_blob", "gcs"],
+        "severity": "critical" if any(b.get("public_listing") for b in found_buckets) else
+                    "high" if public else "info",
+    }
+
+
+# ---------------------------------------------------------------------------
+# JS Analysis (#1, #8, #10)
+# ---------------------------------------------------------------------------
+
+_JS_ENDPOINT_PATTERNS = [
+    # Fetch / axios / XMLHttpRequest calls
+    re.compile(r'''(?:fetch|axios\.(?:get|post|put|delete|patch))\s*\(\s*[`"']([/][^`"'\s]{3,})[`"']''', re.I),
+    # String URLs
+    re.compile(r'''["\'](/api/[^"'\s]{2,})["\']'''),
+    re.compile(r'''["\'](/v[12]/[^"'\s]{2,})["\']'''),
+    re.compile(r'''["\'](https?://[^"'\s]{10,})["\']'''),
+    # Route definitions (React Router, Vue Router, Express)
+    re.compile(r'''path\s*:\s*["\'](/[^"'\s]{2,})["\']'''),
+    re.compile(r'''(?:app|router)\.\s*(?:get|post|put|delete|patch|use)\s*\(\s*["\']([/][^"'\s]{2,})["\']''', re.I),
+    # GraphQL endpoints
+    re.compile(r'''["\']([^"'\s]*graphql[^"'\s]*)["\']''', re.I),
+    # WebSocket URLs
+    re.compile(r'''["\']([^"'\s]*wss?://[^"'\s]+)["\']''', re.I),
+]
+
+
+def check_js_endpoints(host: str, port: int, use_ssl: bool,
+                       timeout: int = 5,
+                       extra_headers: Optional[Dict[str, str]] = None,
+                       body: str = "",
+                       ) -> Dict[str, Any]:
+    """Extract endpoints from page source and linked JS files (#1).
+
+    Finds API endpoints, routes, fetch calls, and hidden paths from
+    HTML body and referenced JavaScript bundles.
+    """
+    from fray.recon.http import _fetch_url
+    import concurrent.futures
+
+    scheme = "https" if use_ssl else "http"
+    port_str = "" if (use_ssl and port == 443) or (not use_ssl and port == 80) else f":{port}"
+    base = f"{scheme}://{host}{port_str}"
+
+    endpoints: set = set()
+    websocket_urls: set = set()
+    file_upload_forms: List[Dict[str, Any]] = []
+
+    def _extract_from_source(source: str, source_url: str = ""):
+        """Extract endpoints from a chunk of JS/HTML source."""
+        for pat in _JS_ENDPOINT_PATTERNS:
+            for m in pat.finditer(source):
+                ep = m.group(1)
+                if ep.startswith("ws://") or ep.startswith("wss://"):
+                    websocket_urls.add(ep)
+                else:
+                    # Filter out obvious non-endpoints
+                    if not any(ep.endswith(ext) for ext in (".png", ".jpg", ".gif", ".css", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".eot")):
+                        endpoints.add(ep)
+
+    # Phase 1: Extract from main page body
+    _extract_from_source(body, base)
+
+    # Phase 1b: Check for file upload forms (#8)
+    file_inputs = re.findall(r'<form[^>]*>(.*?)</form>', body, re.S | re.I)
+    for form in file_inputs:
+        if re.search(r'type=["\']file["\']', form, re.I) or 'multipart/form-data' in form.lower():
+            action = re.search(r'action=["\']([^"\']+)["\']', form, re.I)
+            method = re.search(r'method=["\']([^"\']+)["\']', form, re.I)
+            file_upload_forms.append({
+                "action": action.group(1) if action else "",
+                "method": (method.group(1) if method else "POST").upper(),
+            })
+    # Also check for JS-based file upload (Dropzone, etc.)
+    if re.search(r'Dropzone|dropzone|FileReader|formData\.append.*file|input.*type.*file', body, re.I):
+        file_upload_forms.append({"action": "(JS-based upload)", "method": "POST"})
+
+    # Phase 1c: Check for WebSocket usage (#10)
+    ws_patterns = [
+        re.compile(r'new\s+WebSocket\s*\(\s*["\']([^"\']+)["\']', re.I),
+        re.compile(r'(?:io|socket)\s*\(\s*["\']([^"\']+)["\']', re.I),  # Socket.IO
+        re.compile(r'SockJS\s*\(\s*["\']([^"\']+)["\']', re.I),
+    ]
+    for pat in ws_patterns:
+        for m in pat.finditer(body):
+            websocket_urls.add(m.group(1))
+
+    # Phase 2: Fetch and analyze linked JS files
+    js_srcs = re.findall(r'<script[^>]+src=["\']([^"\']+\.js(?:\?[^"\']*)?)["\']', body, re.I)
+    # Prioritize first-party JS
+    first_party = [s for s in js_srcs if host in s or s.startswith("/")]
+    third_party = [s for s in js_srcs if s not in first_party]
+    js_to_fetch = first_party[:8] + third_party[:2]  # Limit to 10 files
+
+    def _fetch_js(src: str) -> str:
+        if src.startswith("//"):
+            url = f"{scheme}:{src}"
+        elif src.startswith("/"):
+            url = f"{base}{src}"
+        elif src.startswith("http"):
+            url = src
+        else:
+            url = f"{base}/{src}"
+        try:
+            status, js_body, _ = _fetch_url(url, timeout=timeout, verify_ssl=True,
+                                              headers=extra_headers)
+            if status == 0 and use_ssl:
+                status, js_body, _ = _fetch_url(url, timeout=timeout, verify_ssl=False,
+                                                  headers=extra_headers)
+            return js_body if status == 200 else ""
+        except Exception:
+            return ""
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+        futures = {pool.submit(_fetch_js, src): src for src in js_to_fetch}
+        for f in concurrent.futures.as_completed(futures, timeout=timeout * 3):
+            try:
+                js_body = f.result()
+                if js_body:
+                    _extract_from_source(js_body, futures[f])
+            except Exception:
+                pass
+
+    # Categorize endpoints
+    api_endpoints = sorted(ep for ep in endpoints if "/api" in ep.lower() or "/v1" in ep.lower() or "/v2" in ep.lower())
+    internal_paths = sorted(ep for ep in endpoints if ep.startswith("/") and ep not in api_endpoints)
+    external_urls = sorted(ep for ep in endpoints if ep.startswith("http"))
+
+    return {
+        "total_endpoints": len(endpoints),
+        "api_endpoints": api_endpoints[:30],
+        "internal_paths": internal_paths[:30],
+        "external_urls": external_urls[:20],
+        "websocket_urls": sorted(websocket_urls),
+        "file_upload_forms": file_upload_forms,
+        "js_files_analyzed": len(js_to_fetch),
+        "has_websockets": bool(websocket_urls),
+        "has_file_upload": bool(file_upload_forms),
+    }

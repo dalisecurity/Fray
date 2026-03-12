@@ -109,6 +109,12 @@ from fray.recon.checks import (
     check_rate_limits_critical,
     check_differential_responses,
     waf_gap_analysis,
+    check_bot_protection,
+    check_secrets_in_response,
+    check_jwt_tokens,
+    check_source_maps,
+    check_cloud_buckets,
+    check_js_endpoints,
 )
 from fray.recon.discovery import (
     discover_historical_urls,
@@ -492,7 +498,26 @@ def run_recon(url: str, timeout: int = 8,
         result["cookies"] = check_cookies(resp_headers)
         result["fingerprint"] = fingerprint_app(resp_headers, body)
         result["frontend_libs"] = check_frontend_libs(body, retirejs=retirejs)
+        # New CPU-only checks (#16, #17, #52-54)
+        result["bot_protection"] = check_bot_protection(
+            host, port, use_ssl, body=body, resp_headers=resp_headers)
+        result["secrets"] = check_secrets_in_response(body, url=url)
+        result["jwt_analysis"] = check_jwt_tokens(body, headers=resp_headers)
         prog.done("Headers/CSP/fingerprint")
+
+        # New async checks (#1, #8, #10, #19, #130-132) — need body + network
+        t_js_ep = asyncio.create_task(_run(
+            lambda: check_js_endpoints(host, port, use_ssl, timeout=timeout,
+                                        extra_headers=headers, body=body),
+            "JS endpoint extraction"))
+        t_srcmaps = asyncio.create_task(_run(
+            lambda: check_source_maps(host, port, use_ssl, timeout=timeout,
+                                       extra_headers=headers, body=body),
+            "Source map detection"))
+        t_buckets = asyncio.create_task(_run(
+            lambda: check_cloud_buckets(host, timeout=timeout,
+                                         extra_headers=headers, body=body),
+            "Cloud bucket enumeration"))
 
         # ── Collect remaining tier 1 results ──
         result["http"]          = await _safe(t_http, {})
@@ -521,6 +546,10 @@ def run_recon(url: str, timeout: int = 8,
             result["graphql"] = await _safe(t_gql, {})
         if t_leak:
             result["leak_check"] = await _safe(t_leak, {})
+        # Await new async checks (#1, #8, #10, #19, #130-132)
+        result["js_endpoints"] = await _safe(t_js_ep, {})
+        result["source_maps"] = await _safe(t_srcmaps, {})
+        result["cloud_buckets"] = await _safe(t_buckets, {})
         if t_dnssec:
             result["dnssec"] = await _safe(t_dnssec, {})
         if t_axfr:
@@ -1234,6 +1263,101 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
             "detail": crit_detail,
             "critical_paths": critical_paths,
         })
+
+    # Exposed secrets (#16) — critical finding
+    secrets_data = result.get("secrets", {})
+    if isinstance(secrets_data, dict) and secrets_data.get("total", 0) > 0:
+        sec_findings = secrets_data.get("findings", [])
+        sec_detail = f"{len(sec_findings)} exposed secret(s): " + ", ".join(
+            f"{f['type']} ({f['severity']})" for f in sec_findings[:5])
+        sev = "critical" if secrets_data.get("has_critical") else "high"
+        vectors.append({
+            "type": "Exposed Secrets / Credentials", "severity": sev,
+            "count": len(sec_findings), "priority": max(90, priority_counter),
+            "targets": [f"https://{host}"],
+            "description": "API keys, tokens, or credentials exposed in HTTP responses.",
+            "impact": "Account takeover, unauthorized API access, cloud resource compromise, and lateral movement.",
+            "mitre": "T1552 — Unsecured Credentials",
+            "detail": sec_detail,
+        })
+        priority_counter -= 5
+
+    # Cloud buckets (#130-132)
+    bucket_data = result.get("cloud_buckets", {})
+    if isinstance(bucket_data, dict) and bucket_data.get("total_public", 0) > 0:
+        pub_buckets = bucket_data.get("public_buckets", [])
+        bucket_detail = f"{len(pub_buckets)} public cloud bucket(s): " + ", ".join(
+            f"{b['name']} ({b['provider']})" for b in pub_buckets[:5])
+        listing = any(b.get("public_listing") for b in pub_buckets)
+        if listing:
+            bucket_detail += ". Directory listing ENABLED — all objects enumerable."
+        vectors.append({
+            "type": "Cloud Storage Misconfiguration", "severity": "critical" if listing else "high",
+            "count": len(pub_buckets), "priority": priority_counter,
+            "targets": [b["url"] for b in pub_buckets[:5]],
+            "description": "Public cloud storage buckets discovered (S3, Azure Blob, or GCS) with read or list access.",
+            "impact": "Data exfiltration, sensitive file exposure, backup leakage, and potential write access.",
+            "mitre": "T1530 — Data from Cloud Storage",
+            "detail": bucket_detail,
+        })
+        priority_counter -= 5
+
+    # Source maps (#19)
+    srcmap_data = result.get("source_maps", {})
+    if isinstance(srcmap_data, dict) and srcmap_data.get("total", 0) > 0:
+        maps = srcmap_data.get("exposed", [])
+        map_detail = f"{len(maps)} source map(s) exposed: " + ", ".join(
+            m.get("url", "")[-60:] for m in maps[:3])
+        total_sources = sum(m.get("sources_count", 0) for m in maps)
+        if total_sources:
+            map_detail += f". {total_sources} original source file(s) recoverable."
+        vectors.append({
+            "type": "Source Map Exposure", "severity": "medium",
+            "count": len(maps), "priority": priority_counter,
+            "targets": [m["url"] for m in maps[:5]],
+            "description": "JavaScript source maps publicly accessible — original source code, variable names, and internal paths can be recovered.",
+            "impact": "Source code disclosure, internal path discovery, hardcoded secret exposure, and business logic reverse engineering.",
+            "mitre": "T1592 — Gather Victim Host Information",
+            "detail": map_detail,
+        })
+        priority_counter -= 5
+
+    # JS endpoints / file upload / WebSocket (#1, #8, #10)
+    js_ep_data = result.get("js_endpoints", {})
+    if isinstance(js_ep_data, dict):
+        n_api = len(js_ep_data.get("api_endpoints", []))
+        has_upload = js_ep_data.get("has_file_upload", False)
+        has_ws = js_ep_data.get("has_websockets", False)
+        # File upload vector (#8)
+        if has_upload:
+            upload_forms = js_ep_data.get("file_upload_forms", [])
+            upload_detail = f"{len(upload_forms)} file upload endpoint(s) discovered."
+            upload_detail += " Test for unrestricted file upload, path traversal in filename, MIME type bypass, and remote code execution."
+            vectors.append({
+                "type": "File Upload", "severity": "high",
+                "count": len(upload_forms), "priority": priority_counter,
+                "targets": [f"https://{host}"],
+                "description": "File upload functionality detected — potential for unrestricted upload, webshell deployment, and stored XSS.",
+                "impact": "Remote code execution via webshell, stored XSS, server-side resource exhaustion, and directory traversal.",
+                "mitre": "T1105 — Ingress Tool Transfer",
+                "detail": upload_detail,
+            })
+            priority_counter -= 5
+        # WebSocket vector (#10)
+        if has_ws:
+            ws_urls = js_ep_data.get("websocket_urls", [])
+            ws_detail = f"{len(ws_urls)} WebSocket endpoint(s): {', '.join(ws_urls[:3])}"
+            ws_detail += ". Test for CSWSH (Cross-Site WebSocket Hijacking), injection via WS messages, and auth bypass."
+            vectors.append({
+                "type": "WebSocket Endpoint", "severity": "medium",
+                "count": len(ws_urls), "priority": priority_counter,
+                "targets": ws_urls[:5],
+                "description": "WebSocket endpoints discovered — real-time communication channels that may lack proper authentication or input validation.",
+                "impact": "Cross-Site WebSocket Hijacking, injection attacks, unauthorized data access, and denial of service.",
+                "mitre": "T1071 — Application Layer Protocol",
+                "detail": ws_detail,
+            })
+            priority_counter -= 5
 
     atk["attack_vectors"] = vectors
 
