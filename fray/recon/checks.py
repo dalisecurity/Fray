@@ -2973,6 +2973,16 @@ _BOT_VENDORS = [
         "headers": [],
         "category": "bot_management",
     },
+    # Akamai CDN/WAF (without full Bot Manager — WAF may block before JS is served)
+    # AKA_A2 cookie, akamai-grn header, x-akam-sw-version header
+    {
+        "id": "akamai_cdn", "label": "Akamai CDN / WAF",
+        "method": "Akamai edge platform detected (CDN/WAF layer); bot manager JS may not be served if WAF blocks first",
+        "cookies": ["AKA_A2"],
+        "js_body": [],
+        "headers": ["akamai-grn", "x-akam-sw-version"],
+        "category": "bot_management",
+    },
     # ── Imperva / Incapsula ────────────────────────────────────────────
     # Detection: 2-phase JS challenge: ___utmvc (browser fingerprint via xorshift128 encoding)
     #   + reese84 (deep behavioral fingerprint with obfuscated key-value encoding)
