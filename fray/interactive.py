@@ -302,21 +302,9 @@ class ReconInteractive:
 
     def print_menu(self, options: List[MenuOption]) -> None:
         """Print the interactive menu to stderr (so stdout stays clean for pipes)."""
-        w = 60
-        iw = w - 4  # inner width (accounting for "  │  " prefix + "│" suffix)
-        out = sys.stderr
+        from fray.ui import S, severity_color, severity_summary, pill
 
-        def _line(text: str) -> str:
-            """Pad/truncate text to fit inside the box."""
-            # Emoji characters occupy 2 columns but len() counts them as 1
-            # Use a simple heuristic: count common emoji as +1 extra width
-            extra = sum(1 for c in text if ord(c) > 0x1F000)
-            visible = len(text) + extra
-            if visible > iw:
-                text = text[:iw - extra - 1] + "…"
-                visible = len(text) + extra
-            pad = iw - visible
-            return f"  │  {text}{' ' * max(0, pad)} │\n"
+        out = sys.stderr
 
         # Findings summary
         sev_counts = {}
@@ -324,29 +312,53 @@ class ReconInteractive:
             s = f.get("severity", "info")
             sev_counts[s] = sev_counts.get(s, 0) + 1
 
-        out.write(f"\n  ┌{'─' * w}┐\n")
-        out.write(_line("🎯 Recon Complete — What next?"))
-        out.write(f"  ├{'─' * w}┤\n")
+        # Header
+        out.write(f"\n  {S.brand}{'━' * 62}{S.reset}\n")
+        out.write(f"  {S.bold}{S.white}  ⚔  Recon Complete — What next?{S.reset}\n")
+        out.write(f"  {S.brand}{'━' * 62}{S.reset}\n")
+        out.write("\n")
 
-        # Brief findings summary
+        # Stats row
         if self.findings:
-            sev_parts = []
-            for s, c in sorted(sev_counts.items(), key=lambda x: _SEV_RANK.get(x[0], 4)):
-                sev_parts.append(f"{_SEV_EMOJI.get(s, '⚪')} {c} {s}")
-            out.write(_line(f"Findings: {', '.join(sev_parts)}"))
+            out.write(f"  {severity_summary(sev_counts)}\n")
+        risk_color = S.critical if self.risk_score >= 70 else S.high if self.risk_score >= 40 else S.success
+        out.write(f"  {S.gray}Risk{S.reset}  {risk_color}{S.bold}{self.risk_score}/100{S.reset} {S.dim}({self.risk_level}){S.reset}")
         if self.waf:
-            out.write(_line(f"WAF: {self.waf}"))
-        out.write(_line(f"Risk: {self.risk_score}/100 ({self.risk_level})"))
-        out.write(f"  ├{'─' * w}┤\n")
+            out.write(f"  {S.gray}WAF{S.reset}  {S.accent}{self.waf}{S.reset}")
+        out.write("\n\n")
 
         # Options
         for opt in options:
-            out.write(_line(f"[{opt.key}] {opt.emoji} {opt.label}"))
-            out.write(_line(f"    {opt.description}"))
+            # Key badge
+            key_badge = f"{S.bg_brand}{S.bold}{S.white} {opt.key} {S.reset}"
 
-        out.write(f"  ├{'─' * w}┤\n")
-        out.write(_line("[q] Exit"))
-        out.write(f"  └{'─' * w}┘\n")
+            # Severity-colored emoji for vuln options
+            if opt.vuln_types and opt.action == "test":
+                # Find top severity for this vuln type
+                top_sev = "info"
+                classified = self._classify_findings()
+                for vt in opt.vuln_types:
+                    for f in classified.get(vt, []):
+                        fs = f.get("severity", "info")
+                        if _SEV_RANK.get(fs, 4) < _SEV_RANK.get(top_sev, 4):
+                            top_sev = fs
+                sc = severity_color(top_sev)
+                label = f"{sc}{S.bold}{opt.label}{S.reset}"
+            elif opt.action == "report":
+                label = f"{S.brand2}{S.bold}{opt.label}{S.reset}"
+            elif opt.action == "deep":
+                label = f"{S.info}{S.bold}{opt.label}{S.reset}"
+            elif opt.action == "autopilot":
+                label = f"{S.success}{S.bold}{opt.label}{S.reset}"
+            else:
+                label = f"{S.white}{S.bold}{opt.label}{S.reset}"
+
+            out.write(f"  {key_badge} {label}\n")
+            out.write(f"       {S.dim}{opt.description}{S.reset}\n\n")
+
+        # Exit
+        out.write(f"  {S.dark}  q   Exit{S.reset}\n")
+        out.write(f"\n  {S.dark}{'─' * 62}{S.reset}\n")
         out.flush()
 
     # ── Execute selected option ────────────────────────────────────────
@@ -537,7 +549,9 @@ class ReconInteractive:
 
         # Prompt
         try:
-            choice = input("\n  Select [1-{}/q]: ".format(len(options))).strip().lower()
+            from fray.ui import S
+            prompt = f"\n  {S.brand}▸{S.reset} {S.white}Select{S.reset} {S.dim}[1-{len(options)}/q]{S.reset}: "
+            choice = input(prompt).strip().lower()
         except (EOFError, KeyboardInterrupt):
             sys.stderr.write("\n")
             return None
@@ -556,7 +570,8 @@ class ReconInteractive:
             sys.stderr.write(f"  Invalid choice: {choice}\n")
             return None
 
-        sys.stderr.write(f"\n  → {selected.emoji} {selected.label}\n")
+        from fray.ui import S
+        sys.stderr.write(f"\n  {S.brand}▸{S.reset} {S.bold}{S.white}{selected.label}{S.reset}\n")
         self.execute(selected)
         return selected.action
 
@@ -576,58 +591,59 @@ def next_steps(target: str, context: str = "recon", *,
     if not sys.stderr.isatty():
         return
 
+    from fray.ui import S, cmd_hint, section_title
+
     out = sys.stderr
-    out.write("\n")
-    out.write("  ┌─ Next Steps ────────────────────────────────────────┐\n")
+    out.write(section_title("Next Steps"))
 
     if context == "recon":
         cats = categories or []
         if cats:
             top = cats[0] if isinstance(cats[0], str) else cats[0].get("category", "xss")
-            out.write(f"  │  fray test {target} -c {top} --smart          │\n")
-            out.write(f"  │    → Test top recommended category ({top})      \n")
-        out.write(f"  │  fray go {target}                              │\n")
-        out.write(f"  │    → Full guided pipeline (recon+test+report)   \n")
+            out.write(cmd_hint(f"fray test {target} -c {top} --smart",
+                               f"Test top category ({top})") + "\n")
+        out.write(cmd_hint(f"fray go {target}",
+                           "Full guided pipeline") + "\n")
         if waf:
-            out.write(f"  │  fray bypass {target} -c xss                  │\n")
-            out.write(f"  │    → Try WAF bypass ({waf})                    \n")
-        out.write(f"  │  fray harden {target}                          │\n")
-        out.write(f"  │    → Security headers audit (A-F grade)         \n")
+            out.write(cmd_hint(f"fray bypass {target} -c xss",
+                               f"WAF bypass ({waf})") + "\n")
+        out.write(cmd_hint(f"fray harden {target}",
+                           "Security headers audit (A-F)") + "\n")
 
     elif context == "test":
         if bypassed > 0:
-            out.write(f"  │  fray report -i results.json -o report.html   │\n")
-            out.write(f"  │    → Generate report ({bypassed} bypasses found) \n")
-            out.write(f"  │  fray bypass {target} -c xss                  │\n")
-            out.write(f"  │    → AI-powered bypass amplification           \n")
+            out.write(cmd_hint(f"fray report -i results.json -o report.html",
+                               f"Generate report ({bypassed} bypasses)") + "\n")
+            out.write(cmd_hint(f"fray bypass {target} -c xss",
+                               "AI-powered bypass amplification") + "\n")
         else:
             other_cats = ["sqli", "ssrf", "ssti", "cmdi"]
             if categories:
                 other_cats = [c for c in other_cats if c not in categories]
             cat_str = ",".join(other_cats[:3])
-            out.write(f"  │  fray test {target} -c {cat_str} --smart     │\n")
-            out.write(f"  │    → Try different categories (all blocked)     \n")
-            out.write(f"  │  fray agent {target} -c xss --rounds 3        │\n")
-            out.write(f"  │    → Self-learning agent (mutate+retry)         \n")
-        out.write(f"  │  fray harden {target}                          │\n")
-        out.write(f"  │    → Check security posture                     \n")
+            out.write(cmd_hint(f"fray test {target} -c {cat_str} --smart",
+                               "Try different categories") + "\n")
+            out.write(cmd_hint(f"fray agent {target} -c xss --rounds 3",
+                               "Self-learning agent") + "\n")
+        out.write(cmd_hint(f"fray harden {target}",
+                           "Check security posture") + "\n")
 
     elif context == "scan":
         if bypassed > 0:
-            out.write(f"  │  fray report -i results.json -o report.html   │\n")
-            out.write(f"  │    → Generate client-ready report               \n")
-        out.write(f"  │  fray recon {target} --deep                    │\n")
-        out.write(f"  │    → Deep recon (extended DNS, 300 subdomains)   \n")
-        out.write(f"  │  fray harden {target}                          │\n")
-        out.write(f"  │    → OWASP hardening audit                      \n")
+            out.write(cmd_hint(f"fray report -i results.json -o report.html",
+                               "Generate client-ready report") + "\n")
+        out.write(cmd_hint(f"fray recon {target} --deep",
+                           "Deep recon (300 subdomains)") + "\n")
+        out.write(cmd_hint(f"fray harden {target}",
+                           "OWASP hardening audit") + "\n")
 
     elif context == "bypass":
-        out.write(f"  │  fray agent {target} -c xss --rounds 5         │\n")
-        out.write(f"  │    → Self-improving agent (longer run)           \n")
-        out.write(f"  │  fray report -i results.json -o report.html   │\n")
-        out.write(f"  │    → Generate HTML report                       \n")
+        out.write(cmd_hint(f"fray agent {target} -c xss --rounds 5",
+                           "Self-improving agent (longer)") + "\n")
+        out.write(cmd_hint(f"fray report -i results.json -o report.html",
+                           "Generate HTML report") + "\n")
 
-    out.write("  └─────────────────────────────────────────────────────┘\n\n")
+    out.write("\n")
     out.flush()
 
 
@@ -660,30 +676,28 @@ class GuidedPipeline:
 
     def run(self) -> dict:
         """Execute the full guided pipeline. Returns summary dict."""
+        from fray.ui import (S, banner, phase_header, summary_line, severity_summary,
+                             cmd_hint, section_title, pill, severity_color)
+
         t0 = time.monotonic()
         out = sys.stderr
         summary = {"target": self.target, "phases": []}
 
         # ── Banner ─────────────────────────────────────────────────────
         if not self.quiet:
-            out.write("\n")
-            out.write("  ╔════════════════════════════════════════════════════╗\n")
-            out.write("  ║  ⚔️  Fray — Guided Security Pipeline              ║\n")
-            out.write("  ║                                                    ║\n")
-            out.write(f"  ║  Target: {self.target[:42]:<42} ║\n")
-            out.write("  ║                                                    ║\n")
-            out.write("  ║  Phase 1: Reconnaissance                          ║\n")
-            out.write("  ║  Phase 2: Smart Vulnerability Testing              ║\n")
-            out.write("  ║  Phase 3: Report Generation                        ║\n")
-            out.write("  ╚════════════════════════════════════════════════════╝\n\n")
+            out.write(banner("⚔  Fray — Guided Security Pipeline", self.target))
+            out.write(f"  {S.dim}Phase 1{S.reset} Reconnaissance\n")
+            out.write(f"  {S.dim}Phase 2{S.reset} Smart Vulnerability Testing\n")
+            out.write(f"  {S.dim}Phase 3{S.reset} Report Generation\n\n")
             out.flush()
 
         # ── Phase 1: Recon ─────────────────────────────────────────────
-        self._phase_header(1, "Reconnaissance")
+        if not self.quiet:
+            out.write(phase_header(1, "Reconnaissance"))
         self.recon_result = self._run_recon()
 
         if not self.recon_result:
-            out.write("  ❌ Recon failed — cannot continue.\n")
+            out.write(f"  {S.error}\u2716 Recon failed — cannot continue.{S.reset}\n")
             return summary
 
         atk = self.recon_result.get("attack_surface", {})
@@ -702,15 +716,23 @@ class GuidedPipeline:
         })
 
         if not self.quiet:
-            out.write(f"\n  ✅ Recon complete\n")
-            out.write(f"     Risk: {risk}/100 ({risk_level})")
+            # Severity summary
+            sev_counts = {}
+            for f in findings:
+                s = f.get("severity", "info")
+                sev_counts[s] = sev_counts.get(s, 0) + 1
+            out.write(f"\n  {S.success}\u2714{S.reset} {S.bold}{S.white}Recon complete{S.reset}\n\n")
+            out.write(f"  {severity_summary(sev_counts)}\n")
+            risk_c = S.critical if risk >= 70 else S.high if risk >= 40 else S.success
+            out.write(summary_line("Risk", f"{risk}/100 ({risk_level})", "") + "\n")
             if waf:
-                out.write(f" | WAF: {waf}")
-            out.write(f" | Findings: {len(findings)}\n")
+                out.write(summary_line("WAF", waf, "accent") + "\n")
+            out.write("\n")
             out.flush()
 
         # ── Phase 2: Smart Testing ─────────────────────────────────────
-        self._phase_header(2, "Smart Vulnerability Testing")
+        if not self.quiet:
+            out.write(phase_header(2, "Smart Vulnerability Testing"))
 
         # Build interactive menu to determine what to test
         menu = ReconInteractive(self.target, self.recon_result)
@@ -735,7 +757,8 @@ class GuidedPipeline:
             vuln_types = ["xss", "sqli"]
 
         if not self.quiet:
-            out.write(f"     Testing: {', '.join(vuln_types)}\n\n")
+            mods = f"{S.white}{', '.join(vuln_types)}{S.reset}"
+            out.write(f"  {S.dim}Modules:{S.reset} {mods}\n\n")
             out.flush()
 
         # Run each module
@@ -751,7 +774,8 @@ class GuidedPipeline:
         })
 
         # ── Phase 3: Report ────────────────────────────────────────────
-        self._phase_header(3, "Report Generation")
+        if not self.quiet:
+            out.write(phase_header(3, "Report Generation"))
 
         domain = self.recon_result.get("host", "target")
         if self.output_dir:
@@ -764,11 +788,11 @@ class GuidedPipeline:
             gen = SecurityReportGenerator()
             gen.generate_recon_html_report(self.recon_result, self.report_path)
             if not self.quiet:
-                out.write(f"  ✅ HTML report: {self.report_path}\n")
-                out.write(f"     Open: file://{os.path.abspath(self.report_path)}\n")
+                out.write(f"  {S.success}\u2714{S.reset} {S.white}HTML report:{S.reset} {S.target}{self.report_path}{S.reset}\n")
+                out.write(f"  {S.dim}Open: file://{os.path.abspath(self.report_path)}{S.reset}\n")
         except Exception as e:
             if not self.quiet:
-                out.write(f"  ⚠  Report generation failed: {e}\n")
+                out.write(f"  {S.warning}\u26a0{S.reset} Report generation failed: {e}\n")
 
         summary["phases"].append({
             "name": "report",
@@ -783,35 +807,35 @@ class GuidedPipeline:
         summary["duration"] = duration
 
         if not self.quiet:
-            out.write("\n")
-            out.write("  ╔════════════════════════════════════════════════════╗\n")
-            out.write("  ║  🏁 Pipeline Complete                              ║\n")
-            out.write(f"  ║  Duration: {duration:<40} ║\n")
-            out.write(f"  ║  Risk: {risk}/100 ({risk_level}){' ' * (35 - len(str(risk)) - len(risk_level))} ║\n")
-            if waf:
-                out.write(f"  ║  WAF: {waf[:42]:<42} ║\n")
-            out.write(f"  ║  Findings: {len(findings):<39} ║\n")
-            out.write(f"  ║  Modules tested: {len(vuln_types[:5]):<33} ║\n")
-            out.write(f"  ║  Report: {self.report_path[:41]:<41} ║\n")
-            out.write("  ╚════════════════════════════════════════════════════╝\n")
+            out.write(f"\n  {S.success}{'\u2501' * 62}{S.reset}\n")
+            out.write(f"  {S.success}{S.bold}  \u2714  Pipeline Complete{S.reset}\n")
+            out.write(f"  {S.success}{'\u2501' * 62}{S.reset}\n\n")
 
-            # Next steps
-            out.write("\n")
-            out.write("  ┌─ What's Next ────────────────────────────────────────┐\n")
+            risk_c = severity_color(risk_level.lower() if risk_level != "?" else "info")
+            out.write(summary_line("Duration", duration) + "\n")
+            out.write(f"  {S.gray}{'Risk':<20}{S.reset} {risk_c}{risk}/100 ({risk_level}){S.reset}\n")
+            if waf:
+                out.write(summary_line("WAF", waf, "accent") + "\n")
+            out.write(summary_line("Findings", str(len(findings))) + "\n")
+            out.write(summary_line("Modules tested", str(len(vuln_types[:5]))) + "\n")
+            out.write(summary_line("Report", self.report_path, "target") + "\n")
+
+            # What's Next
+            out.write(section_title("What's Next"))
             if recs:
                 top = recs[0] if isinstance(recs[0], str) else recs[0].get("category", "xss")
-                out.write(f"  │  fray test {self.target} -c {top} --smart --max 100   \n")
-                out.write(f"  │    → Deep test top category with more payloads        \n")
+                out.write(cmd_hint(f"fray test {self.target} -c {top} --smart --max 100",
+                                   "Deep test top category") + "\n")
             if waf:
-                out.write(f"  │  fray agent {self.target} -c xss --rounds 5           \n")
-                out.write(f"  │    → Self-learning agent vs {waf[:20]}                 \n")
-                out.write(f"  │  fray bypass {self.target} -c xss                     \n")
-                out.write(f"  │    → AI-powered WAF bypass                            \n")
-            out.write(f"  │  fray harden {self.target}                             \n")
-            out.write(f"  │    → Security headers + OWASP hardening audit          \n")
-            out.write(f"  │  fray recon {self.target} --deep                       \n")
-            out.write(f"  │    → Extended DNS, 300 subdomains, Wayback 500         \n")
-            out.write("  └──────────────────────────────────────────────────────┘\n\n")
+                out.write(cmd_hint(f"fray agent {self.target} -c xss --rounds 5",
+                                   f"Self-learning agent vs {waf[:20]}") + "\n")
+                out.write(cmd_hint(f"fray bypass {self.target} -c xss",
+                                   "AI-powered WAF bypass") + "\n")
+            out.write(cmd_hint(f"fray harden {self.target}",
+                               "Security headers + OWASP audit") + "\n")
+            out.write(cmd_hint(f"fray recon {self.target} --deep",
+                               "Extended DNS, 300 subdomains") + "\n")
+            out.write("\n")
             out.flush()
 
         # Also export recon JSON
@@ -827,7 +851,8 @@ class GuidedPipeline:
 
     def _phase_header(self, num: int, name: str) -> None:
         if not self.quiet:
-            sys.stderr.write(f"\n  ── Phase {num}: {name} {'─' * (40 - len(name))}──\n\n")
+            from fray.ui import phase_header as _ph
+            sys.stderr.write(_ph(num, name))
             sys.stderr.flush()
 
     def _run_recon(self) -> Optional[dict]:

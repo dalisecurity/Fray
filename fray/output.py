@@ -17,20 +17,35 @@ from rich.theme import Theme
 # ── Fray Theme ────────────────────────────────────────────────────────────
 
 FRAY_THEME = Theme({
-    "blocked": "bold red",
-    "passed": "bold green",
-    "bypass": "bold green",
-    "warning": "bold yellow",
-    "info": "bold cyan",
+    # Brand
+    "brand": "#6366f1",
+    "brand.bold": "bold #6366f1",
+    "accent": "#818cf8",
+    # Status
+    "blocked": "bold #ef4444",
+    "passed": "bold #22c55e",
+    "bypass": "bold #22c55e",
+    "warning": "bold #eab308",
+    "info": "bold #3b82f6",
     "dim": "dim",
-    "score.critical": "bold red",
-    "score.high": "bold yellow",
-    "score.medium": "bold blue",
-    "score.low": "bold green",
+    # Severity
+    "sev.critical": "bold #ef4444",
+    "sev.high": "bold #f97316",
+    "sev.medium": "bold #eab308",
+    "sev.low": "#3b82f6",
+    "sev.info": "dim",
+    # Score (backward compat)
+    "score.critical": "bold #ef4444",
+    "score.high": "bold #f97316",
+    "score.medium": "bold #eab308",
+    "score.low": "#3b82f6",
     "score.none": "dim",
+    # Layout
     "header": "bold white",
-    "target": "cyan",
-    "phase": "bold cyan",
+    "target": "#60a5fa",
+    "phase": "bold #818cf8",
+    "muted": "#6b7280",
+    "hint": "#9ca3af",
 })
 
 console = Console(theme=FRAY_THEME, highlight=False)
@@ -78,14 +93,14 @@ def score_style(score) -> str:
 def severity_style(severity: str) -> str:
     s = severity.lower()
     if s == "critical":
-        return "bold red"
+        return "sev.critical"
     elif s == "high":
-        return "red"
+        return "sev.high"
     elif s == "medium":
-        return "yellow"
+        return "sev.medium"
     elif s == "low":
-        return "dim"
-    return "dim"
+        return "sev.low"
+    return "sev.info"
 
 
 def grade_label(score) -> str:
@@ -106,16 +121,19 @@ def grade_label(score) -> str:
 
 def print_header(title: str, subtitle: str = "", target: str = ""):
     console.print()
-    console.rule(f"[header]{title}[/]", style="bold")
-    if subtitle:
-        console.print(f"  [dim]{subtitle}[/]")
+    console.print(f"  [brand.bold]{'━' * 62}[/]")
+    console.print(f"  [bold white]  ⚔  {title}[/]")
     if target:
-        console.print(f"  Target: [target]{target}[/]")
+        console.print(f"  [hint]  Target:[/] [target]{target}[/]")
+    if subtitle:
+        console.print(f"  [hint]  {subtitle}[/]")
+    console.print(f"  [brand.bold]{'━' * 62}[/]")
     console.print()
 
 
 def print_phase(number: int, text: str):
-    console.print(f"  [phase]Phase {number}:[/] {text}")
+    console.print(f"  [on #6366f1 bold white] {number} [/] [bold white]{text}[/]")
+    console.print(f"  [muted]{'─' * 58}[/]")
 
 
 def print_verdict(vulnerable: bool, label: str = ""):
