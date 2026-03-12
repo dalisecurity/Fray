@@ -1,6 +1,6 @@
 # Fray Full Roadmap — 222 Items Across 27 Layers
 
-**Status:** 89 done · 133 pending  
+**Status:** 96 done · 126 pending  
 **Last updated:** 2026-03-11
 
 ---
@@ -9,7 +9,7 @@
 | # | Item | Priority | Status |
 |---|------|----------|--------|
 | 1 | JavaScript endpoint extraction from page source | HIGH | done |
-| 2 | Wayback Machine historical URL discovery | HIGH | pending |
+| 2 | Wayback Machine historical URL discovery | HIGH | done |
 | 3 | Parameter mining from HTML forms + JS | HIGH | pending |
 | 4 | Technology stack fingerprinting (Wappalyzer-level) | HIGH | pending |
 | 5 | Cloud asset enumeration (S3, Azure Blob, GCS) | MEDIUM | done |
@@ -17,12 +17,12 @@
 ## L2 — Endpoint Classification (8 items)
 | # | Item | Priority | Status |
 |---|------|----------|--------|
-| 6 | API endpoint auto-classification (REST/GraphQL/gRPC) | HIGH | pending |
-| 7 | Authentication endpoint detection | MEDIUM | pending |
+| 6 | API endpoint auto-classification (REST/GraphQL/gRPC) | HIGH | done |
+| 7 | Authentication endpoint detection | MEDIUM | done |
 | 8 | File upload endpoint detection | MEDIUM | done |
-| 9 | Admin panel fingerprinting | MEDIUM | pending |
+| 9 | Admin panel fingerprinting | MEDIUM | done |
 | 10 | WebSocket endpoint discovery | MEDIUM | done |
-| 11 | Server-Sent Events (SSE) endpoint detection | LOW | pending |
+| 11 | Server-Sent Events (SSE) endpoint detection | LOW | done |
 | 12 | Health/status endpoint enumeration | LOW | done |
 | 13 | OpenAPI/Swagger spec auto-discovery | HIGH | done |
 
@@ -42,7 +42,7 @@
 | 20 | Server-Side Request Forgery (SSRF) deep testing | HIGH | pending |
 | 21 | Insecure Deserialization payloads | HIGH | pending |
 | 22 | Mass Assignment / parameter pollution | MEDIUM | pending |
-| 23 | GraphQL-specific attacks (batching, introspection abuse) | MEDIUM | pending |
+| 23 | GraphQL-specific attacks (batching, introspection abuse) | MEDIUM | done |
 | 24 | Race condition testing (TOCTOU) | MEDIUM | pending |
 | 25 | Business logic bypass templates | MEDIUM | pending |
 | 26 | HTTP/2 specific attacks (HPACK bomb, etc.) | LOW | pending |
@@ -73,7 +73,7 @@
 | 39 | Adaptive payload cache (cross-domain WAF learning) | HIGH | done |
 | 40 | R2 payload bundle distribution | HIGH | done |
 | 41 | D1 community bypass sharing | MEDIUM | done |
-| 42 | Cache invalidation on WAF config change | MEDIUM | pending |
+| 42 | Cache invalidation on WAF config change | MEDIUM | done |
 | 43 | Cache size limits + eviction policy | LOW | done |
 | 44 | Cache export/import for offline use | LOW | done |
 | 45 | Community leaderboard from D1 data | MEDIUM | pending |
