@@ -115,6 +115,7 @@ from fray.recon.checks import (
     check_source_maps,
     check_cloud_buckets,
     check_js_endpoints,
+    check_api_security,
 )
 from fray.recon.discovery import (
     discover_historical_urls,
@@ -518,6 +519,10 @@ def run_recon(url: str, timeout: int = 8,
             lambda: check_cloud_buckets(host, timeout=timeout,
                                          extra_headers=headers, body=body),
             "Cloud bucket enumeration"))
+        t_api_sec = asyncio.create_task(_run(
+            lambda: check_api_security(host, port, use_ssl, timeout=timeout,
+                                        extra_headers=headers),
+            "API security detection"))
 
         # ── Collect remaining tier 1 results ──
         result["http"]          = await _safe(t_http, {})
@@ -550,6 +555,7 @@ def run_recon(url: str, timeout: int = 8,
         result["js_endpoints"] = await _safe(t_js_ep, {})
         result["source_maps"] = await _safe(t_srcmaps, {})
         result["cloud_buckets"] = await _safe(t_buckets, {})
+        result["api_security"] = await _safe(t_api_sec, {})
         if t_dnssec:
             result["dnssec"] = await _safe(t_dnssec, {})
         if t_axfr:
@@ -1321,6 +1327,63 @@ def _enrich_for_report(result: Dict[str, Any]) -> None:
             "detail": map_detail,
         })
         priority_counter -= 5
+
+    # API Security (#6, #7) — exposed specs, missing auth/rate-limit, gateway leakage
+    api_sec_data = result.get("api_security", {})
+    if isinstance(api_sec_data, dict):
+        api_specs = api_sec_data.get("specs_found", [])
+        api_rl = api_sec_data.get("rate_limiting", {})
+        api_auth = api_sec_data.get("authentication", {})
+        api_gw = api_sec_data.get("api_gateway", {})
+        # Exposed API specs/docs
+        if api_specs:
+            spec_detail_parts = []
+            for s in api_specs[:5]:
+                label = s.get("title") or s.get("category", "")
+                path = s.get("path", "")
+                ver = s.get("spec_version", "")
+                n_ep = s.get("endpoints_count", 0)
+                part = f"{path}"
+                if ver:
+                    part += f" ({ver})"
+                if n_ep:
+                    part += f" [{n_ep} endpoints]"
+                if label:
+                    part += f" — {label}"
+                spec_detail_parts.append(part)
+            spec_detail = f"{len(api_specs)} API spec/documentation endpoint(s) exposed: " + ", ".join(spec_detail_parts)
+            if any(s.get("actuator_exposed") for s in api_specs):
+                spec_detail += ". Spring Actuator exposed — may leak environment, beans, health, and config."
+            if any(s.get("prometheus_exposed") for s in api_specs):
+                spec_detail += ". Prometheus /metrics exposed — internal performance data leaked."
+            vectors.append({
+                "type": "API Documentation Exposure", "severity": "high",
+                "count": len(api_specs), "priority": priority_counter,
+                "targets": [f"https://{host}{s['path']}" for s in api_specs[:5]],
+                "description": "API documentation, OpenAPI/Swagger specs, or internal endpoints publicly accessible.",
+                "impact": "Full API endpoint enumeration, parameter discovery, auth scheme exposure, and attack surface mapping.",
+                "mitre": "T1592 — Gather Victim Host Information",
+                "detail": spec_detail,
+            })
+            priority_counter -= 5
+        # API gateway detected
+        if api_gw.get("detected"):
+            gw_vendors = api_gw.get("vendors", [])
+            gw_detail = f"API gateway detected: {', '.join(gw_vendors)}."
+            if not api_rl.get("detected"):
+                gw_detail += " No rate limiting headers observed — API may be vulnerable to abuse."
+            if not api_auth.get("detected"):
+                gw_detail += " No authentication required on probed endpoints."
+            vectors.append({
+                "type": "API Gateway Exposure", "severity": "medium",
+                "count": 1, "priority": priority_counter,
+                "targets": [f"https://{host}"],
+                "description": f"API gateway identified ({', '.join(gw_vendors)}). Gateway headers leak infrastructure details.",
+                "impact": "Infrastructure enumeration, vendor identification, and potential bypass via direct origin access.",
+                "mitre": "T1590 — Gather Victim Network Information",
+                "detail": gw_detail,
+            })
+            priority_counter -= 5
 
     # JS endpoints / file upload / WebSocket (#1, #8, #10)
     js_ep_data = result.get("js_endpoints", {})

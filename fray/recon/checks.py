@@ -2883,48 +2883,240 @@ def check_ai_endpoints(host: str, port: int, use_ssl: bool,
 
 # ---------------------------------------------------------------------------
 # Bot / Anti-Automation Detection (#52, #53, #54)
+# Research-accurate per-vendor signatures from official docs and
+# reverse-engineering analysis.  Each vendor entry documents:
+#   - Detection method (cookie / JS / header / body pattern)
+#   - How the vendor actually detects bots
 # ---------------------------------------------------------------------------
 
-_BOT_PROTECTION_PATTERNS = [
-    # Cloudflare Turnstile (#52)
-    (re.compile(r'challenges\.cloudflare\.com/turnstile', re.I), "cloudflare_turnstile", "Cloudflare Turnstile"),
-    (re.compile(r'cf-turnstile', re.I), "cloudflare_turnstile", "Cloudflare Turnstile"),
-    (re.compile(r'data-sitekey=["\'][0-9a-fx]', re.I), "turnstile_or_recaptcha", "CAPTCHA (sitekey)"),
-    # Cloudflare JS Challenge
-    (re.compile(r'cf-browser-verification|cf_chl_opt|_cf_chl_tk', re.I), "cloudflare_js_challenge", "Cloudflare JS Challenge"),
-    (re.compile(r'jschl-answer|jschl_vc', re.I), "cloudflare_js_challenge", "Cloudflare JS Challenge (legacy)"),
-    (re.compile(r'/cdn-cgi/challenge-platform', re.I), "cloudflare_challenge", "Cloudflare Challenge Platform"),
-    # reCAPTCHA (#53)
-    (re.compile(r'google\.com/recaptcha/api\.js', re.I), "recaptcha_v2", "Google reCAPTCHA v2"),
-    (re.compile(r'google\.com/recaptcha/enterprise\.js', re.I), "recaptcha_enterprise", "Google reCAPTCHA Enterprise"),
-    (re.compile(r'grecaptcha\.execute\s*\(', re.I), "recaptcha_v3", "Google reCAPTCHA v3 (invisible)"),
-    (re.compile(r'g-recaptcha', re.I), "recaptcha", "Google reCAPTCHA"),
-    # hCaptcha
-    (re.compile(r'hcaptcha\.com/1/api\.js', re.I), "hcaptcha", "hCaptcha"),
-    (re.compile(r'h-captcha', re.I), "hcaptcha", "hCaptcha"),
-    # Browser fingerprinting (#54)
-    (re.compile(r'fingerprintjs|fpjs\.io|fingerprint\.com', re.I), "fingerprintjs", "FingerprintJS"),
-    (re.compile(r'datadome\.co|datadome\.js', re.I), "datadome", "DataDome Bot Protection"),
-    (re.compile(r'imperva\.com/incap|incapsula\.com|reese84', re.I), "imperva_bot", "Imperva Bot Protection"),
-    (re.compile(r'perimeterx\.com|_pxhd|_px3|px-captcha', re.I), "perimeterx", "PerimeterX / HUMAN"),
-    (re.compile(r'kasada\.io|cd_kbt_|__kBT', re.I), "kasada", "Kasada Bot Protection"),
-    (re.compile(r'shape\.com|shapedetect|f5aas', re.I), "shape_security", "F5 Shape Security"),
-    (re.compile(r'distil\.js|distilnetworks', re.I), "distil", "Distil Networks Bot Protection"),
-    (re.compile(r'akamai.*bot.*manager|akam-sw|ak_bmsc', re.I), "akamai_bot_manager", "Akamai Bot Manager"),
-    (re.compile(r'_abck=', re.I), "akamai_bot_manager", "Akamai Bot Manager (cookie)"),
-    # Generic challenges
-    (re.compile(r'please\s+verify\s+you\s+are\s+(?:a\s+)?human', re.I), "generic_challenge", "Human verification challenge"),
-    (re.compile(r'browser\s+(?:integrity|verification)\s+check', re.I), "generic_challenge", "Browser integrity check"),
+# Per-vendor comprehensive detection profiles
+# Each: (vendor_id, label, detection_method, cookies, js_patterns, header_keys, body_patterns)
+_BOT_VENDORS = [
+    # ── Cloudflare ─────────────────────────────────────────────────────
+    # Ref: https://developers.cloudflare.com/fundamentals/reference/policies-compliances/cloudflare-cookies/
+    # Detection: JS challenge (cf_clearance), bot score (__cf_bm), behavioral + TLS fingerprint
+    # __cf_bm — Bot Management / Bot Fight Mode, 30min cookie, encrypted bot score
+    # __cfseq — Sequence Analytics, tracks request order
+    # cf_clearance — passed JS/managed/interactive challenge, stores JS detection result
+    # _cfuvid — Rate Limiting Rules, visitor ID for shared-IP disambiguation
+    # __cfruid — legacy Rate Limiting visitor ID
+    # __cflb — Load Balancer session affinity
+    # __cfwaitingroom — Waiting Room queue cookie
+    # cf_chl_rc_i/ni/m — Challenge Platform interaction/non-interaction/managed cookies
+    {
+        "id": "cloudflare_bot_mgmt", "label": "Cloudflare Bot Management",
+        "method": "JS challenge + behavioral analysis + TLS fingerprint + bot score",
+        "cookies": ["__cf_bm"],
+        "js_body": [re.compile(r'/cdn-cgi/challenge-platform', re.I)],
+        "headers": [],
+        "category": "bot_management",
+    },
+    {
+        "id": "cloudflare_js_challenge", "label": "Cloudflare JS Challenge",
+        "method": "Browser must execute JS to solve challenge; result stored in cf_clearance",
+        "cookies": ["cf_clearance", "cf_chl_rc_i", "cf_chl_rc_ni", "cf_chl_rc_m"],
+        "js_body": [
+            re.compile(r'cf-browser-verification|cf_chl_opt', re.I),
+            re.compile(r'jschl-answer|jschl_vc', re.I),
+        ],
+        "headers": ["cf-mitigated", "cf-chl-bypass"],
+        "category": "js_challenge",
+    },
+    {
+        "id": "cloudflare_rate_limit", "label": "Cloudflare Rate Limiting",
+        "method": "Visitor ID cookie for per-user rate limits behind shared IPs (cf.unique_visitor_id)",
+        "cookies": ["_cfuvid", "__cfruid"],
+        "js_body": [],
+        "headers": [],
+        "category": "rate_limiting",
+    },
+    {
+        "id": "cloudflare_sequence", "label": "Cloudflare Sequence Analytics",
+        "method": "Tracks request order and timing via __cfseq cookie for sequence rule matching",
+        "cookies": ["__cfseq"],
+        "js_body": [],
+        "headers": [],
+        "category": "behavioral",
+    },
+    {
+        "id": "cloudflare_waiting_room", "label": "Cloudflare Waiting Room",
+        "method": "Queue-based access control; cookie required to proceed",
+        "cookies": ["__cfwaitingroom"],
+        "js_body": [],
+        "headers": [],
+        "category": "rate_limiting",
+    },
+    {
+        "id": "cloudflare_turnstile", "label": "Cloudflare Turnstile",
+        "method": "Non-interactive CAPTCHA widget; client-side JS challenge via challenges.cloudflare.com",
+        "cookies": [],
+        "js_body": [
+            re.compile(r'challenges\.cloudflare\.com/turnstile', re.I),
+            re.compile(r'cf-turnstile', re.I),
+        ],
+        "headers": [],
+        "category": "captcha",
+    },
+    # ── Akamai ─────────────────────────────────────────────────────────
+    # Detection: sensor_data JS payload → _abck cookie validation; ak_bmsc HTTP-only session
+    # bm_sz — bot manager request size tracking; bm_sv — server-side validation
+    # JS: akam-sw.js (service worker), bmctx (bot manager context)
+    {
+        "id": "akamai_bot_manager", "label": "Akamai Bot Manager",
+        "method": "sensor_data JS fingerprint → _abck cookie; ak_bmsc HTTP-only session; "
+                  "collects 150+ browser signals (canvas, WebGL, audio, fonts, screen, plugins)",
+        "cookies": ["_abck", "ak_bmsc", "bm_sz", "bm_sv", "bm_mi"],
+        "js_body": [
+            re.compile(r'akam-sw\.js|akam/\d+/\w+', re.I),
+            re.compile(r'bmctx|akamai.*sensor', re.I),
+        ],
+        "headers": [],
+        "category": "bot_management",
+    },
+    # ── Imperva / Incapsula ────────────────────────────────────────────
+    # Detection: 2-phase JS challenge: ___utmvc (browser fingerprint via xorshift128 encoding)
+    #   + reese84 (deep behavioral fingerprint with obfuscated key-value encoding)
+    # Cookies: incap_ses_ (session), visid_incap_ (visitor ID), nlbi_ (load balancer)
+    {
+        "id": "imperva_bot", "label": "Imperva / Incapsula Bot Protection",
+        "method": "2-phase JS fingerprint: ___utmvc (browser attrs via xorshift128) + "
+                  "reese84 (behavioral fingerprint with obfuscated encoding); "
+                  "validates cookies incap_ses_, visid_incap_",
+        "cookies": ["reese84", "___utmvc", "incap_ses_", "visid_incap_", "nlbi_"],
+        "js_body": [
+            re.compile(r'incapsula|reese84|___utmvc', re.I),
+            re.compile(r'/_Incapsula_Resource', re.I),
+        ],
+        "headers": ["x-iinfo", "x-cdn"],
+        "category": "bot_management",
+    },
+    # ── PerimeterX / HUMAN Security ───────────────────────────────────
+    # Detection: px.js collects device/browser properties → _px3 clearance cookie
+    # _pxhd — device fingerprint hash; _pxvid — visitor ID; _pxde — data enrichment
+    # POST to /<appId>/xhr/api/v2/collector for high-security sites
+    # _px3 expires ~60 seconds — must be continuously refreshed
+    {
+        "id": "perimeterx", "label": "PerimeterX / HUMAN Security",
+        "method": "px.js browser fingerprinting → _px3 clearance (60s TTL); "
+                  "_pxhd device hash; behavioral biometrics (mouse, keyboard, touch); "
+                  "POST to /xhr/api/v2/collector for validation",
+        "cookies": ["_px3", "_px2", "_px", "_pxhd", "_pxvid", "_pxde"],
+        "js_body": [
+            re.compile(r'perimeterx\.com|/\w+/init\.js.*PX\w+', re.I),
+            re.compile(r'px-captcha|px-block', re.I),
+            re.compile(r'_pxAppId|window\._pxParam', re.I),
+        ],
+        "headers": ["x-px-cookies"],
+        "category": "bot_management",
+    },
+    # ── DataDome ──────────────────────────────────────────────────────
+    # Detection: JS tag collects Picasso fingerprint (canvas rendering + device class),
+    #   browser signals, behavioral data → datadome cookie
+    # API validation at api.datadome.co; x-datadome-* response headers
+    {
+        "id": "datadome", "label": "DataDome Bot Protection",
+        "method": "JS tag → Picasso device fingerprint (canvas rendering for device class), "
+                  "TLS fingerprint (JA3/JA4), behavioral analysis, IP reputation; "
+                  "validates via api.datadome.co",
+        "cookies": ["datadome"],
+        "js_body": [
+            re.compile(r'datadome\.co/|js\.datadome\.co', re.I),
+            re.compile(r'window\.ddjskey|dd\.js|datadome\.js', re.I),
+        ],
+        "headers": ["x-datadome", "x-datadome-cid"],
+        "category": "bot_management",
+    },
+    # ── Kasada ────────────────────────────────────────────────────────
+    # Detection: Proof-of-Work JS challenge (client must solve computational puzzle);
+    #   kasada.js generates KP_UIDz-ssn/KP_UIDz cookies
+    # __kBT cookie for tracking; cd_kbt_ for session
+    {
+        "id": "kasada", "label": "Kasada Bot Protection",
+        "method": "JavaScript Proof-of-Work challenge (computational puzzle); "
+                  "sensor collection via kasada.js → KP_UIDz session cookies; "
+                  "149+ device/browser signals",
+        "cookies": ["KP_UIDz-ssn", "KP_UIDz", "__kBT", "cd_kbt_"],
+        "js_body": [
+            re.compile(r'kasada\.io|/ips\.js\?', re.I),
+            re.compile(r'cd_kbt_|__kBT', re.I),
+        ],
+        "headers": ["x-kpsdk-ct", "x-kpsdk-cd", "x-kpsdk-v"],
+        "category": "bot_management",
+    },
+    # ── F5 Shape Security ─────────────────────────────────────────────
+    # Detection: Shape Defense Engine (L7 reverse proxy); Shape AI Cloud ML;
+    #   f5_cspm.js client-side protection; encrypted JS signals
+    {
+        "id": "shape_security", "label": "F5 Shape Security",
+        "method": "Shape Defense Engine (L7 reverse proxy) + Shape AI Cloud ML analysis; "
+                  "f5_cspm.js client-side JS signals; real-time request classification",
+        "cookies": ["f5_cspm", "TS01", "TSPD_101", "TSf5_cspm"],
+        "js_body": [
+            re.compile(r'f5_cspm\.js|f5aas|shapedetect', re.I),
+            re.compile(r'shape\.com|shapesecurity', re.I),
+        ],
+        "headers": [],
+        "category": "bot_management",
+    },
+    # ── Distil Networks (now part of Imperva) ─────────────────────────
+    {
+        "id": "distil", "label": "Distil Networks (Imperva Advanced Bot Protection)",
+        "method": "JS fingerprint + behavioral analysis; device fingerprint + mouse/keyboard patterns",
+        "cookies": ["D_IID", "D_SID", "D_ZID", "D_BDID", "D_HID"],
+        "js_body": [re.compile(r'distil\.js|distilnetworks|d_biometric', re.I)],
+        "headers": ["x-distil-cs"],
+        "category": "bot_management",
+    },
+    # ── FingerprintJS (identification, not blocking) ──────────────────
+    {
+        "id": "fingerprintjs", "label": "FingerprintJS Pro",
+        "method": "Browser fingerprinting SDK (canvas, WebGL, audio, fonts, screen); "
+                  "generates stable visitorId across sessions; used for fraud detection",
+        "cookies": ["_vid_t"],
+        "js_body": [
+            re.compile(r'fingerprintjs|fpjs\.io|fingerprint\.com', re.I),
+            re.compile(r'FingerprintJS\.load|fpPromise', re.I),
+        ],
+        "headers": [],
+        "category": "fingerprinting",
+    },
+    # ── CAPTCHA providers ─────────────────────────────────────────────
+    {
+        "id": "recaptcha_v2", "label": "Google reCAPTCHA v2",
+        "method": "Visual challenge; requires user interaction (checkbox or image grid)",
+        "cookies": [],
+        "js_body": [re.compile(r'google\.com/recaptcha/api\.js(?!\S*enterprise)', re.I),
+                    re.compile(r'g-recaptcha(?!.*invisible)', re.I)],
+        "headers": [],
+        "category": "captcha",
+    },
+    {
+        "id": "recaptcha_v3", "label": "Google reCAPTCHA v3 (invisible)",
+        "method": "Invisible behavioral scoring; no user interaction; score 0.0-1.0",
+        "cookies": [],
+        "js_body": [re.compile(r'grecaptcha\.execute\s*\(', re.I),
+                    re.compile(r'recaptcha.*render.*=', re.I)],
+        "headers": [],
+        "category": "captcha",
+    },
+    {
+        "id": "recaptcha_enterprise", "label": "Google reCAPTCHA Enterprise",
+        "method": "Enterprise-grade scoring + risk analysis; custom thresholds",
+        "cookies": [],
+        "js_body": [re.compile(r'google\.com/recaptcha/enterprise\.js', re.I)],
+        "headers": [],
+        "category": "captcha",
+    },
+    {
+        "id": "hcaptcha", "label": "hCaptcha",
+        "method": "Privacy-focused CAPTCHA; visual challenge or passive mode",
+        "cookies": [],
+        "js_body": [re.compile(r'hcaptcha\.com/1/api\.js', re.I),
+                    re.compile(r'h-captcha', re.I)],
+        "headers": [],
+        "category": "captcha",
+    },
 ]
-
-_BOT_HEADER_INDICATORS = {
-    "x-datadome": "datadome",
-    "x-px-cookies": "perimeterx",
-    "x-distil-cs": "distil",
-    "x-kpsdk-ct": "kasada",
-    "cf-mitigated": "cloudflare_challenge",
-    "cf-chl-bypass": "cloudflare_challenge",
-}
 
 
 def check_bot_protection(host: str, port: int, use_ssl: bool,
@@ -2932,58 +3124,364 @@ def check_bot_protection(host: str, port: int, use_ssl: bool,
                          extra_headers: Optional[Dict[str, str]] = None,
                          body: str = "", resp_headers: Optional[Dict[str, str]] = None,
                          ) -> Dict[str, Any]:
-    """Detect bot protection / anti-automation mechanisms.
+    """Detect bot protection / anti-automation mechanisms with research-accurate
+    per-vendor cookie, JavaScript, and header signatures.
 
-    Checks for Cloudflare Turnstile, reCAPTCHA v2/v3, hCaptcha,
-    browser fingerprinting (FingerprintJS, DataDome, PerimeterX, Kasada),
-    and JS challenge pages.
+    Each detection includes the vendor's actual detection method so the report
+    can explain *how* bots are detected, not just *what* product is present.
     """
     result: Dict[str, Any] = {
-        "protections": [],
+        "vendors": [],      # detailed per-vendor findings
         "captcha": [],
+        "bot_management": [],
         "fingerprinting": [],
+        "rate_limiting": [],
         "js_challenge": False,
         "summary": "",
     }
-    seen: set = set()
     hdrs = resp_headers or {}
-
-    # Check body patterns
-    for pat, tech_id, label in _BOT_PROTECTION_PATTERNS:
-        if pat.search(body):
-            if tech_id not in seen:
-                seen.add(tech_id)
-                cat = "captcha" if "captcha" in tech_id or "recaptcha" in tech_id or "hcaptcha" in tech_id or "turnstile" in tech_id else "fingerprinting" if "fingerprint" in tech_id or tech_id in ("datadome", "perimeterx", "kasada", "shape_security", "distil", "akamai_bot_manager", "imperva_bot") else "js_challenge"
-                entry = {"id": tech_id, "label": label, "category": cat}
-                result["protections"].append(entry)
-                if cat == "captcha":
-                    result["captcha"].append(label)
-                elif cat == "fingerprinting":
-                    result["fingerprinting"].append(label)
-                elif cat == "js_challenge":
-                    result["js_challenge"] = True
-
-    # Check response headers
-    for hdr, tech_id in _BOT_HEADER_INDICATORS.items():
-        if hdrs.get(hdr):
-            if tech_id not in seen:
-                seen.add(tech_id)
-                result["protections"].append({"id": tech_id, "label": tech_id, "category": "header", "header": hdr})
-
-    # Check cookies for bot protection
     cookie_str = hdrs.get("set-cookie", "")
-    _BOT_COOKIES = [("_cf_bm", "cloudflare_bot_mgmt"), ("cf_clearance", "cloudflare_challenge"),
-                    ("__cf_bm", "cloudflare_bot_mgmt"), ("ak_bmsc", "akamai_bot_manager"),
-                    ("_abck", "akamai_bot_manager"), ("datadome", "datadome"),
-                    ("_pxhd", "perimeterx"), ("reese84", "imperva_bot")]
-    for cname, tech_id in _BOT_COOKIES:
-        if cname in cookie_str.lower() and tech_id not in seen:
-            seen.add(tech_id)
-            result["protections"].append({"id": tech_id, "label": tech_id, "category": "cookie"})
+    detected_ids: set = set()
 
-    n = len(result["protections"])
-    result["summary"] = f"{n} bot protection mechanism(s) detected" if n else "No bot protection detected"
+    for vendor in _BOT_VENDORS:
+        vid = vendor["id"]
+        if vid in detected_ids:
+            continue
+
+        signals: List[str] = []  # what we actually matched
+
+        # Cookie detection
+        for cname in vendor["cookies"]:
+            if cname.lower() in cookie_str.lower():
+                signals.append(f"cookie:{cname}")
+
+        # JS/body pattern detection
+        for pat in vendor["js_body"]:
+            if pat.search(body):
+                signals.append("js_body")
+                break
+
+        # Header detection
+        for hdr_key in vendor["headers"]:
+            if hdrs.get(hdr_key):
+                signals.append(f"header:{hdr_key}")
+
+        if not signals:
+            continue
+
+        detected_ids.add(vid)
+        entry = {
+            "id": vid,
+            "label": vendor["label"],
+            "category": vendor["category"],
+            "method": vendor["method"],
+            "signals": signals,
+        }
+        result["vendors"].append(entry)
+
+        cat = vendor["category"]
+        if cat == "captcha":
+            result["captcha"].append(vendor["label"])
+        elif cat == "bot_management":
+            result["bot_management"].append(vendor["label"])
+        elif cat == "fingerprinting":
+            result["fingerprinting"].append(vendor["label"])
+        elif cat == "rate_limiting":
+            result["rate_limiting"].append(vendor["label"])
+        elif cat == "js_challenge":
+            result["js_challenge"] = True
+
+    # Also keep backward-compatible "protections" key
+    result["protections"] = result["vendors"]
+
+    n = len(result["vendors"])
+    parts = []
+    if result["bot_management"]:
+        parts.append(f"Bot mgmt: {', '.join(result['bot_management'])}")
+    if result["captcha"]:
+        parts.append(f"CAPTCHA: {', '.join(result['captcha'])}")
+    if result["rate_limiting"]:
+        parts.append(f"Rate limit: {', '.join(result['rate_limiting'])}")
+    if result["fingerprinting"]:
+        parts.append(f"Fingerprint: {', '.join(result['fingerprinting'])}")
+    if result["js_challenge"]:
+        parts.append("JS challenge active")
+    result["summary"] = f"{n} bot protection(s): {'; '.join(parts)}" if n else "No bot protection detected"
     return result
+
+
+# ---------------------------------------------------------------------------
+# API Security Detection (#6, #7)
+# ---------------------------------------------------------------------------
+
+_API_SECURITY_PATHS = [
+    # OpenAPI / Swagger spec discovery
+    ("/swagger.json", "swagger"),
+    ("/swagger/v1/swagger.json", "swagger"),
+    ("/api-docs", "swagger_ui"),
+    ("/api-docs.json", "swagger"),
+    ("/swagger-ui.html", "swagger_ui"),
+    ("/swagger-ui/", "swagger_ui"),
+    ("/openapi.json", "openapi"),
+    ("/openapi.yaml", "openapi"),
+    ("/v1/openapi.json", "openapi"),
+    ("/v2/openapi.json", "openapi"),
+    ("/v3/api-docs", "openapi"),
+    ("/docs", "fastapi_docs"),
+    ("/redoc", "redoc"),
+    # GraphQL
+    ("/graphql", "graphql"),
+    ("/graphiql", "graphiql"),
+    ("/altair", "altair"),
+    ("/playground", "graphql_playground"),
+    # Health / metadata
+    ("/health", "health"),
+    ("/healthz", "health"),
+    ("/ready", "health"),
+    ("/status", "health"),
+    ("/metrics", "metrics"),
+    ("/actuator", "spring_actuator"),
+    ("/actuator/health", "spring_actuator"),
+    # Common API versioned paths
+    ("/api/v1", "api"),
+    ("/api/v2", "api"),
+    ("/api", "api"),
+]
+
+_API_RATE_LIMIT_HEADERS = {
+    # Standard & de facto rate limit headers
+    "x-ratelimit-limit": "Rate limit ceiling",
+    "x-ratelimit-remaining": "Remaining requests",
+    "x-ratelimit-reset": "Reset timestamp",
+    "ratelimit-limit": "IETF draft rate limit",
+    "ratelimit-remaining": "IETF draft remaining",
+    "ratelimit-reset": "IETF draft reset",
+    "ratelimit-policy": "IETF draft policy",
+    "retry-after": "Retry delay (seconds or date)",
+    "x-rate-limit-limit": "Rate limit (alt format)",
+    "x-rate-limit-remaining": "Remaining (alt format)",
+    "x-rate-limit-reset": "Reset (alt format)",
+    # Vendor-specific
+    "x-github-request-limit": "GitHub rate limit",
+    "x-shopify-shop-api-call-limit": "Shopify API limit",
+}
+
+_API_AUTH_HEADERS = {
+    "www-authenticate": "Auth scheme required",
+    "x-api-key": "API key header present",
+    "authorization": "Auth header echoed",
+}
+
+_API_GATEWAY_HEADERS = {
+    "x-amzn-requestid": "AWS API Gateway",
+    "x-amz-apigw-id": "AWS API Gateway",
+    "x-goog-api-client": "Google Cloud API Gateway",
+    "x-kong-upstream-latency": "Kong API Gateway",
+    "x-kong-proxy-latency": "Kong API Gateway",
+    "x-envoy-upstream-service-time": "Envoy / Istio",
+    "x-envoy-decorator-operation": "Envoy / Istio",
+    "x-request-id": "API Gateway (generic)",
+    "x-correlation-id": "API Gateway (generic)",
+    "x-b3-traceid": "Zipkin / distributed tracing",
+    "x-apigee-message-id": "Apigee API Gateway",
+    "x-mashery-responder": "Mashery API Gateway",
+    "x-azure-ref": "Azure API Management",
+    "ocp-apim-trace-location": "Azure APIM (trace enabled!)",
+}
+
+
+def check_api_security(host: str, port: int, use_ssl: bool,
+                       timeout: int = 5,
+                       extra_headers: Optional[Dict[str, str]] = None,
+                       ) -> Dict[str, Any]:
+    """Detect API security posture: authentication, rate limiting,
+    OpenAPI/Swagger exposure, API gateway, and common misconfigurations.
+
+    Probes known API documentation paths, checks rate limit headers,
+    detects auth requirements, and identifies API gateways.
+    """
+    from fray.recon.http import _fetch_url
+    import concurrent.futures
+
+    scheme = "https" if use_ssl else "http"
+    port_str = "" if (use_ssl and port == 443) or (not use_ssl and port == 80) else f":{port}"
+    base = f"{scheme}://{host}{port_str}"
+
+    specs_found: List[Dict[str, Any]] = []
+    api_endpoints: List[Dict[str, Any]] = []
+    rate_limit_info: Dict[str, Any] = {}
+    auth_info: Dict[str, Any] = {}
+    gateway_info: Dict[str, Any] = {}
+    seen_paths: set = set()
+
+    def _probe_api_path(path: str, category: str) -> Optional[Dict[str, Any]]:
+        if path in seen_paths:
+            return None
+        seen_paths.add(path)
+        url = f"{base}{path}"
+        try:
+            status, body, hdrs = _fetch_url(url, timeout=timeout, verify_ssl=True,
+                                             headers=extra_headers)
+            if status == 0 and use_ssl:
+                status, body, hdrs = _fetch_url(url, timeout=timeout, verify_ssl=False,
+                                                 headers=extra_headers)
+        except Exception:
+            return None
+
+        if status == 0 or status == 404:
+            return None
+
+        entry: Dict[str, Any] = {"path": path, "status": status, "category": category}
+
+        # Check for OpenAPI/Swagger spec content
+        ct = hdrs.get("content-type", "")
+        if status == 200 and category in ("swagger", "openapi"):
+            if "json" in ct or "yaml" in ct or body.strip()[:1] in ("{", "o"):
+                try:
+                    spec = json.loads(body[:200000]) if "json" in ct or body.strip().startswith("{") else {}
+                    if spec.get("openapi") or spec.get("swagger") or spec.get("info"):
+                        entry["spec_version"] = spec.get("openapi", spec.get("swagger", "unknown"))
+                        entry["title"] = spec.get("info", {}).get("title", "")
+                        paths = spec.get("paths", {})
+                        entry["endpoints_count"] = len(paths)
+                        entry["endpoints_preview"] = list(paths.keys())[:10]
+                        # Check for auth definitions
+                        security = spec.get("securityDefinitions", spec.get("components", {}).get("securitySchemes", {}))
+                        if security:
+                            entry["auth_schemes"] = list(security.keys())
+                        entry["severity"] = "high"
+                        entry["is_spec"] = True
+                except Exception:
+                    entry["is_spec"] = body.strip().startswith("{") and len(body) > 100
+
+        # Swagger UI / docs pages
+        if status == 200 and category in ("swagger_ui", "fastapi_docs", "redoc", "graphiql", "altair", "graphql_playground"):
+            lower = body.lower() if body else ""
+            if any(k in lower for k in ("swagger", "openapi", "api-docs", "fastapi", "redoc", "graphiql", "altair", "playground")):
+                entry["exposed_ui"] = True
+                entry["severity"] = "medium"
+
+        # GraphQL introspection
+        if status == 200 and category == "graphql":
+            if "graphql" in body.lower() or "query" in body.lower():
+                entry["graphql_active"] = True
+
+        # Spring Actuator (info disclosure)
+        if status == 200 and category == "spring_actuator":
+            entry["severity"] = "high"
+            entry["actuator_exposed"] = True
+
+        # Metrics endpoint (Prometheus, etc.)
+        if status == 200 and category == "metrics":
+            if "# HELP" in body or "# TYPE" in body or "process_" in body:
+                entry["prometheus_exposed"] = True
+                entry["severity"] = "high"
+
+        # Auth detection: 401/403 = auth required
+        if status in (401, 403):
+            entry["auth_required"] = True
+            www_auth = hdrs.get("www-authenticate", "")
+            if www_auth:
+                entry["auth_scheme"] = www_auth.split()[0] if www_auth else None
+                entry["auth_detail"] = www_auth[:100]
+
+        # Rate limit headers
+        for rl_hdr, rl_desc in _API_RATE_LIMIT_HEADERS.items():
+            val = hdrs.get(rl_hdr)
+            if val:
+                if "rate_limits" not in entry:
+                    entry["rate_limits"] = {}
+                entry["rate_limits"][rl_hdr] = val
+
+        # API Gateway headers
+        for gw_hdr, gw_desc in _API_GATEWAY_HEADERS.items():
+            val = hdrs.get(gw_hdr)
+            if val:
+                if "gateway" not in entry:
+                    entry["gateway"] = {}
+                entry["gateway"][gw_hdr] = {"value": val[:80], "vendor": gw_desc}
+
+        return entry
+
+    # Probe all API paths concurrently
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {
+            pool.submit(_probe_api_path, path, cat): (path, cat)
+            for path, cat in _API_SECURITY_PATHS
+        }
+        for f in concurrent.futures.as_completed(futures, timeout=timeout * 4):
+            try:
+                r = f.result()
+                if r:
+                    if r.get("is_spec"):
+                        specs_found.append(r)
+                    elif r.get("exposed_ui") or r.get("actuator_exposed") or r.get("prometheus_exposed"):
+                        specs_found.append(r)
+                    api_endpoints.append(r)
+
+                    # Aggregate rate limit info
+                    if r.get("rate_limits"):
+                        rate_limit_info.update(r["rate_limits"])
+                    # Aggregate auth info
+                    if r.get("auth_required"):
+                        auth_info[r["path"]] = {
+                            "scheme": r.get("auth_scheme"),
+                            "detail": r.get("auth_detail", ""),
+                        }
+                    # Aggregate gateway info
+                    if r.get("gateway"):
+                        gateway_info.update(r["gateway"])
+            except Exception:
+                pass
+
+    # Also check main page headers for rate limit / gateway signals
+    try:
+        status, body, hdrs = _fetch_url(f"{base}/", timeout=timeout, verify_ssl=True,
+                                         headers=extra_headers)
+        for rl_hdr in _API_RATE_LIMIT_HEADERS:
+            val = hdrs.get(rl_hdr)
+            if val and rl_hdr not in rate_limit_info:
+                rate_limit_info[rl_hdr] = val
+        for gw_hdr, gw_desc in _API_GATEWAY_HEADERS.items():
+            val = hdrs.get(gw_hdr)
+            if val and gw_hdr not in gateway_info:
+                gateway_info[gw_hdr] = {"value": val[:80], "vendor": gw_desc}
+    except Exception:
+        pass
+
+    # Determine gateway vendor
+    gw_vendors = set()
+    for gw_hdr, info in gateway_info.items():
+        if isinstance(info, dict):
+            gw_vendors.add(info["vendor"])
+
+    return {
+        "specs_found": specs_found,
+        "api_endpoints": api_endpoints,
+        "rate_limiting": {
+            "detected": bool(rate_limit_info),
+            "headers": rate_limit_info,
+        },
+        "authentication": {
+            "detected": bool(auth_info),
+            "endpoints": auth_info,
+        },
+        "api_gateway": {
+            "detected": bool(gateway_info),
+            "vendors": sorted(gw_vendors),
+            "headers": {k: v for k, v in gateway_info.items()},
+        },
+        "total_specs": len(specs_found),
+        "total_endpoints_probed": len(seen_paths),
+        "total_endpoints_found": len(api_endpoints),
+        "severity": ("critical" if any(s.get("severity") == "critical" for s in specs_found) else
+                     "high" if specs_found else
+                     "medium" if auth_info or rate_limit_info else "info"),
+        "summary": (f"{len(specs_found)} API spec/doc(s) exposed, "
+                    f"{len(auth_info)} auth-protected endpoint(s), "
+                    f"{'rate limiting detected' if rate_limit_info else 'no rate limiting detected'}, "
+                    f"gateway: {', '.join(gw_vendors) if gw_vendors else 'none detected'}"),
+    }
 
 
 # ---------------------------------------------------------------------------
