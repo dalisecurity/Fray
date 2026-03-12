@@ -177,6 +177,22 @@ def build(rd: Dict[str, Any]) -> str:
         'Web Cache Poisoning': '\U0001f4be', 'DDoS \u2014 Direct Origin': '\u26a1',
     }
 
+    # VPN vendor display
+    vpn_vendors = [v.get('label', '') for v in vpn_list] if vpn_list else []
+    if vpn_vendors:
+        vpn_display = ', '.join(v.split('(')[0].strip() for v in vpn_vendors[:2])
+        if len(vpn_vendors) > 2:
+            vpn_display += f' +{len(vpn_vendors) - 2}'
+    else:
+        vpn_display = ''
+    vpn_has_cves = bool(vpn_data.get('verified_cves') or vpn_data.get('potential_cves'))
+
+    # API gateway display
+    api_gw_display = ''
+    if isinstance(api_gw, dict) and api_gw.get('detected'):
+        gw_names = [info.get('vendor', k) for k, info in api_gw.items() if k != 'detected' and isinstance(info, dict)]
+        api_gw_display = ', '.join(gw_names[:2]) if gw_names else 'Detected'
+
     rc = risk_color(risk_score)
     hdr_color = 'var(--red)' if hdr_score < 30 else 'var(--yellow)' if hdr_score < 60 else 'var(--green)'
 
@@ -225,6 +241,9 @@ def build(rd: Dict[str, Any]) -> str:
     <div class="mc"><div class="l">Attack Targets</div><div class="v" style="color:var(--orange);">{n_attack_targets}</div></div>
     <div class="mc"><div class="l">Attack Vectors</div><div class="v" style="color:var(--red);">{len(attack_vectors)}</div></div>
     <div class="mc"><div class="l">Admin Panels</div><div class="v">{n_admin}</div></div>
+    {f'<div class="mc"><div class="l">VPN Vendor</div><div class="v" style="font-size:0.85em;color:{"var(--red)" if vpn_has_cves else "var(--orange)"};"><a href="#vpn" style="color:inherit;text-decoration:none;">{_esc(vpn_display)}</a></div></div>' if vpn_display else ''}
+    {f'<div class="mc"><div class="l">API Gateway</div><div class="v" style="font-size:0.85em;color:var(--cyan);"><a href="#apisec" style="color:inherit;text-decoration:none;">{_esc(api_gw_display)}</a></div></div>' if api_gw_display else ''}
+    {f'<div class="mc"><div class="l">Public Buckets</div><div class="v" style="color:var(--red);"><a href="#buckets" style="color:inherit;text-decoration:none;">{n_public_buckets}</a></div></div>' if n_public_buckets else ''}
   </div>
 </div>''')
 
