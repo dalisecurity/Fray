@@ -53,419 +53,91 @@ class SecurityReportGenerator:
         
         recommendations = self._generate_recommendations(vulnerabilities, stats, waf_recommendations)
         
+        from fray._report_css import CSS as _V11_CSS
+        _target_display = self._escape_html(waf_detection.get('target', 'N/A')) if waf_detection else 'N/A'
+        _score = stats['security_score']
+        _score_color = '#ef4444' if _score < 40 else '#f97316' if _score < 70 else '#22c55e'
         html = f'''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Security Testing Report - Dali Security</title>
-    <style>
-        * {{
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }}
-        
-        body {{
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            line-height: 1.6;
-            color: #1a202c;
-            background: linear-gradient(135deg, #f5f7fa 0%, #e8edf2 100%);
-            min-height: 100vh;
-        }}
-        
-        .container {{
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 40px 20px;
-        }}
-        
-        .header {{
-            background: linear-gradient(135deg, #1e3a8a 0%, #3730a3 50%, #5b21b6 100%);
-            color: white;
-            padding: 35px 45px;
-            border-radius: 16px;
-            margin-bottom: 35px;
-            box-shadow: 0 20px 60px rgba(30, 58, 138, 0.25);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            gap: 20px;
-        }}
-        
-        .header-left {{
-            display: flex;
-            align-items: center;
-            gap: 25px;
-            flex: 1;
-        }}
-        
-        .logo {{
-            flex-shrink: 0;
-        }}
-        
-        .header-title {{
-            flex: 1;
-        }}
-        
-        .header h1 {{
-            font-size: 2.2em;
-            margin: 0;
-            font-weight: 700;
-            letter-spacing: -0.5px;
-        }}
-        
-        .header .subtitle {{
-            font-size: 1em;
-            opacity: 0.85;
-            margin-top: 5px;
-            font-weight: 300;
-        }}
-        
-        .meta-info {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }}
-        
-        .meta-card {{
-            background: white;
-            padding: 25px;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.06);
-            border: 1px solid rgba(0,0,0,0.05);
-            transition: transform 0.2s, box-shadow 0.2s;
-        }}
-        
-        .meta-card:hover {{
-            transform: translateY(-2px);
-            box-shadow: 0 8px 30px rgba(0,0,0,0.1);
-        }}
-        
-        .meta-card .label {{
-            font-size: 0.85em;
-            color: #64748b;
-            margin-bottom: 8px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            font-weight: 600;
-        }}
-        
-        .meta-card .value {{
-            font-size: 1.5em;
-            font-weight: 700;
-            color: #1e293b;
-            letter-spacing: -0.5px;
-        }}
-        
-        .section {{
-            background: white;
-            padding: 40px;
-            border-radius: 16px;
-            margin-bottom: 30px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.06);
-            border: 1px solid rgba(0,0,0,0.05);
-        }}
-        
-        .section h2 {{
-            font-size: 1.75em;
-            margin-bottom: 25px;
-            color: #1e293b;
-            border-bottom: 3px solid #3730a3;
-            padding-bottom: 12px;
-            font-weight: 700;
-            letter-spacing: -0.5px;
-        }}
-        
-        .severity-critical {{
-            color: #e53e3e;
-            font-weight: bold;
-        }}
-        
-        .severity-high {{
-            color: #dd6b20;
-            font-weight: bold;
-        }}
-        
-        .severity-medium {{
-            color: #d69e2e;
-            font-weight: bold;
-        }}
-        
-        .severity-low {{
-            color: #38a169;
-            font-weight: bold;
-        }}
-        
-        .stats-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin: 20px 0;
-        }}
-        
-        .stat-card {{
-            padding: 30px;
-            border-radius: 12px;
-            border-left: 5px solid;
-            transition: transform 0.2s;
-        }}
-        
-        .stat-card:hover {{
-            transform: translateY(-3px);
-        }}
-        
-        .stat-card.blocked {{
-            background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
-            border-color: #16a34a;
-        }}
-        
-        .stat-card.bypassed {{
-            background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
-            border-color: #dc2626;
-        }}
-        
-        .stat-card.total {{
-            background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
-            border-color: #2563eb;
-        }}
-        
-        .stat-card .number {{
-            font-size: 3em;
-            font-weight: 800;
-            margin-bottom: 8px;
-            letter-spacing: -1px;
-        }}
-        
-        .stat-card .label {{
-            font-size: 1em;
-            color: #475569;
-            font-weight: 500;
-        }}
-        
-        .vulnerability-list {{
-            margin: 20px 0;
-        }}
-        
-        .vulnerability-item {{
-            background: #f7fafc;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 15px;
-            border-left: 4px solid;
-        }}
-        
-        .vulnerability-item.critical {{
-            border-color: #e53e3e;
-        }}
-        
-        .vulnerability-item.high {{
-            border-color: #dd6b20;
-        }}
-        
-        .vulnerability-item.medium {{
-            border-color: #d69e2e;
-        }}
-        
-        .vulnerability-item.low {{
-            border-color: #38a169;
-        }}
-        
-        .vulnerability-item h3 {{
-            font-size: 1.3em;
-            margin-bottom: 10px;
-        }}
-        
-        .vulnerability-item .details {{
-            margin: 10px 0;
-            color: #4a5568;
-        }}
-        
-        .vulnerability-item .payload {{
-            background: #2d3748;
-            color: #68d391;
-            padding: 15px;
-            border-radius: 5px;
-            font-family: 'Courier New', monospace;
-            overflow-x: auto;
-            margin: 10px 0;
-        }}
-        
-        .recommendation-list {{
-            margin: 20px 0;
-        }}
-        
-        .recommendation-item {{
-            background: #edf2f7;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 15px;
-            border-left: 4px solid #4299e1;
-        }}
-        
-        .recommendation-item h3 {{
-            font-size: 1.2em;
-            margin-bottom: 10px;
-            color: #2d3748;
-        }}
-        
-        .recommendation-item .priority {{
-            display: inline-block;
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-size: 0.9em;
-            font-weight: bold;
-            margin-bottom: 10px;
-        }}
-        
-        .priority.high {{
-            background: #fed7d7;
-            color: #c53030;
-        }}
-        
-        .priority.medium {{
-            background: #feebc8;
-            color: #c05621;
-        }}
-        
-        .priority.low {{
-            background: #c6f6d5;
-            color: #276749;
-        }}
-        
-        .chart-container {{
-            margin: 30px 0;
-            padding: 20px;
-            background: #f7fafc;
-            border-radius: 8px;
-        }}
-        
-        .progress-bar {{
-            height: 40px;
-            background: #e2e8f0;
-            border-radius: 20px;
-            overflow: hidden;
-            margin: 15px 0;
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
-        }}
-        
-        .progress-fill {{
-            height: 100%;
-            background: linear-gradient(90deg, #1e3a8a 0%, #3730a3 50%, #5b21b6 100%);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: 700;
-            transition: width 0.3s ease;
-            font-size: 1.1em;
-            letter-spacing: 0.5px;
-        }}
-        
-        .footer {{
-            text-align: center;
-            padding: 30px;
-            color: #718096;
-            border-top: 2px solid #e2e8f0;
-            margin-top: 50px;
-        }}
-        
-        .footer .powered-by {{
-            margin-top: 10px;
-            font-size: 0.9em;
-        }}
-        
-        table {{
-            width: 100%;
-            border-collapse: collapse;
-            margin: 20px 0;
-        }}
-        
-        th, td {{
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #e2e8f0;
-        }}
-        
-        th {{
-            background: #f7fafc;
-            font-weight: bold;
-            color: #2d3748;
-        }}
-        
-        tr:hover {{
-            background: #f7fafc;
-        }}
-        
-        .badge {{
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: 0.85em;
-            font-weight: bold;
-        }}
-        
-        .badge.success {{
-            background: #c6f6d5;
-            color: #276749;
-        }}
-        
-        .badge.danger {{
-            background: #fed7d7;
-            color: #c53030;
-        }}
-        
-        .badge.warning {{
-            background: #feebc8;
-            color: #c05621;
-        }}
-        
-        @media print {{
-            body {{
-                background: white;
-            }}
-            .section {{
-                box-shadow: none;
-                border: 1px solid #e2e8f0;
-            }}
-        }}
+    <style>{_V11_CSS}
+        .stats-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:20px;margin:20px 0}}
+        .stat-card{{padding:30px;border-radius:12px;border-left:5px solid;background:var(--surface)}}
+        .stat-card:hover{{transform:translateY(-3px)}}
+        .stat-card.blocked{{border-color:#22c55e}}
+        .stat-card.bypassed{{border-color:#ef4444}}
+        .stat-card.total{{border-color:#3b82f6}}
+        .stat-card .number{{font-size:3em;font-weight:800;margin-bottom:8px;letter-spacing:-1px}}
+        .stat-card .label{{font-size:1em;color:var(--muted);font-weight:500}}
+        .vulnerability-list{{margin:20px 0}}
+        .vulnerability-item{{background:var(--surface2);padding:20px;border-radius:8px;margin-bottom:15px;border-left:4px solid}}
+        .vulnerability-item.critical{{border-color:#ef4444}}
+        .vulnerability-item.high{{border-color:#f97316}}
+        .vulnerability-item.medium{{border-color:#eab308}}
+        .vulnerability-item.low{{border-color:#22c55e}}
+        .vulnerability-item h3{{font-size:1.3em;margin-bottom:10px}}
+        .vulnerability-item .details{{margin:10px 0;color:var(--muted)}}
+        .vulnerability-item .payload{{background:var(--bg);color:#22c55e;padding:15px;border-radius:5px;font-family:'Courier New',monospace;overflow-x:auto;margin:10px 0}}
+        .severity-critical{{color:#ef4444;font-weight:bold}}
+        .severity-high{{color:#f97316;font-weight:bold}}
+        .severity-medium{{color:#eab308;font-weight:bold}}
+        .severity-low{{color:#22c55e;font-weight:bold}}
+        .recommendation-list{{margin:20px 0}}
+        .recommendation-item{{background:var(--surface2);padding:20px;border-radius:8px;margin-bottom:15px;border-left:4px solid var(--accent)}}
+        .recommendation-item h3{{font-size:1.2em;margin-bottom:10px}}
+        .priority{{display:inline-block;padding:5px 15px;border-radius:20px;font-size:0.9em;font-weight:bold;margin-bottom:10px}}
+        .priority.high{{background:rgba(239,68,68,.15);color:#ef4444}}
+        .priority.medium{{background:rgba(234,179,8,.15);color:#eab308}}
+        .priority.low{{background:rgba(34,197,94,.15);color:#22c55e}}
+        .priority.critical{{background:rgba(239,68,68,.25);color:#ef4444}}
+        .priority.info{{background:rgba(99,102,241,.15);color:var(--accent2)}}
+        .chart-container{{margin:30px 0;padding:20px;background:var(--surface2);border-radius:8px}}
+        .progress-bar{{height:40px;background:var(--surface2);border-radius:20px;overflow:hidden;margin:15px 0}}
+        .progress-fill{{height:100%;background:linear-gradient(90deg,#1e1b4b 0%,#312e81 50%,#4c1d95 100%);display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:1.1em;letter-spacing:.5px}}
+        .footer{{text-align:center;padding:30px;color:var(--muted);border-top:2px solid var(--border);margin-top:50px}}
+        .footer .powered-by{{margin-top:10px;font-size:0.9em}}
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="wrap">
         <!-- Header -->
-        <div class="header">
-            <div class="header-left">
+        <div class="hdr">
+            <div>
                 <div class="logo">
-                    {self.dali_logo_html}
+                    <span class="logo-name">DALI</span>
+                    <span class="logo-sub">SECURITY</span>
                 </div>
-                <div class="header-title">
-                    <h1>Security Testing Report</h1>
-                    <div class="subtitle">Comprehensive Web Application Security Assessment</div>
-                </div>
+            </div>
+            <div style="flex:1;">
+                <h1>Security Testing Report</h1>
+                <div class="sub">Comprehensive Web Application Security Assessment</div>
+            </div>
+            <div class="rbadge">
+                <div style="font-size:2em;font-weight:800;color:{_score_color};">{_score}</div>
+                <div style="font-size:.75em;color:var(--muted);font-weight:600;">/100 SCORE</div>
             </div>
         </div>
         
         <!-- Meta Information -->
-        <div class="meta-info">
-            <div class="meta-card">
-                <div class="label">Report Date</div>
-                <div class="value">{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}</div>
+        <div class="meta">
+            <div class="mc">
+                <div class="l">Report Date</div>
+                <div class="v">{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}</div>
             </div>
-            <div class="meta-card">
-                <div class="label">Target URL</div>
-                <div class="value">{self._escape_html(waf_detection.get('target', 'N/A')) if waf_detection else 'N/A'}</div>
+            <div class="mc">
+                <div class="l">Target URL</div>
+                <div class="v" style="font-size:1em;word-break:break-all;">{_target_display}</div>
             </div>
-            <div class="meta-card">
-                <div class="label">Test Duration</div>
-                <div class="value">N/A</div>
+            <div class="mc">
+                <div class="l">Payloads Tested</div>
+                <div class="v">{stats['total_payloads']}</div>
             </div>
-            <div class="meta-card">
-                <div class="label">Security Score</div>
-                <div class="value">{stats['security_score']}/100</div>
+            <div class="mc">
+                <div class="l">Block Rate</div>
+                <div class="v" style="color:{_score_color};">{stats['block_rate']}%</div>
             </div>
         </div>
         
@@ -527,7 +199,7 @@ class SecurityReportGenerator:
         <!-- Footer -->
         <div class="footer">
             <p><strong>Generated by Fray</strong></p>
-            <p class="powered-by">Powered by Dali Security | Professional Security Testing Platform</p>
+            <p class="powered-by">Powered by <a href="https://dalisec.io" style="color:var(--accent2);text-decoration:none;">Dali Security</a> | Professional Security Testing Platform</p>
             <p style="margin-top: 10px; font-size: 0.85em;">
                 This report is confidential and intended for authorized personnel only.
             </p>
