@@ -638,10 +638,78 @@ def next_steps(target: str, context: str = "recon", *,
                            "OWASP hardening audit") + "\n")
 
     elif context == "bypass":
+        if bypassed > 0:
+            out.write(cmd_hint(f"fray report -i results.json -o report.html",
+                               f"Generate report ({bypassed} bypasses)") + "\n")
         out.write(cmd_hint(f"fray agent {target} -c xss --rounds 5",
                            "Self-improving agent (longer)") + "\n")
-        out.write(cmd_hint(f"fray report -i results.json -o report.html",
-                           "Generate HTML report") + "\n")
+        out.write(cmd_hint(f"fray harden {target}",
+                           "Check security posture") + "\n")
+
+    elif context == "detect":
+        out.write(cmd_hint(f"fray recon {target}",
+                           "Full reconnaissance (35+ checks)") + "\n")
+        out.write(cmd_hint(f"fray go {target}",
+                           "Guided pipeline (recon+test+report)") + "\n")
+        if waf:
+            out.write(cmd_hint(f"fray test {target} -c xss --smart",
+                               f"Test payloads against {waf}") + "\n")
+            out.write(cmd_hint(f"fray bypass {target} --waf {waf.lower().replace(' ', '_')} -c xss",
+                               f"WAF bypass scoring") + "\n")
+        else:
+            out.write(cmd_hint(f"fray test {target} -c xss --smart",
+                               "No WAF detected — test payloads") + "\n")
+
+    elif context == "harden":
+        out.write(cmd_hint(f"fray recon {target}",
+                           "Full recon for deeper analysis") + "\n")
+        out.write(cmd_hint(f"fray test {target} -c xss --smart",
+                           "Test WAF with smart payloads") + "\n")
+        out.write(cmd_hint(f"fray scan {target}",
+                           "Auto crawl + inject + detect") + "\n")
+
+    elif context == "agent":
+        if bypassed > 0:
+            out.write(cmd_hint(f"fray report -i results.json -o report.html",
+                               f"Generate report ({bypassed} bypasses)") + "\n")
+        out.write(cmd_hint(f"fray agent {target} -c xss --rounds 10 --ai",
+                           "AI-assisted agent (longer run)") + "\n")
+        out.write(cmd_hint(f"fray bypass {target} -c xss",
+                           "WAF bypass scoring") + "\n")
+        out.write(cmd_hint(f"fray harden {target}",
+                           "Security posture audit") + "\n")
+
+    elif context == "graph":
+        out.write(cmd_hint(f"fray recon {target} --deep",
+                           "Deep recon (300 subdomains)") + "\n")
+        out.write(cmd_hint(f"fray go {target}",
+                           "Guided pipeline (recon+test+report)") + "\n")
+        out.write(cmd_hint(f"fray scan {target}",
+                           "Auto crawl + payload injection") + "\n")
+
+    elif context == "bounty":
+        out.write(cmd_hint(f"fray go {target}",
+                           "Guided pipeline per target") + "\n")
+        out.write(cmd_hint(f"fray recon {target}",
+                           "Deep recon on interesting target") + "\n")
+        out.write(cmd_hint(f"fray agent {target} -c xss --rounds 5",
+                           "Self-learning agent") + "\n")
+
+    elif context == "auto":
+        out.write(cmd_hint(f"fray agent {target} -c xss --rounds 5",
+                           "Self-learning agent (deeper)") + "\n")
+        out.write(cmd_hint(f"fray harden {target}",
+                           "Security headers + OWASP audit") + "\n")
+        out.write(cmd_hint(f"fray recon {target} --deep",
+                           "Extended DNS, 300 subdomains") + "\n")
+
+    elif context == "smuggle":
+        out.write(cmd_hint(f"fray recon {target}",
+                           "Full reconnaissance") + "\n")
+        out.write(cmd_hint(f"fray scan {target}",
+                           "Auto crawl + payload injection") + "\n")
+        out.write(cmd_hint(f"fray harden {target}",
+                           "Security posture audit") + "\n")
 
     out.write("\n")
     out.flush()

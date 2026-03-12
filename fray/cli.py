@@ -934,6 +934,14 @@ def cmd_detect(args):
             print(f"{target}\t{waf}\t{conf}%")
         else:
             detector.print_results(results)
+            # Next-step hints (single target, TTY)
+            if not getattr(args, 'json', False):
+                try:
+                    from fray.interactive import next_steps
+                    waf_name = results.get('waf_vendor', '') if isinstance(results, dict) else ''
+                    next_steps(target, "detect", waf=waf_name or '')
+                except Exception:
+                    pass
 
 
 def _cmd_test_multi(args, targets):
@@ -1792,6 +1800,14 @@ def cmd_graph(args):
         if not getattr(args, 'json', False):
             print(f"  Graph saved to {args.output}")
 
+    # Next-step hints
+    if not getattr(args, 'json', False):
+        try:
+            from fray.interactive import next_steps
+            next_steps(args.target, "graph")
+        except Exception:
+            pass
+
 
 def cmd_bounty(args):
     """Run bug bounty scope fetch and batch WAF testing"""
@@ -2165,6 +2181,14 @@ def cmd_smuggle(args):
             json.dump(asdict(report), f, indent=2, ensure_ascii=False)
         print(f"\n  Results saved to {args.output}")
 
+    # Next-step hints
+    if not getattr(args, 'json', False):
+        try:
+            from fray.interactive import next_steps
+            next_steps(args.target, "smuggle")
+        except Exception:
+            pass
+
     # Exit code: 1 if vulnerable (CI integration)
     if report.vulnerable:
         sys.exit(1)
@@ -2354,6 +2378,15 @@ def cmd_bypass(args):
         print(f"\n  🔄 Bypass recipes exported (anonymized): {recipe_file}")
         print(f"     {len([b for b in bypass_results if not b.get('blocked')])} recipe(s) ready for community sharing")
 
+    # Next-step hints
+    if not getattr(args, 'json', False):
+        try:
+            from fray.interactive import next_steps
+            _bypassed = len([b for b in bypass_results if not b.get('blocked')]) if bypass_results else 0
+            next_steps(args.target, "bypass", bypassed=_bypassed)
+        except Exception:
+            pass
+
 
 def cmd_ai_bypass(args):
     """AI-assisted WAF bypass — LLM-generated payloads with adaptive feedback"""
@@ -2408,6 +2441,14 @@ def cmd_ai_bypass(args):
             json.dump(asdict(result), f, indent=2, ensure_ascii=False)
         if not json_mode:
             print(f"\n  Results saved to {output_file}")
+
+    # Next-step hints
+    if not json_mode:
+        try:
+            from fray.interactive import next_steps
+            next_steps(args.target, "bypass", bypassed=result.total_bypassed)
+        except Exception:
+            pass
 
 
 def cmd_agent(args):
@@ -2511,6 +2552,14 @@ def cmd_agent(args):
              "Requests": stats.total_requests,
              "Bypass Rate": stats.bypass_rate},
         )
+
+    # Next-step hints
+    if not json_mode:
+        try:
+            from fray.interactive import next_steps
+            next_steps(args.target, "agent", bypassed=stats.total_bypasses)
+        except Exception:
+            pass
 
 
 def cmd_feed(args):
@@ -2996,6 +3045,14 @@ def cmd_harden(args):
             json.dump(report, f, indent=2, ensure_ascii=False)
         console.print(f"  Report saved to {args.output}")
 
+    # Next-step hints
+    if not json_mode:
+        try:
+            from fray.interactive import next_steps
+            next_steps(target, "harden")
+        except Exception:
+            pass
+
 
 def cmd_go(args):
     """Zero-knowledge guided pipeline: recon → smart test → report.
@@ -3308,16 +3365,6 @@ def cmd_auto(args):
         console.print(Panel(tbl, title="[bold]Pipeline Summary[/bold]",
                             border_style="bright_cyan", expand=False))
 
-        # Next steps
-        console.print()
-        console.print("  [bold]Next steps:[/bold]")
-        if recon_result and recommended_cats:
-            for cat in recommended_cats[:3]:
-                console.print(f"    fray test {target} -c {cat} --max 50")
-        if ai_result and ai_result.total_bypassed == 0:
-            console.print(f"    fray bypass {target} -c {args.category} --mutation-budget 50")
-        if recon_result:
-            console.print(f"    fray harden {target}")
         console.print()
 
     if json_mode:
@@ -3330,6 +3377,14 @@ def cmd_auto(args):
             json.dump(full_report, f, indent=2, ensure_ascii=False)
         if not json_mode:
             print(f"  Report saved to {output_file}")
+
+    # Next-step hints
+    if not json_mode:
+        try:
+            from fray.interactive import next_steps
+            next_steps(target, "auto")
+        except Exception:
+            pass
 
 
 def cmd_learn(args):
