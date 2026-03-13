@@ -364,6 +364,105 @@ def scrape_packetstorm(url: str, timeout: int = 10) -> Dict[str, Any]:
     return result
 
 
+def scrape_vulhub(cve_id: str, timeout: int = 8) -> Dict[str, Any]:
+    """Scrape vulhub for Docker-based exploit environments.
+
+    vulhub organizes exploits as: vulhub/vulhub/master/<product>/<CVE>/README.md
+    Also checks for actual exploit scripts in the same directory.
+    """
+    result: Dict[str, Any] = {
+        "url": f"https://github.com/vulhub/vulhub",
+        "code_snippets": [],
+    }
+
+    slug = cve_id.upper()
+    # vulhub uses product-based paths; try common mappings
+    # The README has curl commands and exploit instructions
+    product_paths = {
+        "log4j": ["log4j"],
+        "struts": ["struts2"],
+        "spring": ["spring"],
+        "apache": ["httpd", "solr", "druid", "activemq", "ofbiz", "shiro", "apisix"],
+        "weblogic": ["weblogic"],
+        "tomcat": ["tomcat"],
+        "jboss": ["jboss"],
+        "jenkins": ["jenkins"],
+        "confluence": ["confluence"],
+        "gitlab": ["gitlab"],
+        "grafana": ["grafana"],
+        "openfire": ["openfire"],
+        "drupal": ["drupal"],
+        "wordpress": ["wordpress"],
+        "redis": ["redis"],
+        "elasticsearch": ["elasticsearch"],
+        "postgres": ["postgres"],
+        "mysql": ["mysql"],
+        "php": ["php"],
+        "nginx": ["nginx"],
+    }
+
+    # Try to find the vulhub directory for this CVE
+    for paths in product_paths.values():
+        for product in paths:
+            for branch in ("master", "main"):
+                readme_url = f"https://raw.githubusercontent.com/vulhub/vulhub/{branch}/{product}/{slug}/README.md"
+                status, body = _fetch_url(readme_url, timeout=5)
+                if status == 200 and len(body) > 100:
+                    result["code_snippets"].append({
+                        "filename": f"vulhub_{product}_README.md",
+                        "content": body[:32768],
+                        "size": len(body),
+                    })
+                    # Also try common exploit scripts in same dir
+                    for script in ("exploit.py", "poc.py", "exp.py"):
+                        script_url = f"https://raw.githubusercontent.com/vulhub/vulhub/{branch}/{product}/{slug}/{script}"
+                        s2, b2 = _fetch_url(script_url, timeout=5)
+                        if s2 == 200 and len(b2) > 50:
+                            result["code_snippets"].append({
+                                "filename": script,
+                                "content": b2[:32768],
+                                "size": len(b2),
+                            })
+                    return result  # Found it, stop searching
+            if result["code_snippets"]:
+                return result
+
+    return result
+
+
+def scrape_nuclei_template(cve_id: str, timeout: int = 8) -> Dict[str, Any]:
+    """Fetch Nuclei YAML template for a CVE from projectdiscovery/nuclei-templates.
+
+    Nuclei templates contain actual HTTP requests with paths, headers, and matchers.
+    """
+    result: Dict[str, Any] = {
+        "url": "https://github.com/projectdiscovery/nuclei-templates",
+        "code_snippets": [],
+    }
+
+    slug = cve_id.upper()
+    year = slug.replace("CVE-", "").split("-")[0]
+    slug_lower = slug.lower()
+
+    # nuclei-templates organizes as: http/cves/YYYY/CVE-YYYY-XXXXX.yaml
+    for path_pattern in (
+        f"http/cves/{year}/{slug}.yaml",
+        f"http/cves/{year}/{slug_lower}.yaml",
+        f"network/cves/{year}/{slug}.yaml",
+    ):
+        url = f"https://raw.githubusercontent.com/projectdiscovery/nuclei-templates/main/{path_pattern}"
+        status, body = _fetch_url(url, timeout)
+        if status == 200 and len(body) > 50:
+            result["code_snippets"].append({
+                "filename": f"nuclei_{slug}.yaml",
+                "content": body[:32768],
+                "size": len(body),
+            })
+            break
+
+    return result
+
+
 def search_github_pocs(cve_id: str, timeout: int = 10) -> List[str]:
     """Search GitHub for PoC repositories matching a CVE ID.
 
@@ -423,7 +522,21 @@ def search_github_pocs(cve_id: str, timeout: int = 10) -> List[str]:
         except Exception:
             pass
 
-    # Strategy 3: GitHub HTML search (broader regex, no API rate limit)
+    # Strategy 3: trickest/cve — curated CVE→PoC links (single fetch, no rate limit)
+    if len(repos) < 6:
+        try:
+            trickest_url = f"https://raw.githubusercontent.com/trickest/cve/main/{year}/{slug}.md"
+            status, body = _fetch_url(trickest_url, timeout)
+            if status == 200 and body:
+                gh_links = re.findall(r'https://github\.com/([^/\s\)"]+/[^/\s\)"]+)', body)
+                for repo_path in dict.fromkeys(gh_links):
+                    if len(repos) >= 10:
+                        break
+                    _add(f"https://github.com/{repo_path}")
+        except Exception:
+            pass
+
+    # Strategy 4: GitHub HTML search (broader regex, no API rate limit)
     if len(repos) < 2:
         try:
             search_url = f"https://github.com/search?q={urllib.parse.quote(slug)}&type=repositories"
@@ -437,7 +550,7 @@ def search_github_pocs(cve_id: str, timeout: int = 10) -> List[str]:
         except Exception:
             pass
 
-    return repos[:8]
+    return repos[:10]
 
 
 def _fetch_url_with_headers(url: str, timeout: int = 12, extra_headers: Dict[str, str] = None) -> Tuple[int, str]:
@@ -707,6 +820,36 @@ def _parse_nuclei_template(code: str) -> List[ExtractedPayload]:
     return payloads
 
 
+def _parse_markdown_code_blocks(code: str) -> List[ExtractedPayload]:
+    """Extract payloads from markdown fenced code blocks (```...```).
+
+    This is the #1 format in PoC README files — curl commands, HTTP requests,
+    and Python snippets are wrapped in markdown code fences.
+    """
+    payloads = []
+
+    # Extract all fenced code blocks
+    blocks = re.findall(r'```(?:\w*)\n(.*?)```', code, re.DOTALL)
+    for block in blocks:
+        block = block.strip()
+        if len(block) < 10:
+            continue
+
+        # Parse curl commands inside the block
+        curl_payloads = _parse_curl_commands(block)
+        payloads.extend(curl_payloads)
+
+        # Parse raw HTTP requests inside the block
+        raw_payloads = _parse_raw_http(block)
+        payloads.extend(raw_payloads)
+
+        # Parse Python requests calls inside the block
+        if "requests." in block.lower() or "import requests" in block.lower():
+            payloads.extend(_parse_python_requests(block))
+
+    return payloads
+
+
 def _parse_exploit_strings(code: str) -> List[ExtractedPayload]:
     """Extract common exploit strings/payloads from any code."""
     payloads = []
@@ -742,12 +885,41 @@ def _parse_exploit_strings(code: str) -> List[ExtractedPayload]:
             technique="cmdi_payload", context="Command injection string",
         ))
 
-    # Path traversal payloads
+    # Path traversal payloads (quoted)
     for m in re.finditer(r'["\']([^"\']*\.\.(?:/|\\)(?:\.\.(?:/|\\))+[^"\']*)["\']', code):
         payloads.append(ExtractedPayload(
             payload=m.group(1), confidence=0.75,
             technique="lfi_payload", context="Path traversal string",
         ))
+
+    # Path traversal (unquoted, in URLs or paths)
+    for m in re.finditer(r'(/[^\s"\']*\.\.(?:/|%2[fF])\.\.(?:/|%2[fF])[^\s"\']*)', code):
+        val = m.group(1)
+        if len(val) > 8 and len(val) < 200:
+            payloads.append(ExtractedPayload(
+                payload=val, confidence=0.8,
+                technique="lfi_payload", context="Path traversal in URL",
+            ))
+
+    # SSTI payloads (Jinja2, Twig, Freemarker, etc.)
+    for m in re.finditer(r'["\']([^"\']*\{\{[^}]*\}\}[^"\']*)["\']', code):
+        val = m.group(1)
+        if any(kw in val for kw in ("7*7", "__class__", "config", "__mro__", "lipsum",
+                                     "cycler", "__builtins__", "os.popen", "_self")):
+            payloads.append(ExtractedPayload(
+                payload=val, confidence=0.85,
+                technique="ssti_payload", context="SSTI template injection",
+            ))
+
+    # SSRF payloads (internal IP targets)
+    for m in re.finditer(r'["\']([^"\']*(?:127\.0\.0\.1|169\.254\.169\.254|0\.0\.0\.0|localhost|'
+                         r'\[::1\]|0x7f|2130706433)[^"\']*)["\']', code):
+        val = m.group(1)
+        if ("http" in val.lower() or "/" in val) and len(val) > 10:
+            payloads.append(ExtractedPayload(
+                payload=val, confidence=0.75,
+                technique="ssrf_payload", context="SSRF internal target",
+            ))
 
     # Deserialization payloads (base64 Java serialized objects)
     for m in re.finditer(r'["\']([A-Za-z0-9+/=]{20,})["\']', code):
@@ -756,6 +928,20 @@ def _parse_exploit_strings(code: str) -> List[ExtractedPayload]:
             payloads.append(ExtractedPayload(
                 payload=val, confidence=0.85,
                 technique="deser_payload", context="Serialized object",
+            ))
+
+    # Exploit URL paths (common patterns in PoC code)
+    for m in re.finditer(r'["\'](/[a-zA-Z0-9_./-]+(?:\?[^\s"\']+)?)["\']', code):
+        val = m.group(1)
+        # Must look like an exploit path (contains known vulnerable endpoints)
+        vuln_indicators = ("/api/", "/admin/", "/shell", "/exec", "/cmd", "/debug",
+                          "/console", "/invoke", "/upload", "/rce", "/login",
+                          "/.env", "/actuator", "/jolokia", "/manager",
+                          "/wp-", "/cgi-bin/", "/solr/", "/jenkins/", "/grafana/")
+        if any(ind in val.lower() for ind in vuln_indicators) and len(val) > 5:
+            payloads.append(ExtractedPayload(
+                payload=val, confidence=0.7,
+                technique="exploit_path", context="Vulnerable endpoint path",
             ))
 
     return payloads
@@ -785,6 +971,10 @@ def parse_poc_code(code: str, filename: str = "") -> List[ExtractedPayload]:
 
     if "nuclei" in lower or ("id:" in lower and "info:" in lower and "requests:" in lower):
         all_payloads.extend(_parse_nuclei_template(code))
+
+    # Markdown code blocks (README files with ```curl...```, ```http...```)
+    if "```" in code:
+        all_payloads.extend(_parse_markdown_code_blocks(code))
 
     # Always try generic string extraction
     all_payloads.extend(_parse_exploit_strings(code))
@@ -918,6 +1108,30 @@ def extract_poc_payloads(
                         })
                         result.sources_found += 1
                         break
+
+    # Additional sources: vulhub + nuclei-templates (always try if we have a CVE ID)
+    if cve_id:
+        # vulhub — Docker exploit environments with actual exploit instructions
+        try:
+            vulhub_result = scrape_vulhub(cve_id, timeout)
+            if vulhub_result["code_snippets"]:
+                result.sources_found += 1
+                result.sources_checked += 1
+                all_code_snippets.extend(vulhub_result["code_snippets"])
+                result.poc_references.append({"url": vulhub_result["url"], "source": "vulhub", "priority": 3})
+        except Exception:
+            pass
+
+        # nuclei-templates — YAML with real HTTP requests, paths, headers
+        try:
+            nuclei_result = scrape_nuclei_template(cve_id, timeout)
+            if nuclei_result["code_snippets"]:
+                result.sources_found += 1
+                result.sources_checked += 1
+                all_code_snippets.extend(nuclei_result["code_snippets"])
+                result.poc_references.append({"url": nuclei_result["url"], "source": "nuclei_template", "priority": 2})
+        except Exception:
+            pass
 
     result.raw_code_samples = all_code_snippets
 
