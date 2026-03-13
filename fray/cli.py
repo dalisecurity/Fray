@@ -1853,6 +1853,89 @@ def cmd_bounty(args):
     )
 
 
+def cmd_plugin(args):
+    """Plugin / Extension API introspection (#163)."""
+    from fray.plugins import list_hooks, list_plugins, load_plugins, HOOK_TYPES
+
+    action = getattr(args, 'action', 'list')
+
+    if action == 'load':
+        paths = getattr(args, 'paths', []) or []
+        if not paths:
+            print("  Usage: fray plugin load my_plugin.py")
+            return
+        n = load_plugins(paths)
+        print(f"  Loaded {n} plugin(s)")
+        hooks = list_hooks()
+        for h, count in hooks.items():
+            if count:
+                print(f"    {h}: {count} handler(s)")
+        return
+
+    if action == 'hooks':
+        print("  Available hook types:")
+        for h in sorted(HOOK_TYPES):
+            print(f"    - {h}")
+        return
+
+    # Default: list loaded plugins
+    plugins = list_plugins()
+    hooks = list_hooks()
+    if not plugins:
+        print("  No plugins loaded.")
+        print("  Load with: fray --plugin my_plugin.py <command>")
+        print("  Or: FRAY_PLUGINS=a.py,b.py fray <command>")
+    else:
+        print(f"  {len(plugins)} plugin(s) loaded:")
+        for p in plugins:
+            print(f"    - {p}")
+    total_hooks = sum(hooks.values())
+    if total_hooks:
+        print(f"\n  {total_hooks} hook handler(s) registered:")
+        for h, count in hooks.items():
+            if count:
+                print(f"    {h}: {count}")
+
+
+def cmd_posture(args):
+    """Industry-level security posture comparison (#72)."""
+    from fray.posture import generate_posture_report, print_posture_report
+    source = getattr(args, 'source', None)
+    if not source:
+        print("  Usage: fray posture results.jsonl")
+        return
+    output = getattr(args, 'output', '') or ''
+    report = generate_posture_report(source=source, output=output)
+
+    if report.get("error"):
+        print(f"  Error: {report['error']}")
+        return
+
+    if getattr(args, 'json', False):
+        _json_print(report)
+    elif not output:
+        print_posture_report(report)
+    else:
+        print(f"  Report saved to {output}")
+
+
+def cmd_waf_report(args):
+    """Corporate WAF coverage report (#71)."""
+    from fray.waf_report import generate_waf_report, print_waf_report
+    company = getattr(args, 'company', '') or ''
+    output = getattr(args, 'output', '') or ''
+    report = generate_waf_report(company_filter=company, output=output)
+
+    if getattr(args, 'json', False):
+        serializable = dict(report)
+        serializable["domains"] = [{"domain": d, **v} for d, v in report["domains"]]
+        _json_print(serializable)
+    elif not output:
+        print_waf_report(report)
+    else:
+        print(f"  Report saved to {output}")
+
+
 def cmd_batch(args):
     """Batch recon for domain lists (#70)."""
     from fray.batch import run_batch, load_domains_file, _NIKKEI225_SAMPLE
@@ -5347,6 +5430,27 @@ GitHub: https://github.com/dalisecurity/fray
     p_report.add_argument("--json", action="store_true",
                           help="Output report as JSON to stdout")
     p_report.set_defaults(func=cmd_report)
+
+    # plugin (#163)
+    p_plugin = subparsers.add_parser("plugin", help="Plugin / Extension API — list, load, inspect hooks (#163)")
+    p_plugin.add_argument("action", nargs="?", default="list", choices=["list", "load", "hooks"],
+                          help="Action: list (default), load, hooks")
+    p_plugin.add_argument("paths", nargs="*", default=[], help="Plugin file(s) to load (for 'load' action)")
+    p_plugin.set_defaults(func=cmd_plugin)
+
+    # posture (#72)
+    p_posture = subparsers.add_parser("posture", help="Industry-level security posture comparison from batch results (#72)")
+    p_posture.add_argument("source", help="JSONL file with batch recon results")
+    p_posture.add_argument("-o", "--output", default=None, help="Save report (.md or .json)")
+    p_posture.add_argument("--json", action="store_true", help="Output as JSON")
+    p_posture.set_defaults(func=cmd_posture)
+
+    # waf-report (#71)
+    p_wafrep = subparsers.add_parser("waf-report", help="Corporate WAF coverage report — gaps, vendor distribution, scores (#71)")
+    p_wafrep.add_argument("--company", default=None, help="Filter by company domain suffix (e.g. example.com)")
+    p_wafrep.add_argument("-o", "--output", default=None, help="Save report (.md or .json)")
+    p_wafrep.add_argument("--json", action="store_true", help="Output as JSON")
+    p_wafrep.set_defaults(func=cmd_waf_report)
 
     # batch (#70)
     p_batch = subparsers.add_parser("batch", help="Batch recon across domain lists (Nikkei 225, custom) (#70)")

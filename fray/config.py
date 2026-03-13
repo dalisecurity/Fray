@@ -93,6 +93,99 @@ def load_env_from_config(config: Optional[Dict[str, Any]] = None) -> None:
         os.environ["GITHUB_TOKEN"] = os.environ["GH_TOKEN"]
 
 
+_CONFIG_SCHEMA: Dict[str, Dict[str, Any]] = {
+    "env": {"_type": "dict", "_value_type": "str"},
+    "test": {
+        "timeout": {"_type": "int", "_min": 1, "_max": 300},
+        "delay": {"_type": "float", "_min": 0.0, "_max": 60.0},
+        "category": {"_type": "str"},
+        "insecure": {"_type": "bool"},
+        "verbose": {"_type": "bool"},
+        "redirect_limit": {"_type": "int", "_min": 0, "_max": 20},
+        "stealth": {"_type": "bool"},
+        "method": {"_type": "str", "_choices": ["GET", "POST", "PUT", "DELETE", "PATCH"]},
+        "auth": {
+            "cookie": {"_type": "str"},
+            "bearer": {"_type": "str"},
+        },
+    },
+    "recon": {
+        "timeout": {"_type": "int", "_min": 1, "_max": 300},
+        "deep": {"_type": "bool"},
+        "fast": {"_type": "bool"},
+    },
+    "bounty": {
+        "max": {"_type": "int", "_min": 1},
+        "workers": {"_type": "int", "_min": 1, "_max": 32},
+        "delay": {"_type": "float", "_min": 0.0},
+        "platform": {"_type": "str", "_choices": ["hackerone", "bugcrowd"]},
+    },
+    "webhook": {
+        "url": {"_type": "str"},
+    },
+    "theme": {"_type": "str", "_choices": ["dark", "light", "hacker", "minimal", "none"]},
+}
+
+
+def validate_config(config: Optional[Dict[str, Any]] = None,
+                    path: Optional[Path] = None) -> list:
+    """Validate .fray.toml config against known schema (#185).
+
+    Returns a list of warning strings. Empty list = valid.
+    """
+    if config is None:
+        config = load_config(path)
+    if not config:
+        return []
+
+    warnings: list = []
+
+    def _check(schema: dict, data: dict, prefix: str = "") -> None:
+        for key, value in data.items():
+            full_key = f"{prefix}.{key}" if prefix else key
+
+            if key.startswith("_"):
+                continue
+
+            if key not in schema:
+                warnings.append(f"Unknown key: '{full_key}'")
+                continue
+
+            spec = schema[key]
+
+            # Nested section
+            if isinstance(spec, dict) and "_type" not in spec:
+                if isinstance(value, dict):
+                    _check(spec, value, full_key)
+                else:
+                    warnings.append(f"'{full_key}' should be a table/section, got {type(value).__name__}")
+                continue
+
+            # Type check
+            expected = spec.get("_type", "")
+            type_map = {"str": str, "int": int, "float": (int, float), "bool": bool, "dict": dict}
+            expected_types = type_map.get(expected)
+            if expected_types and not isinstance(value, expected_types):
+                warnings.append(f"'{full_key}': expected {expected}, got {type(value).__name__}")
+                continue
+
+            # Range checks
+            if "_min" in spec and isinstance(value, (int, float)):
+                if value < spec["_min"]:
+                    warnings.append(f"'{full_key}': {value} < minimum {spec['_min']}")
+            if "_max" in spec and isinstance(value, (int, float)):
+                if value > spec["_max"]:
+                    warnings.append(f"'{full_key}': {value} > maximum {spec['_max']}")
+
+            # Choice check
+            if "_choices" in spec and isinstance(value, str):
+                if value not in spec["_choices"]:
+                    warnings.append(f"'{full_key}': '{value}' not in {spec['_choices']}")
+
+    _check(_CONFIG_SCHEMA, config)
+    return warnings
+
+
 def apply_config_defaults(args, config: Dict[str, Any], section: str) -> None:
     """Apply config defaults to argparse Namespace. CLI args take precedence.
 

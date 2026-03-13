@@ -1,0 +1,31 @@
+id: bola-idor-direct-object-reference
+info:
+  name: IDOR — Direct Object Reference
+  author: dalisec
+  severity: high
+  tags: business-logic,idor,bola,owasp-api1
+  description: Tests for Broken Object Level Authorization by manipulating numeric and UUID resource identifiers.
+  reference:
+    - https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/
+
+requests:
+  - method: GET
+    path:
+      - "{{BaseURL}}/api/users/1"
+      - "{{BaseURL}}/api/users/2"
+      - "{{BaseURL}}/api/users/0"
+      - "{{BaseURL}}/api/users/999999"
+      - "{{BaseURL}}/api/account/1"
+      - "{{BaseURL}}/api/account/2"
+      - "{{BaseURL}}/api/orders/1"
+      - "{{BaseURL}}/api/orders/2"
+      - "{{BaseURL}}/api/v1/profile/1"
+      - "{{BaseURL}}/api/v1/profile/2"
+    matchers-condition: or
+    matchers:
+      - type: status
+        status: [200]
+      - type: word
+        words: ["email", "username", "password", "phone", "address"]
+        part: body
+        condition: or

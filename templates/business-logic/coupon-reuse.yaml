@@ -1,0 +1,44 @@
+id: biz-coupon-reuse
+info:
+  name: Coupon / Discount Code Reuse
+  author: dalisec
+  severity: medium
+  tags: business-logic,coupon,discount,ecommerce
+  description: Tests whether discount codes or promotional coupons can be applied multiple times or stacked for unauthorized discounts.
+  reference:
+    - https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/10-Business_Logic_Testing/
+
+requests:
+  - method: POST
+    path:
+      - "{{BaseURL}}/api/cart/coupon"
+      - "{{BaseURL}}/api/apply-coupon"
+      - "{{BaseURL}}/api/discount"
+      - "{{BaseURL}}/api/promo"
+    headers:
+      Content-Type: "application/json"
+    body: '{"code":"SAVE10","code2":"SAVE20"}'
+    matchers-condition: and
+    matchers:
+      - type: status
+        status: [200]
+      - type: word
+        words: ["applied", "discount", "success", "saved"]
+        part: body
+        condition: or
+
+  - method: POST
+    path:
+      - "{{BaseURL}}/api/cart/coupon"
+      - "{{BaseURL}}/api/apply-coupon"
+    headers:
+      Content-Type: "application/json"
+    body: '{"codes":["SAVE10","SAVE10","SAVE10"]}'
+    matchers-condition: and
+    matchers:
+      - type: status
+        status: [200]
+      - type: word
+        words: ["applied", "discount", "success"]
+        part: body
+        condition: or

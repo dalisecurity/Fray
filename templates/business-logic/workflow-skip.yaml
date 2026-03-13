@@ -1,0 +1,30 @@
+id: biz-workflow-skip
+info:
+  name: Workflow Step Skipping
+  author: dalisec
+  severity: high
+  tags: business-logic,workflow,authentication-bypass
+  description: Tests whether multi-step workflows (checkout, verification, onboarding) can be bypassed by directly accessing later steps.
+  reference:
+    - https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/10-Business_Logic_Testing/04-Test_for_Process_Timing
+
+requests:
+  - method: GET
+    path:
+      - "{{BaseURL}}/checkout/confirm"
+      - "{{BaseURL}}/checkout/payment"
+      - "{{BaseURL}}/checkout/complete"
+      - "{{BaseURL}}/api/checkout/step3"
+      - "{{BaseURL}}/api/verify/complete"
+      - "{{BaseURL}}/onboarding/final"
+      - "{{BaseURL}}/api/order/confirm"
+      - "{{BaseURL}}/password-reset/confirm"
+      - "{{BaseURL}}/api/email/verify?token=test"
+    matchers-condition: or
+    matchers:
+      - type: status
+        status: [200]
+      - type: word
+        words: ["confirm", "success", "complete", "verified", "payment"]
+        part: body
+        condition: or

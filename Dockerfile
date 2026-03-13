@@ -15,10 +15,10 @@ WORKDIR /app
 # Install from PyPI (production image)
 RUN pip install --no-cache-dir fray
 
-# Create directories for output and session data
-RUN mkdir -p /app/reports /root/.fray
+# Create directories for output, session data, and templates
+RUN mkdir -p /app/reports /app/templates /root/.fray
 
-# Healthcheck: verify fray is installed
+# Healthcheck: verify fray is installed and responsive
 HEALTHCHECK --interval=60s --timeout=5s \
     CMD fray version || exit 1
 
@@ -32,4 +32,13 @@ FROM base AS dev
 COPY . /app/src
 RUN pip install --no-cache-dir -e /app/src
 
+# Include built-in templates for business logic testing
+COPY templates/ /app/templates/
+
 WORKDIR /app/src
+
+# ── CI image (includes test dependencies) ──────────────────────────
+FROM dev AS ci
+
+RUN pip install --no-cache-dir pytest
+CMD ["python", "-m", "pytest", "tests/", "-v"]
