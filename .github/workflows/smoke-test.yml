@@ -1,4 +1,4 @@
-name: Smoke Test — Real Sites + Vulnerable Targets
+name: QA — 10 Vulnerable Target Smoke Test
 
 on:
   push:
@@ -13,12 +13,8 @@ on:
       - 'payloads/**'
   workflow_dispatch:
     inputs:
-      zone:
-        description: 'Target zone: all, real, vulnerable'
-        required: false
-        default: 'all'
       mode:
-        description: 'Test mode: quick or full'
+        description: 'Test mode: quick (detect+recon) or full (+payload test)'
         required: false
         default: 'quick'
 
@@ -26,8 +22,8 @@ permissions:
   contents: read
 
 jobs:
-  smoke-test:
-    name: Smoke Test (${{ github.event.inputs.zone || 'all' }})
+  qa-smoke-test:
+    name: QA Smoke Test (10 targets)
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -43,28 +39,30 @@ jobs:
     - name: Install Fray
       run: pip install -e .
 
-    - name: Run smoke test
+    - name: Run QA smoke test (10 vulnerable targets)
       run: |
-        ZONE="${{ github.event.inputs.zone || 'all' }}"
         MODE="${{ github.event.inputs.mode || 'quick' }}"
+        echo "QA smoke test: mode=$MODE, 10 targets"
 
-        echo "Running smoke test: zone=$ZONE mode=$MODE"
+        # Run pytest QA tests first
+        python -m pytest tests/test_qa_targets.py -v --tb=short -m qa -k "TestSmokeRunner" || true
+
+        # Run smoke runner against all 10 targets
         if [ "$MODE" = "full" ]; then
-          python -m fray smoke --zone "$ZONE" --full --json > smoke_results.json 2>&1
+          python -m fray smoke --full --json > smoke_results.json 2>&1
         else
-          python -m fray smoke --zone "$ZONE" --quick --json > smoke_results.json 2>&1
+          python -m fray smoke --quick --json > smoke_results.json 2>&1
         fi
 
-        # Show results
         cat smoke_results.json | python -m json.tool 2>/dev/null || cat smoke_results.json
 
-        # Check pass/fail
         FAILED=$(python -c "import json; d=json.load(open('smoke_results.json')); print(d.get('failed', 0))" 2>/dev/null || echo "0")
         PASSED=$(python -c "import json; d=json.load(open('smoke_results.json')); print(d.get('passed', 0))" 2>/dev/null || echo "0")
-        echo "Passed: $PASSED, Failed: $FAILED"
+        echo "QA Results: $PASSED passed, $FAILED failed out of 10 targets"
 
-        if [ "$FAILED" -gt "2" ]; then
-          echo "::error::Too many smoke test failures: $FAILED"
+        # Allow up to 3 failures (external sites may be temporarily down)
+        if [ "$FAILED" -gt "3" ]; then
+          echo "::error::Too many QA target failures: $FAILED/10"
           exit 1
         fi
 

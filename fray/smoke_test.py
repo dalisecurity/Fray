@@ -1,17 +1,27 @@
 """
-Fray Smoke Test — Run against real sites + community vulnerable targets.
+Fray QA Smoke Test — Internal quality assurance against 10 test targets.
 
-Hardcoded target zones covering:
-- Real production sites with known WAFs (Panasonic, Sony, Toyota, etc.)
-- Community-provided intentionally vulnerable web apps (OWASP, HackTheBox, etc.)
+10 hardcoded intentionally-vulnerable sites provided by the security community
+and vendors. These run as part of the test process on every code change to
+assure quality. All targets are public test apps designed to be scanned.
 
 Usage:
-    fray smoke                     # Run all zones
-    fray smoke --zone real         # Only real sites
-    fray smoke --zone vulnerable   # Only intentionally vulnerable sites
+    fray smoke                     # Run all 10 QA targets
     fray smoke --quick             # Quick mode (detect + recon only)
-    fray smoke --full              # Full mode (detect + recon + test + agent)
+    fray smoke --full              # Full mode (detect + recon + payload test)
     fray smoke --json              # JSON output for CI
+
+Targets:
+    1. Acunetix PHP        (testphp.vulnweb.com)
+    2. Acunetix ASP.NET    (testaspnet.vulnweb.com)
+    3. Acunetix Classic ASP (testasp.vulnweb.com)
+    4. OWASP Juice Shop    (juice-shop.herokuapp.com)
+    5. Zero Bank           (zero.webappsecurity.com)
+    6. Gin & Juice Shop    (ginandjuice.shop) — PortSwigger
+    7. DVWA                (www.dvwa.co.uk)
+    8. Google Firing Range (public-firing-range.appspot.com)
+    9. Altoro Mutual       (demo.testfire.net) — HCL/IBM
+   10. Hackable Vercel     (hackable-vulnerable-website.vercel.app)
 """
 
 import json
@@ -37,106 +47,114 @@ class SmokeTarget:
     tags: List[str] = field(default_factory=list)
 
 
-# Real production sites — major companies with known WAF protection.
-# These are public websites; we only do non-destructive recon + detection.
-REAL_TARGETS = [
-    SmokeTarget(
-        url="https://www.panasonic.com",
-        name="Panasonic",
-        zone="real",
-        expected_waf="akamai",
-        description="Japanese electronics — Akamai WAF",
-        tags=["akamai", "enterprise", "japan"],
-    ),
-    SmokeTarget(
-        url="https://www.sony.com",
-        name="Sony",
-        zone="real",
-        expected_waf="akamai",
-        description="Entertainment/electronics — Akamai WAF",
-        tags=["akamai", "enterprise", "japan"],
-    ),
-    SmokeTarget(
-        url="https://www.toyota.com",
-        name="Toyota",
-        zone="real",
-        expected_waf="cloudflare",
-        description="Automotive — Cloudflare WAF",
-        tags=["cloudflare", "enterprise", "japan"],
-    ),
-    SmokeTarget(
-        url="https://www.shopify.com",
-        name="Shopify",
-        zone="real",
-        expected_waf="cloudflare",
-        description="E-commerce platform — Cloudflare WAF",
-        tags=["cloudflare", "saas"],
-    ),
-    SmokeTarget(
-        url="https://www.github.com",
-        name="GitHub",
-        zone="real",
-        expected_waf="",
-        description="Developer platform — custom edge",
-        tags=["custom", "saas"],
-    ),
-]
+# ── Internal QA Test Targets ─────────────────────────────────────────────────
+#
+# These are intentionally vulnerable web applications provided by the security
+# community and vendors specifically for testing. They are our internal QA
+# targets — run on every code change to assure quality.
+#
+# All sites below are PUBLIC test targets designed and maintained for this
+# purpose. Do NOT add production sites here.
 
-# Intentionally vulnerable sites — provided by the security community
-# for testing. These are designed to be tested against.
-VULNERABLE_TARGETS = [
+QA_TARGETS = [
+    # ── Acunetix Vulnerable Sites (3) ─────────────────────────────────────
+    # Provided by Acunetix/Invicti for scanner testing
     SmokeTarget(
         url="http://testphp.vulnweb.com",
-        name="Acunetix testphp",
-        zone="vulnerable",
+        name="Acunetix PHP",
+        zone="qa",
         expected_waf="none",
-        description="Acunetix intentionally vulnerable PHP app",
-        tags=["vuln", "php", "acunetix"],
+        description="Acunetix intentionally vulnerable PHP app (XSS, SQLi, LFI)",
+        tags=["php", "xss", "sqli", "lfi"],
     ),
     SmokeTarget(
         url="http://testaspnet.vulnweb.com",
-        name="Acunetix testaspnet",
-        zone="vulnerable",
+        name="Acunetix ASP.NET",
+        zone="qa",
         expected_waf="none",
         description="Acunetix intentionally vulnerable ASP.NET app",
-        tags=["vuln", "aspnet", "acunetix"],
+        tags=["aspnet", "xss", "sqli"],
     ),
     SmokeTarget(
         url="http://testasp.vulnweb.com",
-        name="Acunetix testasp",
-        zone="vulnerable",
+        name="Acunetix Classic ASP",
+        zone="qa",
         expected_waf="none",
         description="Acunetix intentionally vulnerable classic ASP app",
-        tags=["vuln", "asp", "acunetix"],
+        tags=["asp", "xss", "sqli"],
     ),
+
+    # ── OWASP / Community (3) ─────────────────────────────────────────────
     SmokeTarget(
         url="https://juice-shop.herokuapp.com",
         name="OWASP Juice Shop",
-        zone="vulnerable",
+        zone="qa",
         expected_waf="none",
-        description="OWASP Juice Shop — intentionally insecure JS app",
-        tags=["vuln", "owasp", "nodejs"],
+        description="OWASP Juice Shop — modern JS app with 100+ vulns",
+        tags=["owasp", "nodejs", "xss", "sqli", "auth"],
     ),
     SmokeTarget(
         url="http://zero.webappsecurity.com",
         name="Zero Bank",
-        zone="vulnerable",
+        zone="qa",
         expected_waf="none",
-        description="Micro Focus intentionally vulnerable banking app",
-        tags=["vuln", "banking", "microfocus"],
+        description="Micro Focus vulnerable banking app (auth, injection)",
+        tags=["banking", "auth", "sqli"],
+    ),
+    SmokeTarget(
+        url="https://ginandjuice.shop",
+        name="Gin & Juice Shop",
+        zone="qa",
+        expected_waf="none",
+        description="PortSwigger (Burp) public vulnerable target",
+        tags=["portswigger", "xss", "sqli", "ssrf"],
+    ),
+
+    # ── HackTheBox / TryHackMe style public targets (2) ──────────────────
+    SmokeTarget(
+        url="http://www.dvwa.co.uk",
+        name="DVWA",
+        zone="qa",
+        expected_waf="none",
+        description="Damn Vulnerable Web Application — classic training target",
+        tags=["dvwa", "xss", "sqli", "cmdi"],
+    ),
+    SmokeTarget(
+        url="https://public-firing-range.appspot.com",
+        name="Google Firing Range",
+        zone="qa",
+        expected_waf="none",
+        description="Google's test bed for web vulnerability scanners",
+        tags=["google", "xss", "dom"],
+    ),
+
+    # ── Vendor-provided test apps (2) ────────────────────────────────────
+    SmokeTarget(
+        url="http://demo.testfire.net",
+        name="Altoro Mutual",
+        zone="qa",
+        expected_waf="none",
+        description="HCL/IBM AppScan demo vulnerable banking site",
+        tags=["ibm", "banking", "sqli", "xss"],
+    ),
+    SmokeTarget(
+        url="https://hackable-vulnerable-website.vercel.app",
+        name="Hackable Vercel",
+        zone="qa",
+        expected_waf="none",
+        description="Community-maintained vulnerable app on Vercel",
+        tags=["vercel", "xss", "modern"],
     ),
 ]
 
-ALL_TARGETS = REAL_TARGETS + VULNERABLE_TARGETS
-
 
 def get_targets(zone: str = "all") -> List[SmokeTarget]:
-    """Get targets by zone: 'all', 'real', or 'vulnerable'."""
-    if zone == "real":
-        return REAL_TARGETS
-    elif zone == "vulnerable":
-        return VULNERABLE_TARGETS
-    return ALL_TARGETS
+    """Get QA test targets.
+
+    Args:
+        zone: 'all' or 'qa' — kept for CLI compat, always returns QA targets.
+    """
+    return QA_TARGETS
 
 
 # ── Smoke Test Runner ────────────────────────────────────────────────────────
@@ -216,15 +234,15 @@ def _run_test(target: SmokeTarget, category: str = "xss",
 
 def run_smoke_test(
     zone: str = "all",
-    mode: str = "quick",  # "quick" = detect+recon, "full" = +test+agent
+    mode: str = "quick",  # "quick" = detect+recon, "full" = +test
     verbose: bool = True,
     json_output: bool = False,
 ) -> List[SmokeResult]:
-    """Run smoke tests against all targets in a zone.
+    """Run QA smoke tests against all 10 internal test targets.
 
     Args:
-        zone: "all", "real", or "vulnerable"
-        mode: "quick" (detect+recon) or "full" (+test)
+        zone: kept for CLI compat, always uses all QA targets.
+        mode: "quick" (detect+recon) or "full" (+payload test)
         verbose: print progress
         json_output: return JSON instead of pretty-print
 
@@ -236,7 +254,7 @@ def run_smoke_test(
 
     if verbose and not json_output:
         from fray.ui import S
-        print(f"\n  {S.bold}{S.white}Fray Smoke Test{S.reset}  "
+        print(f"\n  {S.bold}{S.white}Fray QA Smoke Test{S.reset}  "
               f"{S.dim}v{__version__} · {len(targets)} targets · {mode} mode{S.reset}")
         print(f"  {S.dim}{'━' * 56}{S.reset}\n")
 
@@ -250,7 +268,7 @@ def run_smoke_test(
 
         if verbose and not json_output:
             from fray.ui import S
-            zone_badge = f"{S.bright_cyan}REAL{S.reset}" if target.zone == "real" else f"{S.warning}VULN{S.reset}"
+            zone_badge = f"{S.bright_cyan}QA{S.reset}"
             print(f"  [{zone_badge}] {S.bold}{target.name}{S.reset} ({target.url})")
 
         # Phase 1: WAF Detection
@@ -294,8 +312,8 @@ def run_smoke_test(
             except Exception as e:
                 sr.error = str(e)
 
-        # Phase 3: Payload test (full mode only, vulnerable targets only)
-        if mode == "full" and target.zone == "vulnerable" and not sr.error:
+        # Phase 3: Payload test (full mode — all QA targets are testable)
+        if mode == "full" and not sr.error:
             try:
                 tst = _run_test(target, category="xss", max_payloads=5)
                 if "error" not in tst:
@@ -357,7 +375,6 @@ def run_smoke_test(
 
 def cmd_smoke(args):
     """CLI handler for 'fray smoke'."""
-    zone = getattr(args, "zone", "all")
     quick = getattr(args, "quick", False)
     full = getattr(args, "full", False)
     json_out = getattr(args, "json", False)
@@ -365,7 +382,6 @@ def cmd_smoke(args):
     mode = "full" if full else "quick"
 
     results = run_smoke_test(
-        zone=zone,
         mode=mode,
         verbose=True,
         json_output=json_out,

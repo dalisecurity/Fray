@@ -40,3 +40,9 @@ jobs:
     - name: Verify package import
       run: |
         python -c "import fray; print(f'Fray v{fray.__version__} OK')"
+
+    - name: QA smoke test (10 vulnerable targets)
+      run: |
+        python -m pytest tests/test_qa_targets.py -v --tb=short -m qa -k "TestSmokeRunner or TestQATargetReachability" || true
+        python -m fray smoke --quick --json > qa_results.json 2>&1 || true
+        python -c "import json; d=json.load(open('qa_results.json')); print(f'QA: {d.get(\"passed\",0)}/{d.get(\"targets\",0)} passed')" 2>/dev/null || echo 'QA: results unavailable'
