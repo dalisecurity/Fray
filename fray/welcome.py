@@ -225,6 +225,69 @@ def _relative_time(delta: timedelta) -> str:
         return f"{secs // 604800}w ago"
 
 
+# ── Threat Intelligence Summary ───────────────────────────────────────────────
+
+def _get_threat_intel_summary() -> Dict:
+    """Get threat intel stats for the welcome screen.
+
+    Reads ~/.fray/cve_poc_cache.json and ~/.fray/threat_intel_cache.json
+    to show recently auto-detected CVEs and payloads.
+    """
+    result = {
+        "total_cves": 0,
+        "cves_with_poc": 0,
+        "total_poc_payloads": 0,
+        "recent_cves": [],      # [{cve_id, poc_count, source, enriched_at}, ...]
+        "last_feed": "",        # human-readable time since last feed run
+        "sources_active": 0,
+    }
+
+    # Read PoC cache
+    poc_cache = Path.home() / ".fray" / "cve_poc_cache.json"
+    if poc_cache.exists():
+        try:
+            data = json.loads(poc_cache.read_text(encoding="utf-8"))
+            result["total_cves"] = len(data)
+            with_poc = []
+            for cve_id, info in data.items():
+                if isinstance(info, dict) and info.get("poc_count", 0) > 0:
+                    with_poc.append({
+                        "cve_id": cve_id,
+                        "poc_count": info.get("poc_count", 0),
+                        "source": info.get("source", "real_poc"),
+                        "enriched_at": info.get("enriched_at", ""),
+                    })
+            result["cves_with_poc"] = len(with_poc)
+            result["total_poc_payloads"] = sum(i["poc_count"] for i in with_poc)
+
+            # Sort by enriched_at descending, take newest 5
+            with_poc.sort(key=lambda x: x.get("enriched_at", ""), reverse=True)
+            result["recent_cves"] = with_poc[:5]
+        except Exception:
+            pass
+
+    # Read threat intel cache for last feed time
+    ti_cache = Path.home() / ".fray" / "threat_intel_cache.json"
+    if ti_cache.exists():
+        try:
+            tc = json.loads(ti_cache.read_text(encoding="utf-8"))
+            last_fetch = tc.get("last_fetch", {})
+            if last_fetch:
+                latest = max(last_fetch.values()) if last_fetch.values() else ""
+                if latest:
+                    try:
+                        dt = datetime.fromisoformat(latest.replace("Z", "+00:00"))
+                        delta = datetime.now(dt.tzinfo) - dt
+                        result["last_feed"] = _relative_time(delta)
+                    except Exception:
+                        pass
+            result["sources_active"] = len(last_fetch)
+        except Exception:
+            pass
+
+    return result
+
+
 # ── What's New ───────────────────────────────────────────────────────────────
 
 _WHATS_NEW = [
@@ -298,7 +361,34 @@ def render_welcome() -> str:
         lines.append(f"  {_C.DIM}  fray todo{_C.R}")
         lines.append("")
 
-    # ── What's New ───────────────────────────────────────────────────────
+    # ── Threat Intel ─────────────────────────────────────────────────────
+    ti = _get_threat_intel_summary()
+    if ti["total_cves"] > 0:
+        feed_status = f"  {_C.DIM}Last feed: {ti['last_feed'] or 'never'}{_C.R}" if ti["last_feed"] else ""
+        lines.append(f"  {_C.BOLD}{_C.WHITE}🛡️  Threat Intelligence{_C.R}{feed_status}")
+        lines.append(f"  {_C.DIM}{'─' * 50}{_C.R}")
+        lines.append(
+            f"  {_C.CYAN}{ti['total_cves']}{_C.R} CVEs tracked  "
+            f"{_C.GREEN}●{_C.R} {_C.GREEN}{ti['cves_with_poc']}{_C.R} with real PoC  "
+            f"{_C.DIM}{ti['total_poc_payloads']} exploit payloads{_C.R}"
+        )
+        if ti["recent_cves"]:
+            lines.append(f"  {_C.DIM}Recently enriched:{_C.R}")
+            for cve in ti["recent_cves"][:4]:
+                src = cve.get("source", "")
+                if src in ("generic", "nvd_template"):
+                    badge = f"{_C.DIM}template{_C.R}"
+                else:
+                    badge = f"{_C.GREEN}real PoC{_C.R}"
+                lines.append(
+                    f"    {_C.RED}▸{_C.R} {_C.BOLD}{cve['cve_id']}{_C.R}  "
+                    f"{cve['poc_count']} payloads [{badge}]"
+                )
+        lines.append(f"  {_C.DIM}  Auto-updated via: NVD · CISA KEV · ExploitDB · GitHub · Nuclei{_C.R}")
+        lines.append(f"  {_C.DIM}  Run manually: fray feed --auto-add{_C.R}")
+        lines.append("")
+
+    # ── What's New ─────────────────────────────────────────────────────────
     lines.append(f"  {_C.BOLD}{_C.WHITE}What's New{_C.R}")
     lines.append(f"  {_C.DIM}{'─' * 50}{_C.R}")
     for feat_name, feat_cmd, feat_desc in _WHATS_NEW[:4]:
