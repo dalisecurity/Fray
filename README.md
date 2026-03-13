@@ -15,319 +15,170 @@
 
 Fray is the missing link between [wafw00f](https://github.com/EnableSecurity/wafw00f) (detection) and [sqlmap](https://github.com/sqlmapproject/sqlmap) (exploitation) — a complete **recon → bypass → harden** pipeline in one `pip install`.
 
----
+## What's New
 
-## 🆕 What's New
+**v3.4 — March 2026**
+- **GitHub Action** — test your WAF on every PR (`uses: dalisecurity/fray@v1`)
+- **MCP Server** — Claude Code & ChatGPT integration (`pip install fray[mcp]`)
+- **35-check recon** — TLS, CORS, VPN gateways, AI/LLM endpoints, cloud buckets, secrets
+- **6 deep scan modules** — XSS, SQLi, CMDi, cache poisoning, mass assignment, deserialization
+- **Interactive post-recon menu** — findings-driven next steps, not random payloads
 
-### Interactive Post-Recon Menu
-
-After `fray recon` completes, Fray now presents a smart interactive menu with targeted next steps — no more guessing what to run next.
-
-```
-  ┌────────────────────────────────────────────────────────────┐
-  │  🎯 Recon Complete — What next?                           │
-  ├────────────────────────────────────────────────────────────┤
-  │  Findings: 🔴 2 critical, 🟠 2 high, 🟡 1 medium          │
-  │  WAF: Cloudflare                                          │
-  │  Risk: 85/100 (CRITICAL)                                  │
-  ├────────────────────────────────────────────────────────────┤
-  │  [1] 📄 Generate HTML Report                              │
-  │  [2] 🔴 Test XSS — Reflected XSS in search param q        │
-  │  [3] 🔴 Test SQLi — error-based on /api/users?id=1        │
-  │  [4] 🟠 Test Cache Poisoning — X-Forwarded-Host header    │
-  │  [5] 🔬 Deep Scan — All Vulnerabilities                   │
-  │  [6] 🚀 Auto-Pilot (Report + Test All)                    │
-  │  [q] Exit                                                 │
-  └────────────────────────────────────────────────────────────┘
-```
-
-Options are **dynamically generated** from actual findings — not random payloads. If recon found reflected XSS, it tests XSS. If it found SQL errors, it tests SQLi. Select a number and Fray runs the appropriate deep module (`XSSScanner`, `SQLiInjector`, `CMDiScanner`, `CachePoisonScanner`, etc.) directly. Use `--no-interactive` to skip.
-
-### CVE-Specific Payloads
-
-| CVE | Product | Technique | Module |
-|-----|---------|-----------|--------|
-| **CVE-2026-1281** | Ivanti Endpoint Manager Mobile | Shell arithmetic expansion `$((7*7))` via Apache RewriteMap | `fray/cmdi.py` |
-| **CVE-2026-1340** | Ivanti Endpoint Manager Mobile | Unsanitized Bash scripts at `/mi/bin/map-appstore-url` | `fray/cmdi.py` |
-| **Generic XSS in CSP Header** | Cloudflare Emergency WAF Rule 2026-03-12 | Malicious `Content-Security-Policy` header injection | `fray/xss.py` |
-
-### 🤖 LLM / AI Endpoint Discovery
-
-Fray's recon pipeline detects exposed AI/LLM infrastructure — the fastest-growing attack surface in 2025-2026:
-
-- **50+ AI API paths** — Ollama, LocalAI, LiteLLM, OpenWebUI, vLLM, Hugging Face TGI, NVIDIA Triton
-- **14 response fingerprints** — detects LLM-style streaming responses, model metadata, token usage
-- **17 port probes** — common AI service ports (11434, 8080, 3000, 7860, 8501, etc.)
-- **21 AI proxy headers** — `X-AI-Model`, `X-LLM-Provider`, `X-OpenAI-*`, Anthropic/Cohere/Replicate headers
-- **Prompt injection payloads** — 370 built-in payloads in `ai_llm_injection` category
-
-```bash
-fray recon https://target.com     # Auto-discovers LLM/AI endpoints in Tier 3
-fray test https://target.com -c ai_llm_injection --smart   # Test prompt injection
-```
-
-### 🔐 VPN Gateway Detection
-
-Recon identifies exposed VPN login portals — common targets in enterprise breach chains:
-
-| Vendor | Paths Checked |
-|--------|--------------|
-| **Fortinet FortiGate** | `/remote/login`, `/remote/fgt_lang` |
-| **Palo Alto GlobalProtect** | `/ssl-vpn/login.esp`, `/global-protect/login.esp` |
-| **Cisco AnyConnect** | `/+CSCOE+/logon.html` |
-| **Citrix NetScaler** | `/vpn/index.html`, `/logon/LogonPoint/` |
-| **Check Point** | `/sslvpn/Login/Login` |
-| **Juniper/Pulse** | `/dana-na/auth/url_default/welcome.cgi` |
-| **OpenVPN** | `/__session_start__/` |
-
-### Deep Scan Modules
-
-Six new deep vulnerability testing modules — not random payloads, but technique-driven scanners:
-
-| Module | Techniques | Key Features |
-|--------|-----------|--------------|
-| **`CMDiScanner`** | Results-based, time-blind, file-based, error-based, nested, **Ivanti CVE** | OS detection, 9 separators, anti-FP |
-| **`XSSScanner`** | Context-aware, DOM analysis, WAF evasion, **CSP header injection** | 6 reflection contexts, filter detection |
-| **`SQLiInjector`** | Error-based, UNION, boolean blind, time-blind | Column enumeration, DBMS fingerprint |
-| **`CachePoisonScanner`** | 15 unkeyed headers, path confusion, deception | CDN detection, cache key analysis |
-| **`MassAssignScanner`** | Hidden params, HPP, type juggling | Privilege escalation, account state |
-| **`DeserScanner`** | Tech detection, gadget chain probing | Java, PHP, Python, .NET, Ruby |
-
-### Unified v11 Dark Theme Reports
-
-All HTML reports now use the same dark theme — consistent font (Inter), colors, and layout across recon reports, scan reports, and WAF test reports.
+**Coming up:** Race condition testing · WAF rule reverse engineering · batch recon · NL queries
+→ [Full changelog](CHANGELOG.md)
 
 ---
 
-## How Fray Compares
+## Why Fray?
 
-| | Fray | Nuclei | XSStrike | wafw00f | sqlmap |
-|-|------|--------|----------|---------|--------|
-| **WAF bypass engine** | ✅ AI + mutation | ❌ | Partial | ❌ | Tamper scripts |
-| **WAF detection** | 98 WAF/CDN vendors | Via templates | Basic | 150+ vendors | Basic |
-| **Recon pipeline** | 35+ checks | Separate tools | Crawl only | ❌ | ❌ |
-| **Content discovery** | ✅ ffuf-like fuzzer | Via templates | ❌ | ❌ | ❌ |
-| **Template DSL** | ✅ Nuclei-compatible YAML | ✅ Native | ❌ | ❌ | ❌ |
-| **Payload database** | 4,000+ built-in | Community templates | XSS only | ❌ | SQLi only |
-| **Adaptive cache** | ✅ Cross-domain WAF learning | ❌ | ❌ | ❌ | ❌ |
-| **OWASP hardening** | ✅ A-F grade | ❌ | ❌ | ❌ | ❌ |
-| **MCP / AI agent** | 14 tools | ❌ | ❌ | ❌ | ❌ |
-| **Zero dependencies** | ✅ stdlib only | Go binary | pip | pip | pip |
-
-Most payload collections are static text files. Fray is a complete **detect → recon → scan → bypass → harden** workflow in one `pip install`.
+- **All-in-one** — recon, scan, bypass, harden, fuzz, and report in a single tool
+- **Smart, not noisy** — adaptive cache learns across domains; blocked payloads are never re-sent
+- **Zero dependencies** — pure Python stdlib; `pip install fray` and go
+- **4,000+ payloads** — 23 categories, 175 CVEs, continuously updated from live threat feeds
 
 ---
 
 ## Quick Start
 
 ```bash
-pip install fray                # PyPI (all platforms)
-sudo apt install fray            # Kali Linux / Debian
-brew install fray                # macOS
+pip install fray
 ```
 
 ```bash
-fray auto https://example.com          # Full pipeline: recon → scan → bypass
-fray scan https://example.com          # Auto crawl → inject → detect reflection
-fray recon https://example.com         # 35+ check reconnaissance
-fray fuzz https://example.com/FUZZ     # Content discovery (ffuf-like)
-fray template run templates/ -t url    # Run YAML vulnerability templates
+fray recon https://target.com          # 35-check reconnaissance
+fray test https://target.com --smart   # Smart payload selection from recon findings
+fray detect https://target.com         # Fingerprint WAF/CDN vendor (98 vendors)
+fray auto https://target.com           # Full pipeline: recon → scan → bypass
+fray fuzz https://target.com/FUZZ      # Content discovery (ffuf-like)
+fray harden https://target.com         # OWASP hardening audit (A-F grade)
 ```
 
 <p align="center">
   <img src="docs/demo.gif" alt="Fray demo — WAF detection and XSS bypass" width="720">
 </p>
 
-If Fray helped your recon workflow, please [⭐ star the repo](https://github.com/dalisecurity/fray) — it helps others find it.
-
 ---
 
-## What Fray Does
+## Core Commands
 
-| Command | What it does |
-|---------|-------------|
-| **`fray auto`** | Full pipeline: recon → scan → ai-bypass in one command |
-| **`fray scan`** | Crawl → discover params → inject payloads → detect reflection |
-| **`fray recon`** | 35+ checks: TLS, DNS, subdomains, VPN endpoints, LLM/AI endpoints, API gateways, cloud buckets, secrets, admin panels |
-| **`fray ai-bypass`** | Probe WAF → LLM generates payloads → test → mutate → header tricks |
-| **`fray bypass`** | 5-phase WAF evasion scorer with mutation feedback loop |
-| **`fray harden`** | Security headers (A-F grade) + OWASP Top 10 misconfig checks + fix snippets |
-| **`fray fuzz`** | ffuf-like content discovery — FUZZ keyword, filters, recursion, built-in wordlists |
-| **`fray template`** | Nuclei-compatible YAML templates with WAF bypass logic |
-| **`fray detect`** | Fingerprint 98 WAF/CDN vendors (header, CNAME, cookie, signature detection) |
-| **`fray test`** | 4,000+ payloads across 23 categories with adaptive throttling and cross-domain WAF learning |
-| **`fray cache`** | Inspect, manage, and clear the adaptive payload cache per domain |
-| **`fray bounty`** | HackerOne / Bugcrowd scope auto-fetch + batch scan |
-| **`fray graph`** | Visual attack surface tree |
+### `fray recon` — Reconnaissance
 
-<p align="center">
-  <img src="docs/screenshot-scan.png" alt="Fray scan — crawl, inject, detect XSS reflections" width="720">
-</p>
-
-**Built-in options:** `--scope` (scope enforcement) · `--stealth` (randomized UA, jitter) · `-w 4` (concurrent) · `--cookie` / `--bearer` (auth) · `--sarif` (GitHub Security tab) · `--json` · `--ai` (LLM output)
-
-[Scan guide →](docs/scanning-guide.md) · [Recon guide →](docs/quickstart.md) · [Auth guide →](docs/authentication-guide.md) · [CI/CD guide →](docs/quickstart.md)
-
----
-
-## Adaptive Cache — Cross-Domain WAF Intelligence
-
-Fray learns from every scan and shares that intelligence across hosts automatically.
-
-**The problem:** If you scan `staging.example.com` and Cloudflare blocks 10 payloads, running the same 10 payloads against `prod.example.com` (same WAF config) is wasted time.
-
-**How it works:**
-
-```
-Scan 1: 3test.example.com  →  10 XSS payloads → all BLOCKED (Cloudflare)
-                                ↓
-                         Cache learns: these 10 payloads are blocked on Cloudflare
-                                ↓
-Scan 2: httpbin.example.com →  smart sort kicks in
-                               Slots  1-10: FRESH payloads never seen on Cloudflare
-                               Slots 11-20: known-blocked payloads (deprioritised)
-```
-
-**Three tiers on every scan:**
-
-| Slot | Payload type | Why |
-|------|-------------|-----|
-| Front | Confirmed bypasses (highest confidence first) | Exploit-ready — run these first |
-| Middle | Unknown payloads | Never tested on this WAF vendor |
-| End | Confirmed blocked on this or any sibling zone | Skip wasting early attempts |
-
-**Community sharing (opt-in):** With `share_patterns: true` in `~/.fray/cloud.json`, results sync asynchronously to a shared Cloudflare D1 database — so the community's bypass discoveries improve your first scan against a new target.
+35+ checks in one command: TLS, DNS, subdomains, CORS, security headers, admin panels, VPN gateways, AI/LLM endpoints, cloud buckets, secrets, JS endpoint extraction, and more. Outputs JSON, HTML report, or interactive menu.
 
 ```bash
-fray cache show                        # See what's been learned per domain
-fray cache show httpbin.example.com    # Inspect a specific domain
-fray cache clear 3test.example.com     # Reset a domain's cache
-fray cache stats                       # Raw JSON dump
+fray recon https://target.com --deep   # Full depth with subdomain brute-force
 ```
 
-No extra setup required — adaptive cache is on by default, local only, zero network calls.
+### `fray test --smart` — Vulnerability Testing
+
+Reads recon findings and selects the right payloads automatically. Six deep modules: `XSSScanner`, `SQLiInjector`, `CMDiScanner`, `CachePoisonScanner`, `MassAssignScanner`, `DeserScanner`.
+
+```bash
+fray test https://target.com --smart -c xss   # Context-aware XSS testing
+```
+
+### `fray detect` — WAF Fingerprinting
+
+Identifies 98 WAF/CDN vendors via headers, CNAME records, cookies, and response signatures.
+
+```bash
+fray detect https://target.com --json
+```
+
+### `fray report` — Reporting
+
+Generate HTML or Markdown reports from scan results. Unified v11 dark theme across all report types.
+
+```bash
+fray report --company example.com -o report.md
+```
+
+[All commands →](docs/quickstart.md) · [Scan guide →](docs/scanning-guide.md)
 
 ---
 
-## VS Code Extension
+## Auth & Stealth
 
-Run Fray directly from your editor — scan, test, bypass, detect, and harden without leaving VS Code.
-
-[![Install from Marketplace](https://img.shields.io/badge/Install-VS%20Code%20Marketplace-007ACC?logo=visualstudiocode)](https://marketplace.visualstudio.com/items?itemName=DaliSecurity.fray-security)
-
+```bash
+fray test https://target.com --cookie "session=abc123"     # Cookie auth
+fray test https://target.com --bearer eyJhbG...             # Bearer token
+fray test https://target.com --stealth -d 0.5               # Randomized UA + jitter
+fray recon https://target.com --scope scope.txt             # In-scope enforcement
 ```
-Cmd+Shift+P → "Fray: Run Command..."
+
+Session profiles, OAuth2 client credentials, and multi-step form login are supported. [Auth guide →](docs/authentication-guide.md)
+
+---
+
+## CI/CD
+
+```yaml
+# .github/workflows/waf.yml
+- uses: dalisecurity/fray@v1
+  with:
+    target: https://staging.example.com
+    categories: xss,sqli
 ```
 
-- **11 commands** — Scan, Test, Bypass, Detect, Harden, Recon, OSINT, Leak Search, and more
-- **Right-click scan** — Select a URL in any file → context menu → scan
-- **HTML report** — Rich in-editor report with stat cards and bypass tables (`Cmd+Shift+R`)
-- **Inline diagnostics** — Bypass findings appear as warnings/errors in the editor
-- **Activity bar sidebar** — Browse results and scan history
-- **Status bar** — Live scan progress indicator
+Fray exits non-zero on bypass findings, integrates with GitHub Security tab via SARIF, and supports `--json` for pipeline consumption. [CI/CD guide →](docs/github-action-guide.md)
 
-[Extension README →](vscode-fray/README.md)
+---
+
+## Payload Coverage
+
+4,000+ payloads across 23 categories, 175 CVEs (2020-2026):
+
+| Category | Count | Category | Count |
+|----------|-------|----------|-------|
+| XSS | 1,209 | SSRF | 122 |
+| SQL Injection | 248 | SSTI | 122 |
+| Command Injection | 200 | XXE | 84 |
+| AI/LLM Prompt Injection | 370 | Path Traversal | 109 |
+| Modern Bypasses | 137 | CSP Bypass | 104 |
+| API Security | 130 | Prototype Pollution | 110 |
+
+[Full payload database →](docs/payload-database-coverage.md) · [CVE coverage →](docs/cve-real-world-bypasses.md)
 
 ---
 
 ## MCP Server — AI Agent Integration
 
-Fray exposes **14 tools** via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) — use Fray as an AI security agent from Claude Desktop, Claude Code, ChatGPT, Cursor, or any MCP-compatible client.
+Fray exposes 14 tools via [MCP](https://modelcontextprotocol.io/) for Claude, ChatGPT, Cursor, and other AI clients.
 
 ```bash
 pip install 'fray[mcp]'
 ```
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
-
 ```json
-{
-  "mcpServers": {
-    "fray": {
-      "command": "python",
-      "args": ["-m", "fray.mcp_server"]
-    }
-  }
-}
+{ "mcpServers": { "fray": { "command": "python", "args": ["-m", "fray.mcp_server"] } } }
 ```
 
-Ask: *"What XSS payloads bypass Cloudflare?"* → Fray's 14 MCP tools are called directly.
+Ask *"What XSS payloads bypass Cloudflare?"* and Fray's tools (`suggest_payloads_for_waf`, `generate_bypass_strategy`, `search_payloads`, `analyze_response`, `hardening_check`, [+9 more](docs/claude-code-guide.md)) are called directly.
 
-[Claude Code guide →](docs/claude-code-guide.md) · [ChatGPT guide →](docs/chatgpt-guide.md) · [mcp.json →](mcp.json)
-
-| Tool | What it does |
-|------|-------------|
-| `suggest_payloads_for_waf` | Best bypass payloads for a specific WAF |
-| `generate_bypass_strategy` | Mutation strategies for blocked payloads |
-| `search_payloads` | Full-text search across 4,000+ payloads |
-| `analyze_response` | False negative detection: soft blocks, challenges |
-| `hardening_check` | Security headers audit with grade + rate-limit check |
-
-[See all 14 MCP tools →](docs/claude-code-guide.md)
+[Claude Code guide →](docs/claude-code-guide.md) · [ChatGPT guide →](docs/chatgpt-guide.md)
 
 ---
 
-## 4,000+ Payloads · 23 Categories · 175 CVEs
+## VS Code Extension
 
-The largest open-source WAF payload database — curated for real-world penetration testing and bug bounty hunting.
+[![Install](https://img.shields.io/badge/Install-VS%20Code%20Marketplace-007ACC?logo=visualstudiocode)](https://marketplace.visualstudio.com/items?itemName=DaliSecurity.fray-security)
 
-| Category | Count | Category | Count |
-|----------|-------|----------|-------|
-| XSS (Cross-Site Scripting) | 1,209 | SSRF | 122 |
-| SQL Injection | 248 | SSTI | 122 |
-| Command Injection (RCE) | 200 | XXE | 84 |
-| AI/LLM Prompt Injection | 370 | Path Traversal (LFI/RFI) | 109 |
-| Modern Bypasses | 137 | CSP Bypass | 104 |
-| API Security | 130 | Prototype Pollution | 110 |
-
-[Payload database →](docs/payload-database-coverage.md) · [CVE coverage →](docs/cve-real-world-bypasses.md)
+11 commands, right-click scan, inline diagnostics, HTML report panel (`Cmd+Shift+R`), activity bar sidebar. [Extension docs →](vscode-fray/README.md)
 
 ---
 
-## Advanced Usage
+## Docs & Links
 
-```bash
-fray graph example.com --deep       # Visual attack surface tree (27 checks)
-fray ai-bypass target.com -c xss    # AI-assisted adaptive bypass (LLM or local)
-fray harden target.com              # OWASP hardening audit (A-F grade + fix snippets)
-fray explain log4shell              # CVE intelligence with payloads
-fray diff before.json after.json    # Regression testing (exit 1 on bypass)
-fray report results.json --html     # Client-ready HTML report
-```
-
-<p align="center">
-  <img src="docs/screenshot-graph.png" alt="Fray graph — visual attack surface tree" width="720">
-</p>
-
-[WAF detection guide →](docs/waf-detection-guide.md) · [All documentation (30 guides) →](docs/)
-
----
+**[📖 Documentation](docs/)** · **[Quickstart](docs/quickstart.md)** · **[PyPI](https://pypi.org/project/fray/)** · **[Issues](https://github.com/dalisecurity/fray/issues)** · **[Discussions](https://github.com/dalisecurity/fray/discussions)**
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). For AI coding agents, see [AGENTS.md](AGENTS.md).
-
-Questions? [Open a Discussion](https://github.com/dalisecurity/fray/discussions) or [browse the docs](docs/).
 
 ## Legal
 
 **MIT License** — See [LICENSE](LICENSE). Only test systems you own or have explicit authorization to test.
 
 **Security issues:** soc@dalisec.io · [SECURITY.md](SECURITY.md)
-
----
-
-**[📖 Docs](docs/) · [Roadmap](docs/roadmap.md) · [PyPI](https://pypi.org/project/fray/) · [Issues](https://github.com/dalisecurity/fray/issues) · [Discussions](https://github.com/dalisecurity/fray/discussions)**
-
-## Related Projects
-
-- [wafw00f](https://github.com/EnableSecurity/wafw00f) — WAF fingerprinting and detection (150+ vendors)
-- [WhatWaf](https://github.com/Ekultek/WhatWaf) — WAF detection and bypass tool
-- [XSStrike](https://github.com/s0md3v/XSStrike) — Advanced XSS scanner with WAF evasion
-- [sqlmap](https://github.com/sqlmapproject/sqlmap) — SQL injection detection and exploitation
-- [Nuclei](https://github.com/projectdiscovery/nuclei) — Template-based vulnerability scanner
-- [PayloadsAllTheThings](https://github.com/swisskyrepo/PayloadsAllTheThings) — Web security payloads and bypasses
-- [SecLists](https://github.com/danielmiessler/SecLists) — Security assessment wordlists
-- [Awesome WAF](https://github.com/0xInfection/Awesome-WAF) — Curated list of WAF tools and bypasses
 
 <!-- mcp-name: io.github.dalisecurity/fray -->
