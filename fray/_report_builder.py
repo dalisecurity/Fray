@@ -207,9 +207,10 @@ def build(rd: Dict[str, Any]) -> str:
     parts.append(f'''
 <div class="hdr">
   <div>
-    <div class="logo"><span class="logo-name">DALI</span><span class="logo-sub">SECURITY</span></div>
-    <h1 style="margin-top:12px;">Attack Surface Intelligence</h1>
-    <div class="sub">{_esc(host)} — {_esc(ts_short)} — Profile: {_esc(_profile_label)}</div>
+    <div style="font-size:28px;font-weight:800;letter-spacing:1px;">Fray</div>
+    <div style="margin-top:12px;font-size:0.7em;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.5);">Attack Surface Intelligence</div>
+    <h1 style="margin-top:4px;font-size:2.4em;font-weight:800;letter-spacing:-1px;">{_esc(host)}</h1>
+    <div class="sub" style="margin-top:6px;">{_esc(ts_short)} — Profile: {_esc(_profile_label)}</div>
   </div>
   <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap;">
     <div class="rbadge">{gauge_svg(risk_score)}</div>
@@ -233,8 +234,8 @@ def build(rd: Dict[str, Any]) -> str:
     <div style="display:flex;flex-direction:column;gap:6px;">{legend}</div>
   </div>
   <div style="flex:1;min-width:300px;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;">
-    <div class="mc"><div class="l">WAF</div><div class="v" style="font-size:0.85em;">{_esc(str(waf_vendor))[:50]}</div></div>
-    <div class="mc"><div class="l">CDN</div><div class="v" style="font-size:0.85em;">{_esc(str(cdn_vendor))[:50]}</div></div>
+    <div class="mc"><div class="l">WAF</div><div class="v" style="font-size:0.85em;word-break:break-word;">{_esc(str(waf_vendor))[:120]}</div></div>
+    <div class="mc"><div class="l">CDN</div><div class="v" style="font-size:0.85em;word-break:break-word;">{_esc(str(cdn_vendor))[:120]}</div></div>
     <div class="mc"><div class="l">TLS</div><div class="v">{_esc(str(tls_ver))}</div></div>
     <div class="mc"><div class="l">Headers Score</div><div class="v" style="color:{hdr_color};">{hdr_score}/100</div></div>
     <div class="mc"><div class="l">Subdomains</div><div class="v">{n_subs}</div></div>

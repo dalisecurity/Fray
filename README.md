@@ -227,16 +227,6 @@ Ask *"What XSS payloads bypass Cloudflare?"* and Fray's tools (`suggest_payloads
 
 ---
 
-## Built with Fray
-
-Real-world security research powered by Fray:
-
-- **[Nikkei 225 DNS Security Audit](https://dalisec.io/research/blog-nikkei225-dns-audit.html)** — DNS infrastructure analysis of all 225 companies in Japan's premier stock index
-- **[Nikkei 225 Recon](https://dalisec.io/research/blog-nikkei225-recon.html)** — Attack surface reconnaissance across Japan's largest enterprises
-- **[HackerOne Disclosed Vulnerabilities](https://dalisec.io/research/)** — Subdomain takeovers at Takeda, Toyota, NEC, ROHM, and Recruit
-
----
-
 ## Community
 
 **Have a question? Found a bug? Want to contribute?**
