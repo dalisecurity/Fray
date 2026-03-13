@@ -1819,6 +1819,20 @@ def cmd_graph(args):
 
 def cmd_bounty(args):
     """Run bug bounty scope fetch and batch WAF testing"""
+    # #118: Bounty report template generator
+    report_json = getattr(args, 'report', None)
+    if report_json:
+        from fray.bounty import generate_report_from_json
+        out = getattr(args, 'output', None) or ""
+        program = getattr(args, 'program', '') or ''
+        platform = getattr(args, 'platform', 'hackerone') or 'hackerone'
+        md = generate_report_from_json(report_json, output=out, program=program, platform=platform)
+        if out:
+            print(f"  Bounty report saved to {out}")
+        else:
+            print(md)
+        return
+
     if args.output:
         _validate_output_path(args.output)
     from fray.bounty import run_bounty
@@ -1837,6 +1851,138 @@ def cmd_bounty(args):
         smart=not args.no_smart,
         workers=getattr(args, 'workers', 1) or 1,
     )
+
+
+def cmd_batch(args):
+    """Batch recon for domain lists (#70)."""
+    from fray.batch import run_batch, load_domains_file, _NIKKEI225_SAMPLE
+
+    if getattr(args, 'nikkei225', False):
+        domains = _NIKKEI225_SAMPLE
+    elif getattr(args, 'file', None):
+        domains = load_domains_file(args.file)
+    else:
+        print("  Error: Specify a domain file or --nikkei225")
+        print("  Usage: fray batch domains.txt -w 4")
+        print("         fray batch --nikkei225")
+        return
+
+    summary = run_batch(
+        domains=domains,
+        output=getattr(args, 'output', '') or '',
+        workers=getattr(args, 'workers', 4) or 4,
+        profile=getattr(args, 'profile', 'quick') or 'quick',
+        timeout=getattr(args, 'timeout', 120) or 120,
+        resume=not getattr(args, 'no_resume', False),
+    )
+
+    if getattr(args, 'json', False):
+        _json_print(summary)
+
+
+def cmd_ask(args):
+    """Natural language query for findings (#142)."""
+    from fray.ask import ask, print_ask_result
+    query = getattr(args, 'query', None)
+    if not query:
+        query = " ".join(getattr(args, 'query_words', []) or [])
+    if not query:
+        print("  Usage: fray ask \"which domains have no WAF?\"")
+        return
+
+    result = ask(query)
+
+    if getattr(args, 'json', False):
+        _json_print(result)
+    else:
+        print_ask_result(result)
+
+
+def cmd_waf_reverse(args):
+    """WAF rule reverse engineering (#149)."""
+    from fray.waf_reverse import reverse_engineer_waf, print_waf_profile
+    target = args.target
+    if not target:
+        print("  Error: No target specified.")
+        print("  Usage: fray waf-reverse https://example.com")
+        sys.exit(1)
+
+    profile = reverse_engineer_waf(
+        target=target,
+        timeout=getattr(args, 'timeout', 8) or 8,
+        delay=getattr(args, 'delay', 0.15) or 0.15,
+        skip_encodings=getattr(args, 'skip_encodings', False),
+        skip_contexts=getattr(args, 'skip_contexts', False),
+    )
+
+    if getattr(args, 'json', False):
+        _json_print(profile.to_dict())
+    else:
+        print_waf_profile(profile)
+
+    if getattr(args, 'output', None):
+        _validate_output_path(args.output)
+        with open(args.output, 'w', encoding='utf-8') as f:
+            json.dump(profile.to_dict(), f, indent=2, ensure_ascii=False)
+        if not getattr(args, 'json', False):
+            print(f"  Profile saved to {args.output}")
+
+
+def cmd_race(args):
+    """Race condition (TOCTOU) testing (#24)."""
+    from fray.race import run_race_test, print_race_result
+    target = args.target
+    if not target:
+        print("  Error: No target specified.")
+        print("  Usage: fray race https://example.com/api/redeem --method POST")
+        sys.exit(1)
+
+    headers = {}
+    if getattr(args, 'cookie', None):
+        headers["Cookie"] = args.cookie
+    if getattr(args, 'bearer', None):
+        headers["Authorization"] = f"Bearer {args.bearer}"
+    for h in (getattr(args, 'header', None) or []):
+        if ":" in h:
+            k, v = h.split(":", 1)
+            headers[k.strip()] = v.strip()
+
+    result = run_race_test(
+        target=target,
+        method=getattr(args, 'method', 'GET') or 'GET',
+        body=getattr(args, 'body', None),
+        headers=headers or None,
+        concurrency=getattr(args, 'concurrency', 10) or 10,
+        rounds=getattr(args, 'rounds', 1) or 1,
+        timeout=getattr(args, 'timeout', 10) or 10,
+    )
+
+    if getattr(args, 'json', False):
+        _json_print(result.to_dict())
+    else:
+        print_race_result(result)
+
+    if getattr(args, 'output', None):
+        _validate_output_path(args.output)
+        with open(args.output, 'w', encoding='utf-8') as f:
+            json.dump(result.to_dict(), f, indent=2, ensure_ascii=False)
+        if not getattr(args, 'json', False):
+            print(f"  Results saved to {args.output}")
+
+
+def cmd_report(args):
+    """Generate automated security report per company (#73)."""
+    from fray.company_report import generate_company_report, report_to_markdown
+    domain = args.company
+    out = getattr(args, 'output', None) or ""
+    report = generate_company_report(domain, output=out)
+
+    if getattr(args, 'json', False):
+        _json_print(report)
+    elif not out:
+        print(report_to_markdown(report))
+    else:
+        print(f"  Report saved to {out}")
 
 
 def cmd_ci(args):
@@ -4606,6 +4752,8 @@ GitHub: https://github.com/dalisecurity/fray
                         help="Suppress 'Next Steps' hints after commands (or set FRAY_NO_HINTS=1)")
     parser.add_argument("--plugin", action="append", default=None, dest="plugins",
                         help="Load plugin file or directory (repeatable, or set FRAY_PLUGINS=a.py,b.py)")
+    parser.add_argument("--theme", default=None, choices=["dark", "light", "hacker", "minimal", "none"],
+                        help="CLI color theme (or set FRAY_THEME env var) (#184)")
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
@@ -5187,7 +5335,67 @@ GitHub: https://github.com/dalisecurity/fray
                           help="Disable adaptive payload evolution (use brute-force instead)")
     p_bounty.add_argument("-w", "--workers", type=int, default=1,
                           help="Parallel workers for multi-target scanning (default: 1)")
+    p_bounty.add_argument("--report", default=None, metavar="JSON_FILE",
+                          help="Generate Markdown bounty report from fray test JSON output (#118)")
     p_bounty.set_defaults(func=cmd_bounty)
+
+    # report (#73)
+    p_report = subparsers.add_parser("report", help="Generate automated security report per company/domain (#73)")
+    p_report.add_argument("--company", required=True, help="Company domain (e.g. example.com)")
+    p_report.add_argument("-o", "--output", default=None,
+                          help="Output file (.md for Markdown, .json for JSON)")
+    p_report.add_argument("--json", action="store_true",
+                          help="Output report as JSON to stdout")
+    p_report.set_defaults(func=cmd_report)
+
+    # batch (#70)
+    p_batch = subparsers.add_parser("batch", help="Batch recon across domain lists (Nikkei 225, custom) (#70)")
+    p_batch.add_argument("file", nargs="?", default=None, help="Text file with domains (one per line)")
+    p_batch.add_argument("--nikkei225", action="store_true", help="Use built-in Nikkei 225 domain list")
+    p_batch.add_argument("-w", "--workers", type=int, default=4, help="Parallel workers (default: 4)")
+    p_batch.add_argument("-o", "--output", default=None, help="JSONL output file")
+    p_batch.add_argument("--profile", default="quick", choices=["quick", "standard", "deep"],
+                         help="Scan profile (default: quick)")
+    p_batch.add_argument("-t", "--timeout", type=int, default=120, help="Per-domain timeout (default: 120)")
+    p_batch.add_argument("--no-resume", action="store_true", dest="no_resume",
+                         help="Rescan all domains (ignore previous results)")
+    p_batch.add_argument("--json", action="store_true", help="Output summary as JSON")
+    p_batch.set_defaults(func=cmd_batch)
+
+    # ask (#142)
+    p_ask = subparsers.add_parser("ask", help="Natural language query over recon/scan/OSINT data (#142)")
+    p_ask.add_argument("query_words", nargs="*", default=[], help="Query in natural language")
+    p_ask.add_argument("--json", action="store_true", help="Output as JSON")
+    p_ask.set_defaults(func=cmd_ask)
+
+    # waf-reverse (#149)
+    p_wafrev = subparsers.add_parser("waf-reverse", help="Reverse engineer WAF rules: tags, events, keywords, encodings (#149)")
+    p_wafrev.add_argument("target", help="Target URL")
+    p_wafrev.add_argument("-t", "--timeout", type=int, default=8, help="Request timeout (default: 8)")
+    p_wafrev.add_argument("-d", "--delay", type=float, default=0.15, help="Delay between probes (default: 0.15)")
+    p_wafrev.add_argument("-o", "--output", default=None, help="Save WAF profile JSON to file")
+    p_wafrev.add_argument("--json", action="store_true", help="Output as JSON to stdout")
+    p_wafrev.add_argument("--skip-encodings", action="store_true", dest="skip_encodings",
+                          help="Skip encoding bypass probing (faster)")
+    p_wafrev.add_argument("--skip-contexts", action="store_true", dest="skip_contexts",
+                          help="Skip context enforcement probing (faster)")
+    p_wafrev.set_defaults(func=cmd_waf_reverse)
+
+    # race (#24)
+    p_race = subparsers.add_parser("race", help="Race condition (TOCTOU) testing — concurrent request divergence (#24)")
+    p_race.add_argument("target", help="Target URL (e.g. https://example.com/api/redeem)")
+    p_race.add_argument("--method", default="GET", help="HTTP method (default: GET)")
+    p_race.add_argument("--body", default=None, help="Request body (for POST/PUT)")
+    p_race.add_argument("-n", "--concurrency", type=int, default=10,
+                        help="Number of simultaneous requests (default: 10)")
+    p_race.add_argument("--rounds", type=int, default=1, help="Number of test rounds (default: 1)")
+    p_race.add_argument("-t", "--timeout", type=int, default=10, help="Request timeout (default: 10)")
+    p_race.add_argument("-o", "--output", default=None, help="Save results JSON to file")
+    p_race.add_argument("--json", action="store_true", help="Output as JSON to stdout")
+    p_race.add_argument("--cookie", default=None, help="Cookie header")
+    p_race.add_argument("--bearer", default=None, help="Bearer token")
+    p_race.add_argument("-H", "--header", action="append", help="Custom header (repeatable)")
+    p_race.set_defaults(func=cmd_race)
 
     # ci
     p_ci = subparsers.add_parser("ci", help="Generate GitHub Actions workflow for WAF testing on PRs")
@@ -5474,6 +5682,12 @@ GitHub: https://github.com/dalisecurity/fray
     # ── --no-hints → FRAY_NO_HINTS ──
     if getattr(args, 'no_hints', False):
         os.environ["FRAY_NO_HINTS"] = "1"
+
+    # ── Apply color theme (#184) ──
+    _theme_arg = getattr(args, 'theme', None)
+    if _theme_arg:
+        from fray.themes import T
+        T.set_theme(_theme_arg)
 
     # ── Load plugins (#163) ──
     plugin_paths = getattr(args, 'plugins', None)

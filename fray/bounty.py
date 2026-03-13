@@ -128,7 +128,7 @@ class HackerOnePublic:
 
 
 class BugcrowdPublic:
-    """Fetch public Bugcrowd program scope — NO API KEY NEEDED."""
+    """Fetch public Bugcrowd program scope — NO API KEY NEEDED (#113)."""
 
     HOST = "bugcrowd.com"
 
@@ -148,7 +148,11 @@ class BugcrowdPublic:
             return resp.status, {"raw": data[:500]}
 
     def get_program_scope(self, handle: str) -> Tuple[bool, List[Dict]]:
-        """Fetch in-scope targets for a public Bugcrowd program."""
+        """Fetch in-scope targets for a public Bugcrowd program.
+
+        Enhanced (#113): extracts out-of-scope, reward tiers, and
+        all target group categories (not just web).
+        """
         path = f"/{handle}.json"
         status, data = self._request(path)
 
@@ -156,6 +160,14 @@ class BugcrowdPublic:
             return False, [{"error": f"Program '{handle}' not found (HTTP {status})"}]
 
         scopes = []
+        out_of_scope = []
+
+        # Extract program metadata
+        program_name = data.get("name", handle)
+        max_payout = data.get("max_payout", 0)
+        min_payout = data.get("min_payout", 0)
+        program_url = f"https://bugcrowd.com/{handle}"
+
         target_groups = data.get("target_groups", [])
         if not target_groups:
             # Try alternate structure
@@ -164,32 +176,87 @@ class BugcrowdPublic:
                 for t in targets:
                     name = t.get("name", t.get("uri", ""))
                     category = t.get("category", t.get("type", ""))
+                    in_scope = t.get("in_scope", True)
                     if name:
-                        scopes.append({
+                        entry = {
                             "type": category.upper() if category else "URL",
                             "identifier": name,
                             "bounty": True,
                             "instruction": "",
-                            "eligible": True,
-                        })
+                            "eligible": in_scope,
+                        }
+                        if in_scope:
+                            scopes.append(entry)
+                        else:
+                            out_of_scope.append(entry)
+            if scopes and out_of_scope:
+                scopes.append({"_out_of_scope": out_of_scope})
+            if scopes and max_payout:
+                scopes.append({"_reward_range": f"${min_payout}-${max_payout}",
+                               "_program_url": program_url})
             return bool(scopes), scopes
 
         for group in target_groups:
+            group_in_scope = group.get("in_scope", True)
             targets = group.get("targets", [])
             for target in targets:
                 name = target.get("name", "")
                 uri = target.get("uri", "")
                 category = target.get("category", "")
-                if category.lower() in ("website", "api", "domain", "url", ""):
-                    scopes.append({
-                        "type": category.upper() or "URL",
-                        "identifier": uri or name,
-                        "bounty": True,
-                        "instruction": "",
-                        "eligible": True,
-                    })
+                desc = target.get("description", "")
+                target_in_scope = target.get("in_scope", group_in_scope)
+
+                entry = {
+                    "type": category.upper() or "URL",
+                    "identifier": uri or name,
+                    "bounty": True,
+                    "instruction": desc[:1000] if desc else "",
+                    "eligible": target_in_scope,
+                }
+
+                if target_in_scope:
+                    # Accept all categories for scope awareness, not just web
+                    scopes.append(entry)
+                else:
+                    out_of_scope.append(entry)
+
+        # Attach out-of-scope and reward metadata
+        if out_of_scope:
+            scopes.append({"_out_of_scope": out_of_scope})
+        if max_payout:
+            scopes.append({"_reward_range": f"${min_payout}-${max_payout}",
+                           "_program_url": program_url})
 
         return bool(scopes), scopes
+
+    def search_programs(self, query: str = "", sort: str = "promoted") -> List[Dict]:
+        """Search Bugcrowd programs directory (#113).
+
+        Args:
+            query: Search term (company name, domain, etc.)
+            sort:  Sort order: promoted, newest, oldest
+
+        Returns:
+            List of program summaries with handle, name, max_payout.
+        """
+        path = f"/programs.json?sort[]={sort}&hidden[]={0}"
+        if query:
+            path += f"&search={urllib.parse.quote(query)}"
+
+        status, data = self._request(path)
+        if status != 200:
+            return []
+
+        programs = []
+        for p in data.get("programs", data) if isinstance(data, dict) else data:
+            if isinstance(p, dict):
+                programs.append({
+                    "handle": p.get("code", p.get("handle", "")),
+                    "name": p.get("name", ""),
+                    "max_payout": p.get("max_payout", 0),
+                    "url": f"https://bugcrowd.com/{p.get('code', p.get('handle', ''))}",
+                })
+        return programs[:20]
 
 
 # ── Scope Analysis ────────────────────────────────────────────────────────────
@@ -1082,6 +1149,180 @@ This confirms the server echoes the unsanitized input back to the client.""")
 - Testing methodology: Fray v{__version__} (https://github.com/dalisecurity/fray)
 - Scan date: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}
 - Payloads tested: {target.get('total_tested', 0)} across {', '.join(target.get('categories', {}).keys())}""")
+
+
+# ── Bounty Report Template Generator (#118) ──────────────────────────────────
+
+def generate_bounty_report_md(
+    target: str,
+    results: List[Dict],
+    program: str = "",
+    platform: str = "hackerone",
+    waf_vendor: str = "",
+    category: str = "",
+) -> str:
+    """Generate a Markdown bounty report from scan results.
+
+    Can be used standalone with `fray test --json` output or from
+    `fray bounty --report`.
+
+    Args:
+        target:     Target URL.
+        results:    List of test_payload result dicts.
+        program:    Bug bounty program handle.
+        platform:   Platform name (hackerone, bugcrowd).
+        waf_vendor: Detected WAF vendor.
+        category:   Vulnerability category (xss, sqli, etc.).
+
+    Returns:
+        Markdown string ready for HackerOne/Bugcrowd submission.
+    """
+    bypasses = [r for r in results if not r.get("blocked") and r.get("bypass_confidence", 0) > 0]
+    reflected = [r for r in bypasses if r.get("reflected")]
+    total = len(results)
+    blocked = sum(1 for r in results if r.get("blocked"))
+
+    # Auto-detect category from results
+    if not category:
+        cats = [r.get("category", "") for r in bypasses if r.get("category")]
+        category = cats[0] if cats else "xss"
+
+    meta = _VULN_META.get(category, _VULN_META_DEFAULT)
+
+    # Adjust severity based on reflection
+    if reflected:
+        severity = meta["severity"]
+        verification = "Verified — Payload Reflected in Response"
+    else:
+        _down = {"Critical": "High", "High": "Medium", "Medium": "Low"}
+        severity = _down.get(meta["severity"], meta["severity"])
+        verification = "Unverified — Payload accepted but not reflected"
+
+    waf_label = waf_vendor if waf_vendor and waf_vendor != "None" else "no WAF detected"
+    hostname = urllib.parse.urlparse(target).hostname or target
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    lines = []
+    lines.append(f"# {meta['title_verb']} — {target}\n")
+    lines.append(f"**Title:** {meta['title_verb']} via WAF bypass on {target}")
+    lines.append(f"**Severity:** {severity} ({meta['cvss_base']} — {meta['cvss_vector']})")
+    lines.append(f"**Weakness:** {meta['cwe']}")
+    lines.append(f"**OWASP:** {meta['owasp']}")
+    lines.append(f"**Asset:** `{target}`")
+    lines.append(f"**Verification:** {verification}\n")
+
+    # Summary
+    lines.append("## Summary\n")
+    prog_str = f"the `{program}` program on {platform}" if program else "the target"
+    lines.append(
+        f"During authorized security testing of {prog_str}, I identified that "
+        f"`{target}` does not adequately filter {category.upper()} payloads. "
+        f"Out of {total} payloads tested, {len(bypasses)} were accepted by the "
+        f"server without being blocked by the {waf_label}. "
+        f"{blocked} payloads were correctly blocked."
+    )
+    if reflected:
+        lines.append(
+            f"\n**{len(reflected)} payload(s) were reflected in the HTTP response body**, "
+            f"confirming exploitable {meta['title_verb']}."
+        )
+    lines.append("")
+
+    # Steps to Reproduce
+    lines.append("## Steps to Reproduce\n")
+    lines.append("1. Open a browser or HTTP client (e.g., `curl`, Burp Suite)")
+    lines.append(f"2. Send the following request(s) to `{target}`\n")
+
+    show = (reflected or bypasses)[:3]
+    for i, bp in enumerate(show, 1):
+        payload = bp.get("payload", "")
+        enc = urllib.parse.quote(payload, safe="")
+        param = "input"
+        lines.append(f"**Payload {i}:**")
+        lines.append("```")
+        lines.append(f"GET {target}?{param}={enc} HTTP/1.1")
+        lines.append(f"Host: {hostname}")
+        lines.append("```")
+        lines.append(f"**Response:** HTTP {bp.get('status', '?')} — Payload was **not blocked**\n")
+        if bp.get("reflected") and bp.get("reflection_context"):
+            lines.append("**Evidence of Reflection:**")
+            lines.append("```html")
+            lines.append(bp["reflection_context"][:200])
+            lines.append("```\n")
+
+    # Impact
+    lines.append("## Impact\n")
+    for imp in meta["impact"]:
+        lines.append(f"- {imp}")
+    lines.append("")
+
+    # Attack Scenario
+    lines.append("## Attack Scenario\n")
+    lines.append(meta["attack_scenario"].format(cat=category.upper(), url=target))
+    lines.append("")
+
+    # Remediation
+    lines.append("## Remediation\n")
+    for i, fix in enumerate(meta["remediation"], 1):
+        lines.append(f"{i}. {fix}")
+    lines.append("")
+
+    # References
+    cwe_id = meta["cwe"].split("-")[1].split(":")[0]
+    lines.append("## References\n")
+    lines.append(f"- {meta['cwe']}: https://cwe.mitre.org/data/definitions/{cwe_id}.html")
+    lines.append(f"- {meta['owasp']}: https://owasp.org/Top10/")
+    lines.append(f"- CVSS: https://www.first.org/cvss/calculator/3.1#{meta['cvss_vector']}")
+    lines.append(f"- Tool: Fray v{__version__} (https://github.com/dalisecurity/fray)")
+    lines.append(f"- Date: {now}")
+    lines.append(f"- Payloads tested: {total} ({category})")
+
+    return "\n".join(lines)
+
+
+def generate_report_from_json(json_path: str, output: str = "",
+                               program: str = "", platform: str = "hackerone") -> str:
+    """Generate a bounty report from a fray test JSON output file.
+
+    Args:
+        json_path: Path to JSON file from `fray test --json -o results.json`.
+        output:    If set, write Markdown to this file.
+        program:   Bug bounty program handle.
+        platform:  Platform name.
+
+    Returns:
+        Markdown string.
+    """
+    with open(json_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    # Handle both {results: [...]} and bare list
+    if isinstance(data, dict):
+        results = data.get("results", data.get("payloads", []))
+        target = data.get("target", data.get("url", ""))
+        waf = data.get("waf_vendor", data.get("waf", ""))
+        category = data.get("category", "")
+    elif isinstance(data, list):
+        results = data
+        target = results[0].get("target", "") if results else ""
+        waf = ""
+        category = results[0].get("category", "") if results else ""
+    else:
+        results = []
+        target = ""
+        waf = ""
+        category = ""
+
+    md = generate_bounty_report_md(
+        target=target, results=results, program=program,
+        platform=platform, waf_vendor=waf, category=category,
+    )
+
+    if output:
+        with open(output, "w", encoding="utf-8") as f:
+            f.write(md)
+
+    return md
 
 
 # ── Entry Point ──────────────────────────────────────────────────────────────

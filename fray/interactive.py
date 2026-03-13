@@ -43,7 +43,7 @@ _VULN_MODULE_MAP = {
     "deser": ("fray.deser", "DeserScanner", "Deserialization"),
     "ssrf": ("fray.ssrf", "SSRFScanner", "Server-Side Request Forgery"),
     "ssti": (None, None, "Server-Side Template Injection"),
-    "prototype_pollution": (None, None, "Prototype Pollution"),
+    "prototype_pollution": ("fray.proto_pollution", "PPScanner", "Prototype Pollution"),
     "csp_bypass": (None, None, "CSP Bypass"),
     "modern_bypasses": (None, None, "Modern WAF Bypasses"),
 }
@@ -64,6 +64,7 @@ _FINDING_KEYWORDS = {
     "takeover": ["takeover", "dangling", "cname", "subdomain takeover"],
     "exposed": ["exposed", "admin panel", "sensitive file", "backup", ".env", "debug"],
     "tls": ["tls", "ssl", "certificate", "expired cert", "weak cipher"],
+    "prototype_pollution": ["prototype", "__proto__", "pollution", "constructor.prototype", "merge", "lodash"],
 }
 
 
