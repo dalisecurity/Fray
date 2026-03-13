@@ -589,12 +589,87 @@ def generate_header_fix_snippets(missing_headers: Dict[str, Any]) -> Dict[str, s
 
 # ── Functions ────────────────────────────────────────────────────────────
 
+def _score_header_value(name_lower: str, value: str) -> tuple:
+    """Score the quality of a security header's VALUE (not just presence).
+
+    Returns (quality: str, detail: str) where quality is one of:
+    STRONG, MODERATE, WEAK, MISCONFIGURED
+    """
+    v = value.strip()
+    vl = v.lower()
+
+    if name_lower == "content-security-policy":
+        if "'unsafe-inline'" in vl and "'unsafe-eval'" in vl:
+            return ("WEAK", "unsafe-inline + unsafe-eval defeats CSP purpose")
+        if "'unsafe-inline'" in vl:
+            return ("WEAK", "unsafe-inline allows inline scripts — XSS protection bypassed")
+        if "default-src *" in vl or "default-src: *" in vl:
+            return ("WEAK", "wildcard default-src allows loading from any origin")
+        if "default-src" not in vl and "script-src" not in vl:
+            return ("MODERATE", "no default-src or script-src directive")
+        return ("STRONG", "")
+
+    if name_lower == "strict-transport-security":
+        import re as _re_hdr
+        _ma = _re_hdr.search(r"max-age=(\d+)", vl)
+        if _ma:
+            _age = int(_ma.group(1))
+            if _age < 86400:
+                return ("WEAK", f"max-age={_age} ({_age//3600}h) — too short, should be >= 1 year")
+            if _age < 2592000:
+                return ("MODERATE", f"max-age={_age} ({_age//86400}d) — recommended >= 1 year (31536000)")
+            if "includesubdomains" not in vl:
+                return ("MODERATE", "missing includeSubDomains — subdomains unprotected")
+            if "preload" not in vl:
+                return ("MODERATE", "missing preload — not eligible for browser preload list")
+            return ("STRONG", "")
+        return ("MISCONFIGURED", "no max-age directive found")
+
+    if name_lower == "x-frame-options":
+        vu = v.upper()
+        if vu in ("DENY", "SAMEORIGIN"):
+            return ("STRONG", "")
+        if vu.startswith("ALLOW-FROM"):
+            return ("MODERATE", "ALLOW-FROM is deprecated and ignored by modern browsers")
+        return ("MISCONFIGURED", f"invalid value '{v}' — ignored by browsers")
+
+    if name_lower == "referrer-policy":
+        if vl in ("unsafe-url", "no-referrer-when-downgrade", ""):
+            return ("WEAK", f"'{vl}' leaks full URL to third parties")
+        if vl in ("no-referrer", "same-origin", "strict-origin", "strict-origin-when-cross-origin"):
+            return ("STRONG", "")
+        return ("MODERATE", "")
+
+    if name_lower == "permissions-policy":
+        if not v.strip():
+            return ("WEAK", "empty value — no features restricted")
+        _restricted = v.count("=()")
+        if _restricted >= 3:
+            return ("STRONG", f"{_restricted} features restricted")
+        return ("MODERATE", f"only {_restricted} feature(s) restricted")
+
+    if name_lower == "x-content-type-options":
+        if vl == "nosniff":
+            return ("STRONG", "")
+        return ("MISCONFIGURED", f"expected 'nosniff', got '{v}'")
+
+    if name_lower == "x-xss-protection":
+        if vl.startswith("1") and "mode=block" in vl:
+            return ("STRONG", "")
+        if vl == "0":
+            return ("MODERATE", "explicitly disabled — relies on CSP instead (acceptable if CSP is strong)")
+        return ("WEAK", "enabled without mode=block")
+
+    return ("STRONG", "")
+
+
 def check_security_headers(headers: Dict[str, str]) -> Dict[str, Any]:
     """Audit security headers from an HTTP response."""
     results: Dict[str, Any] = {
         "present": {},
         "missing": {},
         "score": 0,
+        "value_issues": [],
     }
 
     total = len(_SECURITY_HEADERS)
@@ -603,10 +678,23 @@ def check_security_headers(headers: Dict[str, str]) -> Dict[str, Any]:
     for header_key, info in _SECURITY_HEADERS.items():
         if header_key in headers:
             found += 1
-            results["present"][info["name"]] = {
-                "value": headers[header_key],
+            value = headers[header_key]
+            quality, detail = _score_header_value(header_key, value)
+            entry = {
+                "value": value,
                 "description": info["description"],
+                "quality": quality,
             }
+            if detail:
+                entry["detail"] = detail
+            results["present"][info["name"]] = entry
+            if quality in ("WEAK", "MISCONFIGURED"):
+                results["value_issues"].append({
+                    "header": info["name"],
+                    "quality": quality,
+                    "detail": detail,
+                    "value": value[:120],
+                })
         else:
             results["missing"][info["name"]] = {
                 "description": info["description"],

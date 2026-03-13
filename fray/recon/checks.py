@@ -309,15 +309,119 @@ def check_cors(host: str, port: int, use_ssl: bool,
     except Exception:
         pass
 
+    # ── Multi-origin CORS probes ──
+    # Test additional dangerous origin patterns beyond the single evil origin
+    _cors_extra_origins = [
+        ("null", "null origin (sandboxed iframe bypass)", "high"),
+        (f"https://{host}.evil.com", "suffix bypass (attacker domain appending target)", "high"),
+        (f"https://evil.{host}", "subdomain injection", "medium"),
+        (f"https://not-{host}", "prefix variation", "medium"),
+    ]
+    try:
+        for _test_origin, _desc, _sev in _cors_extra_origins:
+            if use_ssl:
+                try:
+                    _ctx = _make_ssl_context(verify=True)
+                    _cc = http.client.HTTPSConnection(host, port, context=_ctx, timeout=timeout)
+                except Exception:
+                    _ctx = _make_ssl_context(verify=False)
+                    _cc = http.client.HTTPSConnection(host, port, context=_ctx, timeout=timeout)
+            else:
+                _cc = http.client.HTTPConnection(host, port, timeout=timeout)
+            _cc.request("GET", "/", headers={
+                "Host": host, "Origin": _test_origin,
+                "User-Agent": f"Fray/{__version__} Recon",
+            })
+            _cr = _cc.getresponse()
+            _cr.read()
+            _ch = {k.lower(): v for k, v in _cr.getheaders()}
+            _cc.close()
+            _cacao = _ch.get("access-control-allow-origin", "")
+            _cacac = _ch.get("access-control-allow-credentials", "").lower()
+            if _cacao == _test_origin:
+                result["misconfigured"] = True
+                _iss_sev = "critical" if _cacac == "true" else _sev
+                result["issues"].append({
+                    "issue": f"Origin reflected: {_test_origin}",
+                    "severity": _iss_sev,
+                    "risk": f"{_desc} — credentials={'true' if _cacac == 'true' else 'false'}",
+                })
+    except Exception:
+        pass
+
     return result
 
 
 def check_exposed_files(host: str, port: int, use_ssl: bool,
-                        timeout: int = 5, fast: bool = False) -> Dict[str, Any]:
-    """Probe for commonly exposed sensitive files."""
+                        timeout: int = 5, fast: bool = False,
+                        tech_stack: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Probe for commonly exposed sensitive files.
+
+    If tech_stack is provided (list of lowercase tech names from fingerprinting),
+    additional framework-specific probes are added automatically.
+    """
     result: Dict[str, Any] = {
         "exposed": [],
         "checked": 0,
+    }
+
+    # ── Tech-specific probes (only run if tech detected) ──
+    _TECH_PROBES: Dict[str, List[tuple]] = {
+        "wordpress": [
+            ("/wp-content/debug.log", "WordPress debug log (may contain errors/paths)"),
+            ("/wp-json/wp/v2/users", "WordPress user enumeration via REST API"),
+            ("/.wp-cli/config.yml", "WP-CLI config (credentials)"),
+            ("/wp-content/uploads/", "WordPress uploads directory listing"),
+        ],
+        "laravel": [
+            ("/storage/logs/laravel.log", "Laravel log file (stack traces, secrets)"),
+            ("/_debugbar/open", "Laravel Debugbar exposed"),
+            ("/telescope/requests", "Laravel Telescope (request inspector)"),
+            ("/.env.backup", "Laravel environment backup"),
+        ],
+        "django": [
+            ("/__debug__/", "Django Debug Toolbar exposed"),
+            ("/admin/", "Django admin panel"),
+            ("/static/admin/css/base.css", "Django admin static files exposed"),
+        ],
+        "spring": [
+            ("/actuator/heapdump", "Spring Boot heap dump (memory contents!)"),
+            ("/actuator/mappings", "Spring Boot endpoint mappings"),
+            ("/actuator/configprops", "Spring Boot config properties"),
+            ("/h2-console", "H2 database console (RCE risk)"),
+            ("/jolokia", "Jolokia JMX endpoint (RCE risk)"),
+        ],
+        "node": [
+            ("/.npmrc", "npm config (may contain auth tokens)"),
+            ("/yarn.lock", "Yarn lockfile (dependency versions)"),
+            ("/.node-version", "Node version file"),
+        ],
+        "rails": [
+            ("/rails/info/properties", "Rails info page (full config)"),
+            ("/rails/info/routes", "Rails route listing"),
+        ],
+        "php": [
+            ("/php-fpm-status", "PHP-FPM status page"),
+            ("/opcache-status.php", "OPcache status page"),
+        ],
+    }
+
+    # ── Content validation patterns for tech-specific probes ──
+    _CONTENT_VALIDATORS: Dict[str, List[str]] = {
+        "/wp-content/debug.log": ["PHP Fatal", "PHP Warning", "Stack trace"],
+        "/wp-json/wp/v2/users": ['"id"', '"slug"', '"name"'],
+        "/storage/logs/laravel.log": ["[stacktrace]", "Exception", "laravel"],
+        "/_debugbar/open": ["debugbar", "Debugbar"],
+        "/telescope/requests": ["telescope", "Telescope"],
+        "/__debug__/": ["djdt", "debug"],
+        "/actuator/heapdump": [],  # binary — any 200 with content is real
+        "/actuator/mappings": ['"dispatcherServlets"', '"handler"'],
+        "/actuator/configprops": ['"propertySources"', '"beans"'],
+        "/h2-console": ["H2 Console", "h2-console"],
+        "/jolokia": ['"request"', '"value"', "jolokia"],
+        "/rails/info/properties": ["Rails version", "Ruby version"],
+        "/rails/info/routes": ["Prefix", "Verb", "URI Pattern"],
+        "/.npmrc": ["registry", "_authToken"],
     }
 
     # High-value probes — always checked
@@ -356,6 +460,15 @@ def check_exposed_files(host: str, port: int, use_ssl: bool,
     ]
 
     probes = _PROBES_CORE if fast else _PROBES_CORE + _PROBES_EXTENDED
+
+    # Add tech-specific probes based on detected stack
+    if tech_stack:
+        _stack_lower = {t.lower() for t in tech_stack}
+        for _tech_key, _tech_probes in _TECH_PROBES.items():
+            if any(_tech_key in t for t in _stack_lower):
+                for _tp in _tech_probes:
+                    if _tp not in probes:
+                        probes.append(_tp)
 
     import concurrent.futures
 
@@ -398,6 +511,12 @@ def check_exposed_files(host: str, port: int, use_ssl: bool,
                     is_real = True
                 elif probe_path == "/Gemfile" and "gem " in body:
                     is_real = True
+                elif probe_path in _CONTENT_VALIDATORS:
+                    _patterns = _CONTENT_VALIDATORS[probe_path]
+                    if not _patterns:
+                        is_real = True  # no patterns = any 200 with body is real
+                    elif any(p in body for p in _patterns):
+                        is_real = True
                 elif len(body) < 5000 and status == 200:
                     is_real = True
 
@@ -2253,6 +2372,34 @@ def check_differential_responses(host: str, port: int, use_ssl: bool,
             result["detection_mode"] = "anomaly"
         else:
             result["detection_mode"] = "none"
+
+    # ── Monitor mode detection ──
+    # Send a definitive attack payload that no legitimate app generates.
+    # If WAF is present (headers/cookies detected) but response is 200 with
+    # normal body → WAF is in monitor/log-only mode, not actively blocking.
+    result["waf_mode"] = "unknown"
+    _monitor_probe = "?fray_waf_mode_test=' UNION SELECT 1,2,3,@@version--"
+    _ms, _mh, _mb, _mt = _send_raw("GET", path + _monitor_probe)
+    if _ms > 0:
+        _is_monitor_blocked = _ms in (400, 403, 406, 429, 500, 503)
+        if not _is_monitor_blocked and _mb:
+            _mb_lower = _mb.lower()
+            _is_monitor_blocked = any(s in _mb_lower for s in (
+                "blocked", "forbidden", "denied", "captcha", "challenge",
+                "web application firewall", "access denied"))
+        if not _is_monitor_blocked and avg_benign_len > 100:
+            _body_ratio = abs(len(_mb) - avg_benign_len) / max(avg_benign_len, 1)
+            if _body_ratio > 0.5:
+                _is_monitor_blocked = True
+
+        if _is_monitor_blocked:
+            result["waf_mode"] = "blocking"
+        elif result.get("detection_mode", "none") != "none" or result.get("block_page_signatures"):
+            # WAF signatures were found in other probes but this definitive one passed
+            result["waf_mode"] = "monitoring"
+        else:
+            # No WAF signals at all + this probe passed = likely no WAF
+            result["waf_mode"] = "blocking" if blocked_statuses else "no_waf"
 
         # ── Phase 5: WAF intel lookup — recommend bypass techniques ──
         try:

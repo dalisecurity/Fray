@@ -1042,3 +1042,114 @@ def adaptive_test(tester, payloads: List[Dict], max_payloads: int = 50,
         print(f"    Bypasses: {stats.bypasses_found} from payloads + {stats.mutations_bypassed} from mutations")
 
     return results, stats, profile
+
+
+# ── Payload Clustering by Technique Family ────────────────────────────────
+# Group payloads by attack technique so we can test one representative per
+# family first. If the representative is blocked, skip the entire family.
+# This reduces requests by ~60-70% on well-configured WAFs.
+
+_TECHNIQUE_FAMILIES = {
+    "xss_script_tag":      re.compile(r"<script", re.I),
+    "xss_event_handler":   re.compile(r"\bon\w+=", re.I),
+    "xss_javascript_uri":  re.compile(r"javascript:", re.I),
+    "xss_data_uri":        re.compile(r"data:text/html", re.I),
+    "xss_svg":             re.compile(r"<svg", re.I),
+    "xss_img":             re.compile(r"<img", re.I),
+    "xss_iframe":          re.compile(r"<iframe", re.I),
+    "xss_template":        re.compile(r"\{\{.*\}\}"),
+    "xss_css":             re.compile(r"<style|expression\(", re.I),
+    "sqli_union":          re.compile(r"union\s+select", re.I),
+    "sqli_boolean":        re.compile(r"or\s+\d+=\d+|and\s+\d+=\d+", re.I),
+    "sqli_time":           re.compile(r"sleep\(|waitfor|benchmark\(", re.I),
+    "sqli_error":          re.compile(r"extractvalue|updatexml|floor\(rand", re.I),
+    "sqli_stacked":        re.compile(r";\s*(select|drop|insert|update|delete)", re.I),
+    "rce_pipe":            re.compile(r"\|\s*\w+"),
+    "rce_semicolon":       re.compile(r";\s*(cat|ls|id|whoami|curl|wget)", re.I),
+    "rce_backtick":        re.compile(r"`[^`]+`"),
+    "rce_dollar":          re.compile(r"\$\([^)]+\)"),
+    "ssti_jinja":          re.compile(r"\{\{.*\}\}"),
+    "ssti_mako":           re.compile(r"\$\{.*\}"),
+    "path_traversal":      re.compile(r"\.\./"),
+    "xxe":                 re.compile(r"<!ENTITY|<!DOCTYPE", re.I),
+}
+
+
+def cluster_payloads(payloads: List[Dict]) -> Dict[str, List[Dict]]:
+    """Group payloads by technique family.
+
+    Args:
+        payloads: List of payload dicts (must have 'payload' key).
+
+    Returns:
+        Dict mapping family name to list of payload dicts.
+        Payloads that don't match any family go into 'other'.
+    """
+    clusters: Dict[str, List[Dict]] = {}
+    for p in payloads:
+        text = p.get("payload", "")
+        matched = False
+        for family, pattern in _TECHNIQUE_FAMILIES.items():
+            if pattern.search(text):
+                clusters.setdefault(family, []).append(p)
+                matched = True
+                break
+        if not matched:
+            clusters.setdefault("other", []).append(p)
+    return clusters
+
+
+def test_clustered(tester, payloads: List[Dict], param: str = 'input',
+                   verbose: bool = False) -> List[Dict]:
+    """Test payloads using clustering: one representative per family first.
+
+    If the representative is blocked, mark the entire family as blocked
+    (saves sending them all). If it passes, test all members.
+
+    Args:
+        tester: WAFTester instance
+        payloads: List of payload dicts
+        param: URL parameter name
+        verbose: print cluster info
+
+    Returns:
+        List of result dicts for all payloads.
+    """
+    clusters = cluster_payloads(payloads)
+    results = []
+    skipped = 0
+
+    if verbose:
+        print(f"  Clustered {len(payloads)} payloads into {len(clusters)} families")
+
+    for family, members in clusters.items():
+        # Test the first member as representative
+        rep = members[0]
+        rep_result = tester.test_payload(rep.get("payload", ""), param=param)
+        rep_result["family"] = family
+        rep_result["is_representative"] = True
+        results.append(rep_result)
+
+        if rep_result.get("blocked", False):
+            # Representative blocked → skip rest, mark all as blocked
+            for m in members[1:]:
+                results.append({
+                    "payload": m.get("payload", ""),
+                    "blocked": True,
+                    "status": rep_result.get("status", 403),
+                    "family": family,
+                    "skipped_by_cluster": True,
+                })
+                skipped += 1
+        else:
+            # Representative passed → test all remaining members
+            for m in members[1:]:
+                r = tester.test_payload(m.get("payload", ""), param=param)
+                r["family"] = family
+                results.append(r)
+
+    if verbose and skipped:
+        print(f"  Skipped {skipped} payloads via clustering ({skipped}/{len(payloads)} = "
+              f"{skipped*100//max(len(payloads),1)}% reduction)")
+
+    return results

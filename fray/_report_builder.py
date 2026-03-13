@@ -2,10 +2,98 @@
 import html as _html
 import ipaddress as _ipaddr
 import re as _re_mod
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 from fray._report_css import CSS, SEV_COLORS, risk_color, risk_grade, gauge_svg, donut_svg
 
 _esc = _html.escape
+
+
+# ── Finding Deduplication + Contextual Severity ──────────────────────────
+
+_CATEGORY_BASE_SCORES = {
+    "rce": 45, "command_injection": 45, "cmdi": 40,
+    "sqli": 35, "sql_injection": 35,
+    "ssrf": 30, "ssti": 35, "xxe": 30,
+    "path_traversal": 25, "lfi": 25,
+    "xss": 20, "dom_xss": 22,
+    "cors": 18, "csrf": 15,
+    "idor": 20, "open_redirect": 12,
+    "info_disclosure": 8, "header_missing": 5,
+}
+
+
+def contextual_severity(finding: Dict, recon_data: Optional[Dict] = None) -> tuple:
+    """Calculate contextual severity based on finding + recon context.
+
+    Returns (severity_label: str, score: int).
+    """
+    score = 0
+    category = finding.get("category", finding.get("type", "")).lower().replace(" ", "_")
+    score += _CATEGORY_BASE_SCORES.get(category, 10)
+
+    if not finding.get("authenticated", True):
+        score += 20
+    if finding.get("waf_mode") == "monitoring":
+        score += 10
+    if finding.get("injection_context") in ("header", "cookie"):
+        score += 5
+
+    if recon_data:
+        headers = recon_data.get("headers", {})
+        if headers.get("missing", {}):
+            csp_missing = "Content-Security-Policy" in headers.get("missing", {})
+            if csp_missing:
+                score += 8
+        cors = recon_data.get("cors", {})
+        if cors.get("misconfigured"):
+            score += 10
+
+    if score >= 70:
+        return ("CRITICAL", score)
+    elif score >= 50:
+        return ("HIGH", score)
+    elif score >= 30:
+        return ("MEDIUM", score)
+    return ("LOW", score)
+
+
+def deduplicate_findings(findings: List[Dict],
+                         recon_data: Optional[Dict] = None) -> List[Dict]:
+    """Deduplicate findings: same endpoint + category = 1 finding with variants.
+
+    Args:
+        findings: List of finding dicts.
+        recon_data: Optional recon result for contextual severity.
+
+    Returns:
+        Deduplicated list sorted by severity (highest first).
+    """
+    from collections import defaultdict
+
+    groups: Dict[tuple, List[Dict]] = defaultdict(list)
+    for f in findings:
+        url = f.get("url", f.get("target", ""))
+        # Normalize: strip query params for grouping
+        base_url = url.split("?")[0] if url else ""
+        cat = f.get("category", f.get("type", "unknown")).lower()
+        ctx = f.get("injection_context", "url_param")
+        key = (base_url, cat, ctx)
+        groups[key].append(f)
+
+    deduped = []
+    for (url, cat, ctx), group in groups.items():
+        # Pick the highest-severity example as lead
+        lead = dict(group[0])
+        sev_label, sev_score = contextual_severity(lead, recon_data)
+        lead["severity"] = sev_label
+        lead["severity_score"] = sev_score
+        lead["variant_count"] = len(group)
+        if len(group) > 1:
+            lead["all_payloads"] = [g.get("payload", "") for g in group if g.get("payload")]
+        deduped.append(lead)
+
+    deduped.sort(key=lambda x: x.get("severity_score", 0), reverse=True)
+    return deduped
 
 
 def _targets_chips(items, limit=5):

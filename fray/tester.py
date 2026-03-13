@@ -551,7 +551,8 @@ class WAFTester:
         }
 
     def test_payload(self, payload: str, method: str = 'GET', param: str = 'input',
-                     content_type: str = None) -> Dict:
+                     content_type: str = None,
+                     injection_context: str = 'url_param') -> Dict:
         """Test a single payload, following redirects up to max_redirects hops.
 
         Args:
@@ -562,7 +563,22 @@ class WAFTester:
                           - 'text/xml' / 'application/xml'
                           - 'text/plain'
                           - Any custom value (payload sent as raw body)
+            injection_context: Where to inject the payload. One of:
+                          - 'url_param' (default) — query parameter
+                          - 'header' — inject as X-Custom-Input header value
+                          - 'cookie' — inject as cookie value
+                          - 'json_body' — POST with JSON body
+                          - 'xml_body' — POST with XML body
+                          - 'path' — inject in URL path segment
         """
+        # Injection context overrides
+        if injection_context == 'json_body':
+            content_type = 'application/json'
+            method = 'POST'
+        elif injection_context == 'xml_body':
+            content_type = 'text/xml'
+            method = 'POST'
+
         # Content-type confusion forces POST
         if content_type:
             method = 'POST'
@@ -595,7 +611,37 @@ class WAFTester:
 
                 stealth_hdrs = self._get_browser_headers()
 
-                if method == 'GET' or hop > 0:
+                # Injection context: header — inject payload as custom header value
+                if injection_context == 'header' and hop == 0:
+                    _safe_val = payload.replace('\r', '').replace('\n', '')
+                    query_string = current_query if current_query else ''
+                    _path_q = f"{current_path}?{query_string}" if query_string else current_path
+                    req = (f"GET {_path_q} HTTP/1.1\r\n"
+                           f"Host: {current_host}\r\n"
+                           f"X-Custom-Input: {_safe_val}\r\n"
+                           f"X-Search: {_safe_val}\r\n"
+                           f"{stealth_hdrs}"
+                           f"{extra_hdrs}"
+                           f"Connection: close\r\n\r\n")
+                # Injection context: cookie — inject payload as cookie value
+                elif injection_context == 'cookie' and hop == 0:
+                    _safe_val = urllib.parse.quote(payload, safe='')
+                    query_string = current_query if current_query else ''
+                    _path_q = f"{current_path}?{query_string}" if query_string else current_path
+                    req = (f"GET {_path_q} HTTP/1.1\r\n"
+                           f"Host: {current_host}\r\n"
+                           f"Cookie: {param}={_safe_val}\r\n"
+                           f"{stealth_hdrs}"
+                           f"{extra_hdrs}"
+                           f"Connection: close\r\n\r\n")
+                # Injection context: path — inject payload in URL path segment
+                elif injection_context == 'path' and hop == 0:
+                    req = (f"GET {current_path}/{enc} HTTP/1.1\r\n"
+                           f"Host: {current_host}\r\n"
+                           f"{stealth_hdrs}"
+                           f"{extra_hdrs}"
+                           f"Connection: close\r\n\r\n")
+                elif method == 'GET' or hop > 0:
                     query_string = f"{current_query}&{param}={enc}" if current_query else f"{param}={enc}"
                     req = (f"GET {current_path}?{query_string} HTTP/1.1\r\n"
                            f"Host: {current_host}\r\n"
