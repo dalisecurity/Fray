@@ -364,6 +364,123 @@ def scrape_packetstorm(url: str, timeout: int = 10) -> Dict[str, Any]:
     return result
 
 
+# ── ExploitDB Index Cache ─────────────────────────────────────────────────────
+# Cached CVE→EDB mapping from files_exploits.csv (loaded once per session)
+
+_EXPLOITDB_INDEX: Optional[Dict[str, List[Dict[str, str]]]] = None
+_EXPLOITDB_INDEX_LOADED = False
+
+
+def _load_exploitdb_index(timeout: int = 15) -> Dict[str, List[Dict[str, str]]]:
+    """Load ExploitDB CSV index (CVE→exploit file mapping).
+
+    Fetches from GitLab mirror once, caches in memory for the session.
+    Returns dict: CVE-ID → [{edb_id, path}, ...]
+    """
+    global _EXPLOITDB_INDEX, _EXPLOITDB_INDEX_LOADED
+    if _EXPLOITDB_INDEX_LOADED:
+        return _EXPLOITDB_INDEX or {}
+    _EXPLOITDB_INDEX_LOADED = True
+
+    try:
+        url = "https://gitlab.com/exploit-database/exploitdb/-/raw/main/files_exploits.csv"
+        status, body = _fetch_url(url, timeout=timeout, max_bytes=3 * 1024 * 1024)
+        if status != 200 or not body:
+            return {}
+        index: Dict[str, List[Dict[str, str]]] = {}
+        for line in body.split("\n")[1:]:
+            if "CVE-" not in line:
+                continue
+            parts = line.split(",")
+            if len(parts) < 12:
+                continue
+            edb_id = parts[0].strip()
+            fpath = parts[1].strip().strip('"')
+            codes_str = ",".join(parts[11:])
+            for m in re.finditer(r'CVE-(\d{4}-\d+)', codes_str):
+                cve = f"CVE-{m.group(1)}"
+                if cve not in index:
+                    index[cve] = []
+                index[cve].append({"edb_id": edb_id, "path": fpath})
+        _EXPLOITDB_INDEX = index
+        return index
+    except Exception:
+        return {}
+
+
+def scrape_exploitdb(cve_id: str, timeout: int = 8) -> Dict[str, Any]:
+    """Fetch exploit code from ExploitDB for a CVE.
+
+    Uses the CSV index to find EDB IDs, then fetches actual exploit files
+    from the GitLab mirror (exploit-database/exploitdb).
+    """
+    result: Dict[str, Any] = {
+        "url": "https://www.exploit-db.com",
+        "code_snippets": [],
+    }
+
+    index = _load_exploitdb_index(timeout=12)
+    entries = index.get(cve_id.upper(), [])
+    if not entries:
+        return result
+
+    for entry in entries[:3]:
+        try:
+            raw_url = f"https://gitlab.com/exploit-database/exploitdb/-/raw/main/{entry['path']}"
+            status, body = _fetch_url(raw_url, timeout)
+            if status == 200 and len(body) > 50:
+                fname = entry["path"].split("/")[-1]
+                result["code_snippets"].append({
+                    "filename": f"edb_{entry['edb_id']}_{fname}",
+                    "content": body[:32768],
+                    "size": len(body),
+                })
+        except Exception:
+            pass
+
+    return result
+
+
+def scrape_metasploit(cve_id: str, timeout: int = 8) -> Dict[str, Any]:
+    """Fetch Metasploit module for a CVE from rapid7/metasploit-framework.
+
+    Tries common module path patterns based on CVE naming conventions.
+    """
+    result: Dict[str, Any] = {
+        "url": "https://github.com/rapid7/metasploit-framework",
+        "code_snippets": [],
+    }
+
+    slug = cve_id.lower().replace("-", "_")
+    # Common Metasploit module path patterns
+    prefixes = (
+        "modules/exploits/multi/http",
+        "modules/exploits/windows/http",
+        "modules/exploits/linux/http",
+        "modules/exploits/unix/webapp",
+        "modules/exploits/multi/misc",
+        "modules/auxiliary/scanner/http",
+        "modules/auxiliary/gather",
+    )
+    base = "https://raw.githubusercontent.com/rapid7/metasploit-framework/master"
+
+    for prefix in prefixes:
+        try:
+            url = f"{base}/{prefix}/{slug}.rb"
+            status, body = _fetch_url(url, timeout)
+            if status == 200 and len(body) > 100:
+                result["code_snippets"].append({
+                    "filename": f"msf_{slug}.rb",
+                    "content": body[:32768],
+                    "size": len(body),
+                })
+                return result  # Found it
+        except Exception:
+            pass
+
+    return result
+
+
 def scrape_vulhub(cve_id: str, timeout: int = 8) -> Dict[str, Any]:
     """Scrape vulhub for Docker-based exploit environments.
 
@@ -820,6 +937,60 @@ def _parse_nuclei_template(code: str) -> List[ExtractedPayload]:
     return payloads
 
 
+def _parse_ruby_http(code: str) -> List[ExtractedPayload]:
+    """Extract payloads from Ruby HTTP code (Metasploit modules, ExploitDB Ruby exploits)."""
+    payloads = []
+
+    # Metasploit send_request_cgi / send_request_raw
+    for m in re.finditer(
+        r'send_request_(?:cgi|raw)\s*\(\s*\{([^}]+)\}',
+        code, re.DOTALL):
+        block = m.group(1)
+        method_m = re.search(r'["\']method["\']\s*=>\s*["\'](\w+)["\']', block)
+        uri_m = re.search(r'["\']uri["\']\s*=>\s*["\']([^"\']+)["\']', block)
+        data_m = re.search(r'["\']data["\']\s*=>\s*["\']([^"\']+)["\']', block)
+        if uri_m:
+            ep = ExtractedPayload(
+                payload=uri_m.group(1),
+                method=(method_m.group(1).upper() if method_m else "GET"),
+                path=uri_m.group(1),
+                confidence=0.85,
+                technique="metasploit",
+                context="Metasploit send_request",
+            )
+            if data_m:
+                ep.body = data_m.group(1)
+            payloads.append(ep)
+
+    # Ruby Net::HTTP patterns
+    for m in re.finditer(
+        r'Net::HTTP\.(?:get|post|put|new)\s*\(\s*["\']?([^"\')\s,]+)',
+        code, re.IGNORECASE):
+        url_str = m.group(1)
+        if "/" in url_str or "." in url_str:
+            payloads.append(ExtractedPayload(
+                payload=url_str, method="GET", path=url_str,
+                confidence=0.7, technique="ruby_http",
+                context="Net::HTTP",
+            ))
+
+    # Metasploit target_uri / normalize_uri paths
+    for m in re.finditer(r'normalize_uri\s*\(([^)]+)\)', code):
+        parts = m.group(1)
+        path_parts = re.findall(r'["\']([^"\']+)["\']', parts)
+        if path_parts:
+            path = "/".join(p.strip("/") for p in path_parts)
+            if not path.startswith("/"):
+                path = "/" + path
+            payloads.append(ExtractedPayload(
+                payload=path, method="GET", path=path,
+                confidence=0.8, technique="metasploit_uri",
+                context="Metasploit normalize_uri",
+            ))
+
+    return payloads
+
+
 def _parse_markdown_code_blocks(code: str) -> List[ExtractedPayload]:
     """Extract payloads from markdown fenced code blocks (```...```).
 
@@ -960,11 +1131,15 @@ def parse_poc_code(code: str, filename: str = "") -> List[ExtractedPayload]:
     if "requests." in lower or "import requests" in lower:
         all_payloads.extend(_parse_python_requests(code))
 
-    if "urllib" in lower or "http.client" in lower:
+    if "urllib" in lower or "http.client" in lower or "urllib2" in lower:
         all_payloads.extend(_parse_python_urllib(code))
 
     if "curl " in lower:
         all_payloads.extend(_parse_curl_commands(code))
+
+    # Ruby (Metasploit modules, ExploitDB Ruby exploits)
+    if "net::http" in lower or "httpclient" in lower or "'uri'" in lower or "send_request" in lower:
+        all_payloads.extend(_parse_ruby_http(code))
 
     if re.search(r'(GET|POST|PUT)\s+/\S+\s+HTTP/', code):
         all_payloads.extend(_parse_raw_http(code))
@@ -1109,8 +1284,30 @@ def extract_poc_payloads(
                         result.sources_found += 1
                         break
 
-    # Additional sources: vulhub + nuclei-templates (always try if we have a CVE ID)
+    # Additional sources: ExploitDB, Metasploit, vulhub, nuclei-templates
     if cve_id:
+        # ExploitDB — real exploit code from GitLab mirror (5,700+ CVEs indexed)
+        try:
+            edb_result = scrape_exploitdb(cve_id, timeout)
+            if edb_result["code_snippets"]:
+                result.sources_found += 1
+                result.sources_checked += 1
+                all_code_snippets.extend(edb_result["code_snippets"])
+                result.poc_references.append({"url": edb_result["url"], "source": "exploitdb", "priority": 1})
+        except Exception:
+            pass
+
+        # Metasploit — structured Ruby exploit modules
+        try:
+            msf_result = scrape_metasploit(cve_id, timeout)
+            if msf_result["code_snippets"]:
+                result.sources_found += 1
+                result.sources_checked += 1
+                all_code_snippets.extend(msf_result["code_snippets"])
+                result.poc_references.append({"url": msf_result["url"], "source": "metasploit", "priority": 2})
+        except Exception:
+            pass
+
         # vulhub — Docker exploit environments with actual exploit instructions
         try:
             vulhub_result = scrape_vulhub(cve_id, timeout)
