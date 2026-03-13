@@ -130,6 +130,109 @@ def check_robots_sitemap(host: str, port: int, use_ssl: bool,
     return result
 
 
+def check_vdp(host: str, port: int, use_ssl: bool,
+              timeout: int = 8) -> Dict[str, Any]:
+    """#121 — Parse security.txt (RFC 9116) for Vulnerability Disclosure Policy.
+
+    Fetches /.well-known/security.txt (primary) and /security.txt (fallback).
+    Extracts all standard fields: Contact, Expires, Encryption, Acknowledgments,
+    Preferred-Languages, Canonical, Policy, Hiring.
+
+    Returns:
+        Dict with 'found', 'url', 'contacts', 'policy', 'expires', 'hiring',
+        'encryption', 'preferred_languages', 'acknowledgments', 'canonical',
+        'signed' (PGP), 'issues' (missing required fields, expired, etc.).
+    """
+    result: Dict[str, Any] = {
+        "found": False,
+        "url": "",
+        "contacts": [],
+        "policy": "",
+        "expires": "",
+        "hiring": "",
+        "encryption": "",
+        "preferred_languages": [],
+        "acknowledgments": "",
+        "canonical": "",
+        "signed": False,
+        "raw_length": 0,
+        "issues": [],
+    }
+
+    body = ""
+    scheme = "https" if use_ssl else "http"
+    for path in ("/.well-known/security.txt", "/security.txt"):
+        status, _, resp_body = _http_get(host, port, path, use_ssl, timeout=timeout)
+        if status == 200 and resp_body and "contact:" in resp_body.lower():
+            body = resp_body
+            result["found"] = True
+            result["url"] = f"{scheme}://{host}{path}"
+            result["raw_length"] = len(body)
+            break
+
+    if not body:
+        return result
+
+    # PGP signed?
+    if "-----BEGIN PGP SIGNED MESSAGE-----" in body:
+        result["signed"] = True
+
+    # Parse RFC 9116 fields (case-insensitive)
+    for line in body.splitlines():
+        line = line.strip()
+        if line.startswith("#") or not line:
+            continue
+
+        lower = line.lower()
+        if lower.startswith("contact:"):
+            val = line.split(":", 1)[1].strip()
+            if val:
+                result["contacts"].append(val)
+        elif lower.startswith("expires:"):
+            result["expires"] = line.split(":", 1)[1].strip()
+        elif lower.startswith("encryption:"):
+            result["encryption"] = line.split(":", 1)[1].strip()
+        elif lower.startswith("acknowledgments:") or lower.startswith("acknowledgements:"):
+            result["acknowledgments"] = line.split(":", 1)[1].strip()
+        elif lower.startswith("preferred-languages:"):
+            langs = line.split(":", 1)[1].strip()
+            result["preferred_languages"] = [l.strip() for l in langs.split(",") if l.strip()]
+        elif lower.startswith("canonical:"):
+            result["canonical"] = line.split(":", 1)[1].strip()
+        elif lower.startswith("policy:"):
+            result["policy"] = line.split(":", 1)[1].strip()
+        elif lower.startswith("hiring:"):
+            result["hiring"] = line.split(":", 1)[1].strip()
+
+    # Validate required fields (RFC 9116)
+    if not result["contacts"]:
+        result["issues"].append({
+            "issue": "Missing required Contact field",
+            "severity": "medium",
+        })
+    if not result["expires"]:
+        result["issues"].append({
+            "issue": "Missing required Expires field",
+            "severity": "low",
+        })
+    elif result["expires"]:
+        # Check if expired
+        try:
+            from datetime import datetime, timezone
+            exp_str = result["expires"]
+            # Handle ISO 8601 format
+            exp = datetime.fromisoformat(exp_str.replace("Z", "+00:00"))
+            if exp < datetime.now(timezone.utc):
+                result["issues"].append({
+                    "issue": f"security.txt expired on {exp_str}",
+                    "severity": "medium",
+                })
+        except (ValueError, TypeError):
+            pass
+
+    return result
+
+
 def check_cors(host: str, port: int, use_ssl: bool,
                timeout: int = 8) -> Dict[str, Any]:
     """Check for CORS misconfiguration."""

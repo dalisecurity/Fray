@@ -117,6 +117,7 @@ from fray.recon.checks import (
     check_js_endpoints,
     check_api_security,
     check_vpn_endpoints,
+    check_vdp,
 )
 from fray.recon.discovery import (
     discover_historical_urls,
@@ -317,7 +318,7 @@ def run_recon(url: str, timeout: int = 8,
     verify = use_ssl
 
     # Count total checks for progress bar
-    n_checks = 13  # tier-1 core checks
+    n_checks = 14  # tier-1 core checks (including VDP)
     if not is_fast:
         n_checks += 4  # hist, admin, rate, gql
     n_checks += 2  # tier-2: subdomain brute + origin
@@ -403,6 +404,9 @@ def run_recon(url: str, timeout: int = 8,
             lambda: check_host_header_injection(host, port, use_ssl,
                                                 timeout=_fast_to, extra_headers=headers),
             "Host header injection"))
+        t_vdp     = asyncio.create_task(_run(
+            lambda: check_vdp(host, port, use_ssl, timeout=timeout),
+            "VDP (security.txt)"))
 
         # Non-fast tasks
         t_hist = t_admin = t_auth = t_ports = t_rate = t_gql = t_leak = None
@@ -542,6 +546,7 @@ def run_recon(url: str, timeout: int = 8,
         result["params"]        = await _safe(t_params, {})
         result["api_discovery"] = await _safe(t_api, {})
         result["host_header_injection"] = await _safe(t_hhi, {})
+        result["vdp"] = await _safe(t_vdp, {})
 
         if t_hist:
             result["historical_urls"] = await _safe(t_hist, {})

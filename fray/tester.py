@@ -672,6 +672,24 @@ class WAFTester:
 
                 blocked = status in (403, 406, 429, 500, 501, 503)
 
+                # #220: Detect WAF-redirect blocks — WAFs often 302 to a
+                # block/challenge page instead of returning 403 directly.
+                # If we followed redirects and the final URL looks like a
+                # known WAF block page path, mark as blocked.
+                redirect_blocked = False
+                if redirect_chain and not blocked:
+                    final_path_lower = current_path.lower()
+                    _WAF_BLOCK_PATHS = (
+                        '/block', '/blocked', '/captcha', '/challenge',
+                        '/access-denied', '/error', '/forbidden',
+                        '/cdn-cgi/challenge', '/cdn-cgi/l/chk_jschl',
+                        '/waf-block', '/security-check', '/bot-check',
+                        '/firewall', '/request-blocked',
+                    )
+                    if any(bp in final_path_lower for bp in _WAF_BLOCK_PATHS):
+                        blocked = True
+                        redirect_blocked = True
+
                 # Enhanced block detection: WAF body signatures
                 # Modern WAFs and secure apps often return 200 with a block
                 # page, challenge, CAPTCHA, or JSON error instead of 403.
@@ -806,6 +824,7 @@ class WAFTester:
                     'status': status,
                     'error_code': error_code,
                     'blocked': blocked,
+                    'redirect_blocked': redirect_blocked,
                     'redirects': hop,
                     'redirect_chain': redirect_chain,
                     'final_url': f"{'https' if current_ssl else 'http'}://{current_host}{current_path}",
@@ -1075,10 +1094,18 @@ class WAFTester:
                     conf_style = f"[dim]{conf:>3}%[/dim]"
                 else:
                     conf_style = f"[dim red]  0%[/dim red]"
+                # #220: Show redirect chain info when redirects occurred
+                redir_info = ''
+                if result.get('redirects', 0) > 0:
+                    n_redir = result['redirects']
+                    if result.get('redirect_blocked'):
+                        redir_info = f' [dim red]→{n_redir} redirect(s) → block page[/dim red]'
+                    else:
+                        redir_info = f' [dim]→{n_redir} redirect(s)[/dim]'
                 progress.console.print(
                     f"  [{idx:>{len(str(total))}}/{total}] ",
                     badge,
-                    f" {result['status']} │ {conf_style} │ {ms:>6.0f}ms │ {label}",
+                    f" {result['status']} │ {conf_style} │ {ms:>6.0f}ms │ {label}{redir_info}",
                     highlight=False,
                 )
                 progress.advance(task)

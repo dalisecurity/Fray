@@ -1050,6 +1050,112 @@ def get_trend(domain: str, limit: int = 20) -> Dict:
     }
 
 
+def warm_cache_from_threat_intel(domain: str = "", waf_vendor: str = "",
+                                  verbose: bool = False) -> Dict:
+    """#46 — Pre-populate adaptive cache with threat intel payloads.
+
+    Loads payloads from threat_intel.json files in the payload DB and
+    ~/.fray/staged_payloads/, inserting them as 'passed' entries with
+    low initial confidence (10).  Real scan results always override.
+
+    Args:
+        domain:     If set, tag entries for this domain.  Otherwise uses
+                    a synthetic "__threat_intel__" domain key so payloads
+                    are available via vendor-level cross-domain intelligence.
+        waf_vendor: WAF vendor name to associate (enables cross-domain boost).
+        verbose:    Print progress.
+
+    Returns:
+        Dict with 'payloads_loaded', 'categories', 'sources'.
+    """
+    import glob
+
+    payloads_root = Path(__file__).parent.parent / "payloads"
+    if not payloads_root.exists():
+        from fray import PAYLOADS_DIR
+        payloads_root = PAYLOADS_DIR
+
+    staged_dir = _FRAY_DIR / "staged_payloads"
+
+    # Collect all threat-intel payload strings
+    collected: List[Dict] = []
+    categories: set = set()
+    sources: set = set()
+
+    def _load_json(path: Path) -> None:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            for entry in data.get("payloads", []):
+                ps = entry.get("payload", "")
+                if not ps or ps.startswith("#") or len(ps) < 5:
+                    continue
+                cat = entry.get("category", data.get("category", ""))
+                src = entry.get("source", data.get("source", "threat_intel"))
+                collected.append({"payload": ps, "category": cat, "source": src})
+                if cat:
+                    categories.add(cat)
+                if src:
+                    sources.add(src)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # 1. Load from payloads/**/threat_intel.json
+    if payloads_root.exists():
+        for ti_file in payloads_root.rglob("threat_intel.json"):
+            _load_json(ti_file)
+
+    # 2. Load from staged payloads
+    if staged_dir.exists():
+        for staged_file in staged_dir.glob("staged_*.json"):
+            _load_json(staged_file)
+
+    if not collected:
+        return {"payloads_loaded": 0, "categories": [], "sources": []}
+
+    # Insert into adaptive cache
+    domain_key = _extract_domain(domain) if domain else "__threat_intel__"
+
+    with _cache_lock:
+        cache = load_cache()
+        entry = _get_domain_entry(cache, domain_key)
+        if waf_vendor:
+            entry["waf_vendor"] = waf_vendor
+
+        now = _now_iso()
+        loaded = 0
+        for item in collected:
+            ph = _payload_hash(item["payload"])
+            # Don't overwrite real test results (higher confidence)
+            existing = entry["passed"].get(ph)
+            if existing and existing.get("bypass_confidence", 0) > 10:
+                continue
+            # Don't warm payloads already confirmed blocked
+            if ph in entry.get("blocked", {}):
+                continue
+            entry["passed"][ph] = {
+                "payload": item["payload"][:500],
+                "count": 0,
+                "bypass_confidence": 10,  # low — real tests override
+                "last_seen": now,
+                "source": "threat_intel_warm",
+            }
+            loaded += 1
+
+        entry["updated_at"] = now
+        _save_cache(cache)
+
+    if verbose:
+        import sys
+        sys.stderr.write(f"  Cache warmed: {loaded} threat-intel payloads"
+                         f" ({len(categories)} categories)\n")
+
+    return {
+        "payloads_loaded": loaded,
+        "categories": sorted(categories),
+        "sources": sorted(sources),
+    }
+
+
 def print_cache_summary(domain: str = "") -> None:
     """Print a human-readable cache summary to stdout."""
     cache = load_cache()

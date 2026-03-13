@@ -2643,6 +2643,16 @@ def cmd_feed(args):
         if not json_mode:
             print(f"\n  Results saved to {output_file}")
 
+    # Cache warming (#46)
+    if getattr(args, 'warm_cache', False):
+        from fray.adaptive_cache import warm_cache_from_threat_intel
+        warm_result = warm_cache_from_threat_intel(verbose=not json_mode)
+        if json_mode:
+            _json_print({"cache_warm": warm_result}, default=str)
+        elif warm_result["payloads_loaded"] > 0:
+            print(f"\n  Cache warmed: {warm_result['payloads_loaded']} payloads"
+                  f" ({len(warm_result['categories'])} categories)")
+
     # Webhook notification
     webhook_url = getattr(args, 'notify', None)
     if webhook_url:
@@ -4796,6 +4806,8 @@ GitHub: https://github.com/dalisecurity/fray
                         help="Request timeout for tests (default: 8)")
     p_feed.add_argument("--insecure", action="store_true",
                         help="Skip SSL verification for tests")
+    p_feed.add_argument("--warm-cache", action="store_true", dest="warm_cache",
+                        help="Pre-populate adaptive cache with threat intel payloads (#46)")
     p_feed.add_argument("--json", action="store_true", help="Output as JSON")
     p_feed.add_argument("-o", "--output", default=None, help="Save results to file")
     p_feed.add_argument("--notify", default=None, metavar="WEBHOOK_URL",

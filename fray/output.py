@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
-from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
+from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn, TransferSpeedColumn, MofNCompleteColumn
 from rich.columns import Columns
 from rich.theme import Theme
 
@@ -157,8 +157,36 @@ def make_progress() -> Progress:
         TextColumn("[progress.description]{task.description}"),
         BarColumn(bar_width=30),
         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        TextColumn("{task.completed}/{task.total}"),
+        MofNCompleteColumn(),
         TimeElapsedColumn(),
+        TextColumn("[dim]ETA[/]"),
+        TimeRemainingColumn(compact=True),
+        console=console,
+    )
+
+
+class _ReqSpeedColumn(TextColumn):
+    """Show requests/sec based on task.speed (set via update(speed=...))."""
+    def __init__(self):
+        super().__init__("")
+
+    def render(self, task) -> Text:
+        speed = task.speed if task.speed is not None else 0
+        return Text(f"({speed:.1f} req/s)", style="dim")
+
+
+def make_scan_progress() -> Progress:
+    """Progress bar with speed (req/s) + ETA — ideal for payload testing."""
+    return Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(bar_width=30),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        MofNCompleteColumn(),
+        _ReqSpeedColumn(),
+        TimeElapsedColumn(),
+        TextColumn("[dim]ETA[/]"),
+        TimeRemainingColumn(compact=True),
         console=console,
     )
 
