@@ -1113,10 +1113,15 @@ def recommend_categories(fingerprint: Dict[str, Any]) -> List[str]:
     techs = fingerprint.get("technologies", {})
 
     for tech, confidence in techs.items():
+        # confidence may be a float, int, or dict (e.g. {"value": 0.8, ...})
+        if isinstance(confidence, dict):
+            conf_val = float(confidence.get("confidence", confidence.get("value", 0.5)))
+        else:
+            conf_val = float(confidence) if confidence else 0.5
         categories = _TECH_PAYLOAD_MAP.get(tech, [])
         for i, cat in enumerate(categories):
             # Higher priority (lower index) + higher confidence = higher score
-            score = confidence * (1.0 - i * 0.1)
+            score = conf_val * (1.0 - i * 0.1)
             if cat not in seen or seen[cat] < score:
                 seen[cat] = score
 

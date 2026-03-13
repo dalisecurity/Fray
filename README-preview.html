@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fray — README Preview</title>
+<style>
+  :root { color-scheme: dark; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Noto Sans, Helvetica, Arial, sans-serif;
+    background: #0d1117; color: #e6edf3; line-height: 1.6;
+    max-width: 900px; margin: 0 auto; padding: 40px 24px;
+  }
+  a { color: #58a6ff; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  h1 { font-size: 2em; border-bottom: 1px solid #21262d; padding-bottom: 12px; margin: 24px 0 16px; }
+  h2 { font-size: 1.5em; border-bottom: 1px solid #21262d; padding-bottom: 8px; margin: 24px 0 16px; }
+  h3 { font-size: 1.25em; margin: 20px 0 12px; }
+  hr { border: 0; border-top: 1px solid #21262d; margin: 24px 0; }
+  p { margin: 0 0 16px; }
+  ul, ol { margin: 0 0 16px; padding-left: 2em; }
+  li { margin: 4px 0; }
+  li strong { color: #f0f6fc; }
+  code {
+    font-family: 'SF Mono', SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 0.85em; background: #161b22; padding: 2px 6px; border-radius: 6px;
+    border: 1px solid #30363d;
+  }
+  pre {
+    background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+    padding: 16px; overflow-x: auto; margin: 0 0 16px;
+  }
+  pre code { background: none; border: none; padding: 0; font-size: 0.85em; color: #e6edf3; }
+  blockquote {
+    border-left: 4px solid #f85149; padding: 8px 16px; margin: 0 0 16px;
+    background: #161b22; border-radius: 0 6px 6px 0; color: #f0f6fc;
+  }
+  table { border-collapse: collapse; width: 100%; margin: 0 0 16px; }
+  th, td { border: 1px solid #30363d; padding: 8px 12px; text-align: left; }
+  th { background: #161b22; font-weight: 600; }
+  tr:nth-child(even) { background: #0d1117; }
+  tr:nth-child(odd) { background: #161b22; }
+  img { max-width: 100%; border-radius: 6px; }
+  .center { text-align: center; }
+  .badges img { height: 20px; margin: 2px 2px; }
+  .badges { margin: 12px 0; line-height: 2; }
+  .hero-code { font-size: 1.1em; display: inline-block; background: #161b22; border: 1px solid #30363d;
+    padding: 12px 24px; border-radius: 8px; margin: 12px 0; }
+  .nav-links { margin: 16px 0; font-size: 0.95em; }
+  .nav-links a { margin: 0 8px; font-weight: 600; }
+  .lang { font-size: 0.9em; margin: 12px 0; }
+  .section-note { font-size: 0.95em; color: #8b949e; }
+</style>
+</head>
+<body>
+
+<!-- ===== HEADER ===== -->
+<div class="center">
+  <h1 style="border:none; font-size:2.5em; margin-bottom:0;">Fray</h1>
+  <h3 style="color:#a78bfa; font-weight:400; margin-top:8px;">Vibe security — just point and scan.</h3>
+  <p>Open-source security testing that figures out the rest.<br>
+  One command. Full pipeline. Zero config.</p>
+  <div class="hero-code">
+    <code style="background:none; border:none; font-size:1em; color:#7ee787;">pip install fray && fray go target.com</code>
+  </div>
+  <div class="badges">
+    <a href="https://pypi.org/project/fray/"><img src="https://img.shields.io/pypi/v/fray.svg" alt="PyPI"></a>
+    <a href="https://pypi.org/project/fray/"><img src="https://img.shields.io/pypi/dm/fray?color=6366f1" alt="Downloads"></a>
+    <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-3.8+-blue.svg" alt="Python"></a>
+    <a href="docs/payload-database-coverage.md"><img src="https://img.shields.io/badge/Payloads-4%2C300+-red" alt="Payloads"></a>
+    <a href="docs/quickstart.md"><img src="https://img.shields.io/badge/WAFs-98_vendors-orange" alt="WAFs"></a>
+    <a href="docs/quickstart.md"><img src="https://img.shields.io/badge/Recon-35%2B_checks-green" alt="Checks"></a>
+    <a href="https://marketplace.visualstudio.com/items?itemName=DaliSecurity.fray-security"><img src="https://img.shields.io/visual-studio-marketplace/v/DaliSecurity.fray-security?label=VS%20Code&logo=visualstudiocode" alt="VS Code"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
+    <a href="https://github.com/dalisecurity/fray/stargazers"><img src="https://img.shields.io/github/stars/dalisecurity/fray?style=social" alt="Stars"></a>
+  </div>
+  <div class="nav-links">
+    <a href="https://dalisec.io/docs/">Documentation</a> ·
+    <a href="#quick-start">Quick Start</a> ·
+    <a href="https://github.com/dalisecurity/fray/discussions">Discussions</a> ·
+    <a href="https://dalisec.io/fray/">dalisec.io</a>
+  </div>
+  <div class="lang">🌐 <strong>English</strong> | <a href="README.ja.md">日本語</a></div>
+</div>
+
+<hr>
+
+<blockquote>
+  <strong>FOR AUTHORIZED SECURITY TESTING ONLY</strong> — Only test systems you own or have explicit written permission to test.
+</blockquote>
+
+<p class="center" style="margin:24px 0;">
+  <img src="docs/demo.gif" alt="fray go — full security audit in one command" width="720"
+    style="border:1px solid #30363d;" onerror="this.style.display='none'">
+</p>
+
+<!-- ===== WHY VIBE SECURITY ===== -->
+<h2 id="why-vibe-security">Why Vibe Security?</h2>
+
+<p>Security testing used to mean installing five tools, learning each one's flags, writing config files, and manually correlating results. That's not how it should work.</p>
+
+<p><strong>Vibe security is the idea that security testing should be as easy as vibe coding made development</strong> — describe what you want, and the tool handles the rest. Fray embodies this:</p>
+
+<ul>
+  <li><strong>One command does everything</strong> — <code>fray go</code> runs recon, finds vulnerabilities, tests them, and generates a report. Zero config.</li>
+  <li><strong>You don't need to be a security expert</strong> — Fray picks the right checks and payloads based on what it discovers about your target.</li>
+  <li><strong>AI-native</strong> — built-in MCP server for Claude, ChatGPT, and Cursor. Ask questions in natural language, get security answers.</li>
+  <li><strong>Smart, not noisy</strong> — adaptive cache learns across scans. Blocked payloads are never re-sent. Each run gets smarter.</li>
+</ul>
+
+<h3>Before Fray vs. With Fray</h3>
+
+<table>
+  <thead>
+    <tr><th>Traditional Security Testing</th><th>Vibe Security with Fray</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Install 5+ tools (nmap, wafw00f, sqlmap, nikto, nuclei)</td><td><code>pip install fray</code></td></tr>
+    <tr><td>Learn each tool's flags and config formats</td><td><code>fray go target.com</code></td></tr>
+    <tr><td>Manually correlate findings across tools</td><td>Automatic pipeline: recon → test → report</td></tr>
+    <tr><td>Write custom scripts to chain tools together</td><td>Built-in: 35 checks, 6 deep scan modules, 4,300+ payloads</td></tr>
+    <tr><td>Read hundreds of pages of documentation</td><td>Zero config — smart defaults, interactive menus</td></tr>
+    <tr><td>Security expertise required</td><td>Built for anyone who ships web apps</td></tr>
+  </tbody>
+</table>
+
+<hr>
+
+<!-- ===== QUICK START ===== -->
+<h2 id="quick-start">Quick Start</h2>
+
+<pre><code>pip install fray</code></pre>
+
+<p><strong>The only command you need:</strong></p>
+
+<pre><code>fray go https://target.com        # Full pipeline: recon → vuln test → report</code></pre>
+
+<p>That's it. Fray scans your target, identifies the tech stack and WAF, finds vulnerabilities, tests them, and generates an HTML report — all automatically.</p>
+
+<p><strong>Want more control?</strong> Use individual commands:</p>
+
+<pre><code>fray recon https://target.com          # 35-check reconnaissance
+fray test https://target.com --smart   # Smart payload selection from recon findings
+fray detect https://target.com         # Fingerprint WAF/CDN vendor (98 vendors)
+fray fuzz https://target.com/FUZZ      # Content discovery (ffuf-like)
+fray harden https://target.com         # OWASP hardening audit (A-F grade)</code></pre>
+
+<hr>
+
+<!-- ===== WHO IS FRAY FOR ===== -->
+<h2>Who is Fray for?</h2>
+
+<ul>
+  <li><strong>Developers &amp; founders</strong> — shipping a web app? Run <code>fray go</code> before launch. Done.</li>
+  <li><strong>Bug bounty hunters</strong> — 4,300+ payloads, WAF bypass intelligence, adaptive learning.</li>
+  <li><strong>Pentesters</strong> — full recon pipeline, 6 deep scan modules, stealth mode, auth support.</li>
+  <li><strong>DevSecOps</strong> — GitHub Action, CI/CD integration, SARIF output, <code>--json</code> for pipelines.</li>
+  <li><strong>Security teams</strong> — MCP server for AI agents, VS Code extension, batch scanning.</li>
+</ul>
+
+<hr>
+
+<!-- ===== WHAT'S NEW ===== -->
+<h2>What's New</h2>
+
+<p><strong>v3.4 — March 2026</strong></p>
+<ul>
+  <li><strong>GitHub Action</strong> — test your WAF on every PR (<code>uses: dalisecurity/fray@v1</code>)</li>
+  <li><strong>MCP Server</strong> — Claude Code &amp; ChatGPT integration (<code>pip install fray[mcp]</code>)</li>
+  <li><strong>35-check recon</strong> — TLS, CORS, VPN gateways, AI/LLM endpoints, cloud buckets, secrets</li>
+  <li><strong>6 deep scan modules</strong> — XSS, SQLi, CMDi, cache poisoning, mass assignment, deserialization</li>
+  <li><strong>Interactive post-recon menu</strong> — findings-driven next steps, not random payloads</li>
+</ul>
+
+<p><strong>Coming up:</strong> Race condition testing · WAF rule reverse engineering · batch recon · NL queries
+→ <a href="CHANGELOG.md">Full changelog</a></p>
+
+<hr>
+
+<!-- ===== CORE COMMANDS ===== -->
+<h2>Core Commands</h2>
+
+<h3><code>fray go</code> — Full Pipeline</h3>
+<p>The hero command. Runs everything automatically: reconnaissance → vulnerability testing → report generation.</p>
+<pre><code>fray go https://target.com              # Automatic full pipeline
+fray go https://target.com --deep       # Deep mode with subdomain brute-force
+fray go https://target.com --stealth    # Rate-limited, randomized UA</code></pre>
+
+<h3><code>fray recon</code> — Reconnaissance</h3>
+<p>35+ checks in one command: TLS, DNS, subdomains, CORS, security headers, admin panels, VPN gateways, AI/LLM endpoints, cloud buckets, secrets, JS endpoint extraction, and more. Outputs JSON, HTML report, or interactive menu.</p>
+<pre><code>fray recon https://target.com --deep   # Full depth with subdomain brute-force</code></pre>
+
+<h3><code>fray test --smart</code> — Vulnerability Testing</h3>
+<p>Reads recon findings and selects the right payloads automatically. Six deep modules: <code>XSSScanner</code>, <code>SQLiInjector</code>, <code>CMDiScanner</code>, <code>CachePoisonScanner</code>, <code>MassAssignScanner</code>, <code>DeserScanner</code>.</p>
+<pre><code>fray test https://target.com --smart -c xss   # Context-aware XSS testing</code></pre>
+
+<h3><code>fray detect</code> — WAF Fingerprinting</h3>
+<p>Identifies 98 WAF/CDN vendors via headers, CNAME records, cookies, and response signatures.</p>
+<pre><code>fray detect https://target.com --json</code></pre>
+
+<h3><code>fray report</code> — Reporting</h3>
+<p>Generate HTML or Markdown reports from scan results. Unified v11 dark theme across all report types.</p>
+<pre><code>fray report --company example.com -o report.md</code></pre>
+
+<p><a href="docs/quickstart.md">All commands →</a> · <a href="docs/scanning-guide.md">Scan guide →</a></p>
+
+<hr>
+
+<!-- ===== AUTH & STEALTH ===== -->
+<h2>Auth &amp; Stealth</h2>
+
+<pre><code>fray test https://target.com --cookie "session=abc123"     # Cookie auth
+fray test https://target.com --bearer eyJhbG...             # Bearer token
+fray test https://target.com --stealth -d 0.5               # Randomized UA + jitter
+fray recon https://target.com --scope scope.txt             # In-scope enforcement</code></pre>
+
+<p>Session profiles, OAuth2 client credentials, and multi-step form login are supported. <a href="docs/authentication-guide.md">Auth guide →</a></p>
+
+<hr>
+
+<!-- ===== CI/CD ===== -->
+<h2>CI/CD</h2>
+
+<pre><code># .github/workflows/waf.yml
+- uses: dalisecurity/fray@v1
+  with:
+    target: https://staging.example.com
+    categories: xss,sqli</code></pre>
+
+<p>Fray exits non-zero on bypass findings, integrates with GitHub Security tab via SARIF, and supports <code>--json</code> for pipeline consumption. <a href="docs/github-action-guide.md">CI/CD guide →</a></p>
+
+<hr>
+
+<!-- ===== PAYLOAD COVERAGE ===== -->
+<h2>Payload Coverage</h2>
+
+<p>4,300+ payloads across 23 categories, 175 CVEs (2020-2026):</p>
+
+<table>
+  <thead>
+    <tr><th>Category</th><th>Count</th><th>Category</th><th>Count</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>XSS</td><td>1,209</td><td>SSRF</td><td>122</td></tr>
+    <tr><td>SQL Injection</td><td>248</td><td>SSTI</td><td>122</td></tr>
+    <tr><td>Command Injection</td><td>200</td><td>XXE</td><td>84</td></tr>
+    <tr><td>AI/LLM Prompt Injection</td><td>370</td><td>Path Traversal</td><td>109</td></tr>
+    <tr><td>Modern Bypasses</td><td>137</td><td>CSP Bypass</td><td>104</td></tr>
+    <tr><td>API Security</td><td>130</td><td>Prototype Pollution</td><td>110</td></tr>
+  </tbody>
+</table>
+
+<p><a href="docs/payload-database-coverage.md">Full payload database →</a> · <a href="docs/cve-real-world-bypasses.md">CVE coverage →</a></p>
+
+<hr>
+
+<!-- ===== MCP SERVER ===== -->
+<h2>MCP Server — AI Agent Integration</h2>
+
+<p>Fray exposes 14 tools via <a href="https://modelcontextprotocol.io/">MCP</a> for Claude, ChatGPT, Cursor, and other AI clients.</p>
+
+<pre><code>pip install 'fray[mcp]'</code></pre>
+
+<pre><code>{ "mcpServers": { "fray": { "command": "python", "args": ["-m", "fray.mcp_server"] } } }</code></pre>
+
+<p>Ask <em>"What XSS payloads bypass Cloudflare?"</em> and Fray's tools (<code>suggest_payloads_for_waf</code>, <code>generate_bypass_strategy</code>, <code>search_payloads</code>, <code>analyze_response</code>, <code>hardening_check</code>, <a href="docs/claude-code-guide.md">+9 more</a>) are called directly.</p>
+
+<p><a href="docs/claude-code-guide.md">Claude Code guide →</a> · <a href="docs/chatgpt-guide.md">ChatGPT guide →</a></p>
+
+<hr>
+
+<!-- ===== VS CODE ===== -->
+<h2>VS Code Extension</h2>
+
+<p>
+  <a href="https://marketplace.visualstudio.com/items?itemName=DaliSecurity.fray-security">
+    <img src="https://img.shields.io/badge/Install-VS%20Code%20Marketplace-007ACC?logo=visualstudiocode" alt="Install">
+  </a>
+</p>
+
+<p>11 commands, right-click scan, inline diagnostics, HTML report panel (<code>Cmd+Shift+R</code>), activity bar sidebar. <a href="vscode-fray/README.md">Extension docs →</a></p>
+
+<hr>
+
+<!-- ===== BUILT WITH FRAY ===== -->
+<h2>Built with Fray</h2>
+
+<p>Real-world security research powered by Fray:</p>
+
+<ul>
+  <li><strong><a href="https://dalisec.io/research/blog-nikkei225-dns-audit.html">Nikkei 225 DNS Security Audit</a></strong> — DNS infrastructure analysis of all 225 companies in Japan's premier stock index</li>
+  <li><strong><a href="https://dalisec.io/research/blog-nikkei225-recon.html">Nikkei 225 Recon</a></strong> — Attack surface reconnaissance across Japan's largest enterprises</li>
+  <li><strong><a href="https://dalisec.io/research/">HackerOne Disclosed Vulnerabilities</a></strong> — Subdomain takeovers at Takeda, Toyota, NEC, ROHM, and Recruit</li>
+</ul>
+
+<hr>
+
+<!-- ===== COMMUNITY ===== -->
+<h2>Community</h2>
+
+<p><strong>Have a question? Found a bug? Want to contribute?</strong></p>
+
+<ul>
+  <li><strong><a href="https://github.com/dalisecurity/fray/discussions">Discussions</a></strong> — ask questions, share ideas, show what you built</li>
+  <li><strong><a href="https://github.com/dalisecurity/fray/issues">Issues</a></strong> — bug reports and feature requests</li>
+  <li><strong><a href="CONTRIBUTING.md">Contributing</a></strong> — PRs welcome. For AI coding agents, see <a href="AGENTS.md">AGENTS.md</a></li>
+</ul>
+
+<hr>
+
+<!-- ===== LEGAL ===== -->
+<h2>Legal</h2>
+
+<p><strong>MIT License</strong> — See <a href="LICENSE">LICENSE</a>. Only test systems you own or have explicit authorization to test.</p>
+
+<p><strong>Security issues:</strong> soc@dalisec.io · <a href="SECURITY.md">SECURITY.md</a></p>
+
+<div class="center" style="margin-top:32px; padding:24px 0; border-top:1px solid #21262d;">
+  <p><strong><a href="https://dalisec.io/">dalisec.io</a></strong> · Built by hunters. For defenders.</p>
+</div>
+
+</body>
+</html>

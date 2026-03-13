@@ -1,19 +1,99 @@
-# Fray — WAF Bypass & Security Testing Toolkit
+<div align="center">
 
-**🌐 Language:** **English** | [日本語](README.ja.md)
+# Fray
 
-### ⚔️ *Open-source WAF bypass toolkit — recon, scan, bypass, harden. Zero dependencies.*
+### Vibe security — just point and scan.
+
+Open-source security testing that figures out the rest.<br>
+One command. Full pipeline. Zero config.
+
+```
+pip install fray && fray go target.com
+```
 
 [![PyPI](https://img.shields.io/pypi/v/fray.svg)](https://pypi.org/project/fray/)
+[![Downloads](https://img.shields.io/pypi/dm/fray?color=6366f1)](https://pypi.org/project/fray/)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/DaliSecurity.fray-security?label=VS%20Code&logo=visualstudiocode)](https://marketplace.visualstudio.com/items?itemName=DaliSecurity.fray-security)
-[![Docs](https://img.shields.io/badge/Docs-dalisec.io-6366f1)](https://dalisec.io/docs/)
+[![Payloads](https://img.shields.io/badge/Payloads-5%2C600+-red)](docs/payload-database-coverage.md)
+[![WAFs](https://img.shields.io/badge/WAFs-98_vendors-orange)](docs/quickstart.md)
+[![Checks](https://img.shields.io/badge/Recon-35%2B_checks-green)](docs/quickstart.md)
+[![VS Code](https://img.shields.io/visual-studio-marketplace/v/DaliSecurity.fray-security?label=VS%20Code&logo=visualstudiocode)](https://marketplace.visualstudio.com/items?itemName=DaliSecurity.fray-security)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/dalisecurity/fray?style=social)](https://github.com/dalisecurity/fray/stargazers)
 
+**[Documentation](https://dalisec.io/docs/)** · **[Quick Start](#quick-start)** · **[Discussions](https://github.com/dalisecurity/fray/discussions)** · **[dalisec.io](https://dalisec.io/fray/)**
+
+**🌐** **English** | [日本語](README.ja.md)
+
+</div>
+
+---
+
 > **FOR AUTHORIZED SECURITY TESTING ONLY** — Only test systems you own or have explicit written permission to test.
 
-Fray is the missing link between [wafw00f](https://github.com/EnableSecurity/wafw00f) (detection) and [sqlmap](https://github.com/sqlmapproject/sqlmap) (exploitation) — a complete **recon → bypass → harden** pipeline in one `pip install`.
+<p align="center">
+  <img src="docs/demo.gif" alt="fray go — full security audit in one command" width="720">
+</p>
+
+## Why Vibe Security?
+
+Security testing used to mean installing five tools, learning each one's flags, writing config files, and manually correlating results. That's not how it should work.
+
+**Vibe security is the idea that security testing should be as easy as vibe coding made development** — describe what you want, and the tool handles the rest. Fray embodies this:
+
+- **One command does everything** — `fray go` runs recon, finds vulnerabilities, tests them, and generates a report. Zero config.
+- **You don't need to be a security expert** — Fray picks the right checks and payloads based on what it discovers about your target.
+- **AI-native** — built-in MCP server for Claude, ChatGPT, and Cursor. Ask questions in natural language, get security answers.
+- **Smart, not noisy** — adaptive cache learns across scans. Blocked payloads are never re-sent. Each run gets smarter.
+
+### Before Fray vs. With Fray
+
+| Traditional Security Testing | Vibe Security with Fray |
+|---|---|
+| Install 5+ tools (nmap, wafw00f, sqlmap, nikto, nuclei) | `pip install fray` |
+| Learn each tool's flags and config formats | `fray go target.com` |
+| Manually correlate findings across tools | Automatic pipeline: recon → test → report |
+| Write custom scripts to chain tools together | Built-in: 35 checks, 6 deep scan modules, 5,600+ payloads |
+| Read hundreds of pages of documentation | Zero config — smart defaults, interactive menus |
+| Security expertise required | Built for anyone who ships web apps |
+
+---
+
+## Quick Start
+
+```bash
+pip install fray
+```
+
+**The only command you need:**
+
+```bash
+fray go https://target.com        # Full pipeline: recon → vuln test → report
+```
+
+That's it. Fray scans your target, identifies the tech stack and WAF, finds vulnerabilities, tests them, and generates an HTML report — all automatically.
+
+**Want more control?** Use individual commands:
+
+```bash
+fray recon https://target.com          # 35-check reconnaissance
+fray test https://target.com --smart   # Smart payload selection from recon findings
+fray detect https://target.com         # Fingerprint WAF/CDN vendor (98 vendors)
+fray fuzz https://target.com/FUZZ      # Content discovery (ffuf-like)
+fray harden https://target.com         # OWASP hardening audit (A-F grade)
+```
+
+---
+
+## Who is Fray for?
+
+- **Developers & founders** — shipping a web app? Run `fray go` before launch. Done.
+- **Bug bounty hunters** — 5,600+ payloads, WAF bypass intelligence, adaptive learning.
+- **Pentesters** — full recon pipeline, 6 deep scan modules, stealth mode, auth support.
+- **DevSecOps** — GitHub Action, CI/CD integration, SARIF output, `--json` for pipelines.
+- **Security teams** — MCP server for AI agents, VS Code extension, batch scanning.
+
+---
 
 ## What's New
 
@@ -29,37 +109,17 @@ Fray is the missing link between [wafw00f](https://github.com/EnableSecurity/waf
 
 ---
 
-## Why Fray?
-
-- **All-in-one** — recon, scan, bypass, harden, fuzz, and report in a single tool
-- **Smart, not noisy** — adaptive cache learns across domains; blocked payloads are never re-sent
-- **Zero dependencies** — pure Python stdlib; `pip install fray` and go
-- **4,000+ payloads** — 23 categories, 175 CVEs, continuously updated from live threat feeds
-
----
-
-## Quick Start
-
-```bash
-pip install fray
-```
-
-```bash
-fray recon https://target.com          # 35-check reconnaissance
-fray test https://target.com --smart   # Smart payload selection from recon findings
-fray detect https://target.com         # Fingerprint WAF/CDN vendor (98 vendors)
-fray auto https://target.com           # Full pipeline: recon → scan → bypass
-fray fuzz https://target.com/FUZZ      # Content discovery (ffuf-like)
-fray harden https://target.com         # OWASP hardening audit (A-F grade)
-```
-
-<p align="center">
-  <img src="docs/demo.gif" alt="Fray demo — WAF detection and XSS bypass" width="720">
-</p>
-
----
-
 ## Core Commands
+
+### `fray go` — Full Pipeline
+
+The hero command. Runs everything automatically: reconnaissance → vulnerability testing → report generation.
+
+```bash
+fray go https://target.com              # Automatic full pipeline
+fray go https://target.com --deep       # Deep mode with subdomain brute-force
+fray go https://target.com --stealth    # Rate-limited, randomized UA
+```
 
 ### `fray recon` — Reconnaissance
 
@@ -126,16 +186,16 @@ Fray exits non-zero on bypass findings, integrates with GitHub Security tab via 
 
 ## Payload Coverage
 
-4,000+ payloads across 23 categories, 175 CVEs (2020-2026):
+5,600+ payloads across 24 categories, 175 CVEs (2020-2026):
 
 | Category | Count | Category | Count |
 |----------|-------|----------|-------|
-| XSS | 1,209 | SSRF | 122 |
-| SQL Injection | 248 | SSTI | 122 |
-| Command Injection | 200 | XXE | 84 |
-| AI/LLM Prompt Injection | 370 | Path Traversal | 109 |
-| Modern Bypasses | 137 | CSP Bypass | 104 |
-| API Security | 130 | Prototype Pollution | 110 |
+| Web Shells | 944 | AI/LLM Prompt Injection | 370 |
+| WordPress | 914 | Path Traversal | 241 |
+| XSS | 807 | SSTI | 166 |
+| LLM Testing | 650 | SQL Injection | 141 |
+| Modern Bypasses | 137 | XXE | 127 |
+| Command Injection | 118 | SSRF | 71 |
 
 [Full payload database →](docs/payload-database-coverage.md) · [CVE coverage →](docs/cve-real-world-bypasses.md)
 
@@ -167,18 +227,36 @@ Ask *"What XSS payloads bypass Cloudflare?"* and Fray's tools (`suggest_payloads
 
 ---
 
-## Docs & Links
+## Built with Fray
 
-**[📖 Documentation](docs/)** · **[Quickstart](docs/quickstart.md)** · **[PyPI](https://pypi.org/project/fray/)** · **[Issues](https://github.com/dalisecurity/fray/issues)** · **[Discussions](https://github.com/dalisecurity/fray/discussions)**
+Real-world security research powered by Fray:
 
-## Contributing
+- **[Nikkei 225 DNS Security Audit](https://dalisec.io/research/blog-nikkei225-dns-audit.html)** — DNS infrastructure analysis of all 225 companies in Japan's premier stock index
+- **[Nikkei 225 Recon](https://dalisec.io/research/blog-nikkei225-recon.html)** — Attack surface reconnaissance across Japan's largest enterprises
+- **[HackerOne Disclosed Vulnerabilities](https://dalisec.io/research/)** — Subdomain takeovers at Takeda, Toyota, NEC, ROHM, and Recruit
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). For AI coding agents, see [AGENTS.md](AGENTS.md).
+---
+
+## Community
+
+**Have a question? Found a bug? Want to contribute?**
+
+- **[Discussions](https://github.com/dalisecurity/fray/discussions)** — ask questions, share ideas, show what you built
+- **[Issues](https://github.com/dalisecurity/fray/issues)** — bug reports and feature requests
+- **[Contributing](CONTRIBUTING.md)** — PRs welcome. For AI coding agents, see [AGENTS.md](AGENTS.md)
+
+---
 
 ## Legal
 
 **MIT License** — See [LICENSE](LICENSE). Only test systems you own or have explicit authorization to test.
 
 **Security issues:** soc@dalisec.io · [SECURITY.md](SECURITY.md)
+
+<div align="center">
+
+**[dalisec.io](https://dalisec.io/)** · Built by hunters. For defenders.
+
+</div>
 
 <!-- mcp-name: io.github.dalisecurity/fray -->

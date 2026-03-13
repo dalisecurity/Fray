@@ -1,0 +1,1501 @@
+{
+  "target": "https://example.com",
+  "host": "example.com",
+  "timestamp": "2026-03-13T14:55:31.314333+00:00",
+  "mode": "default",
+  "stealth": false,
+  "authenticated": false,
+  "http": {
+    "port_80_open": true,
+    "redirects_to_https": false,
+    "http_status": 200
+  },
+  "tls": {
+    "tls_version": "TLSv1.3",
+    "cipher": "TLS_AES_256_GCM_SHA384",
+    "cipher_bits": 256,
+    "cert_subject": "example.com",
+    "cert_issuer": "Cloudflare, Inc, Cloudflare Corporate Zero Trust",
+    "cert_expiry": "2026-05-20T14:13:51+00:00",
+    "cert_expired": false,
+    "cert_days_remaining": 67,
+    "supports_tls_1_0": false,
+    "supports_tls_1_1": false,
+    "error": null
+  },
+  "headers": {
+    "present": {},
+    "missing": {
+      "HSTS": {
+        "description": "HTTP Strict Transport Security",
+        "severity": "high"
+      },
+      "CSP": {
+        "description": "Content Security Policy",
+        "severity": "high"
+      },
+      "X-Frame-Options": {
+        "description": "Clickjacking protection",
+        "severity": "medium"
+      },
+      "X-Content-Type-Options": {
+        "description": "MIME type sniffing prevention",
+        "severity": "medium"
+      },
+      "X-XSS-Protection": {
+        "description": "Browser XSS filter (legacy)",
+        "severity": "low"
+      },
+      "Referrer-Policy": {
+        "description": "Controls referrer information",
+        "severity": "low"
+      },
+      "Permissions-Policy": {
+        "description": "Browser feature permissions",
+        "severity": "low"
+      },
+      "COOP": {
+        "description": "Cross-Origin Opener Policy",
+        "severity": "low"
+      },
+      "CORP": {
+        "description": "Cross-Origin Resource Policy",
+        "severity": "low"
+      }
+    },
+    "score": 0,
+    "fix_snippets": {
+      "nginx": "# nginx — add to server {} block\nadd_header Strict-Transport-Security \"max-age=31536000; includeSubDomains; preload\" always;\nadd_header Content-Security-Policy \"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none';\" always;\nadd_header X-Frame-Options \"DENY\" always;\nadd_header X-Content-Type-Options \"nosniff\" always;\nadd_header X-XSS-Protection \"0\" always;\nadd_header Referrer-Policy \"strict-origin-when-cross-origin\" always;\nadd_header Permissions-Policy \"camera=(), microphone=(), geolocation=(), interest-cohort=()\" always;\nadd_header Cross-Origin-Opener-Policy \"same-origin\" always;\nadd_header Cross-Origin-Resource-Policy \"same-origin\" always;",
+      "apache": "# Apache — add to .htaccess or <VirtualHost>\nHeader always set Strict-Transport-Security \"max-age=31536000; includeSubDomains; preload\"\nHeader always set Content-Security-Policy \"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none';\"\nHeader always set X-Frame-Options \"DENY\"\nHeader always set X-Content-Type-Options \"nosniff\"\nHeader always set X-XSS-Protection \"0\"\nHeader always set Referrer-Policy \"strict-origin-when-cross-origin\"\nHeader always set Permissions-Policy \"camera=(), microphone=(), geolocation=(), interest-cohort=()\"\nHeader always set Cross-Origin-Opener-Policy \"same-origin\"\nHeader always set Cross-Origin-Resource-Policy \"same-origin\"",
+      "cloudflare_worker": "// Cloudflare Worker — add to fetch handler\n  response.headers.set(\"Strict-Transport-Security\", \"max-age=31536000; includeSubDomains; preload\");\n  response.headers.set(\"Content-Security-Policy\", \"default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none';\");\n  response.headers.set(\"X-Frame-Options\", \"DENY\");\n  response.headers.set(\"X-Content-Type-Options\", \"nosniff\");\n  response.headers.set(\"X-XSS-Protection\", \"0\");\n  response.headers.set(\"Referrer-Policy\", \"strict-origin-when-cross-origin\");\n  response.headers.set(\"Permissions-Policy\", \"camera=(), microphone=(), geolocation=()\");\n  response.headers.set(\"Cross-Origin-Opener-Policy\", \"same-origin\");\n  response.headers.set(\"Cross-Origin-Resource-Policy\", \"same-origin\");",
+      "nextjs": "// next.config.js — headers()\nasync headers() {\n  return [{\n    source: '/(.*)',\n    headers: [\n          { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains; preload' },\n          { key: 'Content-Security-Policy', value: \"default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none';\" },\n          { key: 'X-Frame-Options', value: 'DENY' },\n          { key: 'X-Content-Type-Options', value: 'nosniff' },\n          { key: 'X-XSS-Protection', value: '0' },\n          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },\n          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },\n          { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },\n          { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },\n    ],\n  }];\n}"
+    }
+  },
+  "csp": {
+    "present": false,
+    "report_only": false,
+    "score": 0,
+    "weaknesses": [
+      {
+        "id": "no-csp",
+        "severity": "critical",
+        "directive": "(none)",
+        "description": "No Content-Security-Policy header — all inline scripts execute freely"
+      }
+    ],
+    "bypass_techniques": [
+      "inline_script",
+      "dangling_markup",
+      "jsonp_callback",
+      "base_injection"
+    ],
+    "recommendations": [
+      "Add a Content-Security-Policy header"
+    ]
+  },
+  "cookies": {
+    "cookies": [],
+    "issues": [],
+    "score": 100
+  },
+  "fingerprint": {
+    "technologies": {
+      "Cloudflare": {
+        "category": "CDN",
+        "confidence": 90
+      },
+      "TLSv1.3": {
+        "category": "TLS",
+        "confidence": 95
+      },
+      "TLS_AES_256_GCM_SHA384": {
+        "category": "Cipher Suite",
+        "confidence": 95
+      },
+      "Cloudflare, Inc, Cloudflare Corporate Zero Trust": {
+        "category": "Certificate Authority",
+        "confidence": 85
+      }
+    },
+    "primary": "cloudflare",
+    "all": [
+      "cloudflare"
+    ]
+  },
+  "dns": {
+    "a": [
+      "104.18.26.120",
+      "104.18.27.120"
+    ],
+    "aaaa": [
+      "2606:4700::6812:1a78",
+      "2606:4700::6812:1b78"
+    ],
+    "cname": [],
+    "mx": [
+      "0 "
+    ],
+    "txt": [
+      "\"v=spf1 -all\"",
+      "\"_k2n1y4vw3qtb4skdx9e7dxt97qrmmq9\""
+    ],
+    "ns": [
+      "hera.ns.cloudflare.com",
+      "elliott.ns.cloudflare.com"
+    ],
+    "cdn_detected": "cloudflare",
+    "has_spf": true,
+    "spf": "v=spf1 -all",
+    "has_dmarc": true,
+    "dmarc": "v=DMARC1;p=reject;sp=reject;adkim=s;aspf=s",
+    "email_providers": []
+  },
+  "robots": {
+    "robots_txt": false,
+    "disallowed_paths": [],
+    "sitemaps": [],
+    "interesting_paths": [],
+    "sitemap_urls": [],
+    "sitemap_url_count": 0
+  },
+  "cors": {
+    "cors_enabled": false,
+    "allow_origin": null,
+    "allow_credentials": false,
+    "misconfigured": false,
+    "issues": []
+  },
+  "exposed_files": {
+    "exposed": [],
+    "checked": 28
+  },
+  "http_methods": {
+    "allowed_methods": [
+      "CONNECT"
+    ],
+    "dangerous_methods": [
+      "CONNECT"
+    ],
+    "options_status": 405,
+    "probed_methods": {
+      "CONNECT": 400,
+      "DELETE": 405,
+      "PATCH": 405,
+      "PUT": 405,
+      "TRACE": 405
+    },
+    "issues": []
+  },
+  "error_page": {
+    "status": 404,
+    "server_header": "cloudflare",
+    "framework_hints": [],
+    "version_leaks": [],
+    "stack_trace": false
+  },
+  "subdomains": {
+    "subdomains": [
+      "20mail2.example.com",
+      "dev.example.com",
+      "m.example.com",
+      "m.testexample.com",
+      "products.example.com",
+      "support.example.com",
+      "www.example.com"
+    ],
+    "count": 7,
+    "sources": {
+      "hackertarget": 1,
+      "rapiddns": 2,
+      "crt.sh": 6,
+      "urlscan": 1,
+      "dns_brute": 0,
+      "cache": 7
+    },
+    "error": null,
+    "passive_count": 7,
+    "active_count": 0,
+    "cached_count": 7
+  },
+  "recommended_categories": [
+    "csp_bypass",
+    "modern_bypasses",
+    "prototype_pollution",
+    "ssti"
+  ],
+  "page_status": 200,
+  "page_headers": {
+    "date": "Fri, 13 Mar 2026 14:55:31 GMT",
+    "content-type": "text/html",
+    "transfer-encoding": "chunked",
+    "connection": "close",
+    "cf-ray": "9dbbe14f0e586bd5-SIN",
+    "last-modified": "Wed, 11 Mar 2026 19:06:45 GMT",
+    "allow": "GET, HEAD",
+    "age": "336",
+    "cf-cache-status": "HIT",
+    "accept-ranges": "bytes",
+    "vary": "Accept-Encoding",
+    "server": "cloudflare",
+    "server-timing": "cfReqDur;dur=51.264",
+    "cf-team": "2d894b25590000501813974400000001"
+  },
+  "tls_grade": {
+    "grade": "A+",
+    "score": 100,
+    "issues": [],
+    "strengths": [
+      "TLS 1.3 negotiated",
+      "Strong cipher: TLS_AES_256_GCM_SHA384 (256-bit)",
+      "Forward secrecy (TLS 1.3 — always PFS)",
+      "AEAD cipher mode (GCM/ChaCha20)"
+    ]
+  },
+  "clickjacking": {
+    "vulnerable": true,
+    "severity": "high",
+    "x_frame_options": {
+      "present": false,
+      "value": null,
+      "valid": false
+    },
+    "frame_ancestors": {
+      "present": false,
+      "value": null,
+      "valid": false
+    },
+    "protections": [],
+    "issues": [
+      "No clickjacking protection — page can be framed by any origin"
+    ],
+    "recommendation": "Add both: X-Frame-Options: DENY and CSP frame-ancestors 'none'"
+  },
+  "captcha": {
+    "detected": false,
+    "providers": [],
+    "challenge_on_load": false
+  },
+  "frontend_libs": {
+    "libraries": [],
+    "vulnerabilities": [],
+    "total_libs": 0,
+    "vulnerable_libs": 0,
+    "sri_present": 0,
+    "sri_missing": 0,
+    "sri_issues": []
+  },
+  "bot_protection": {
+    "vendors": [],
+    "captcha": [],
+    "bot_management": [],
+    "fingerprinting": [],
+    "rate_limiting": [],
+    "js_challenge": false,
+    "summary": "No bot protection detected",
+    "protections": []
+  },
+  "secrets": {
+    "findings": [],
+    "total": 0,
+    "has_critical": false
+  },
+  "jwt_analysis": {
+    "tokens_found": 0,
+    "vulnerable_tokens": [],
+    "total_issues": 0
+  },
+  "favicon": {
+    "found": false,
+    "md5": null,
+    "mmh3": null,
+    "size": 0,
+    "technology": null,
+    "shodan_query": null
+  },
+  "params": {
+    "params": [],
+    "pages_crawled": 1,
+    "total_params": 0,
+    "forms_found": 0,
+    "js_endpoints": 0,
+    "sources": {
+      "query": 0,
+      "form": 0,
+      "js": 0
+    }
+  },
+  "api_discovery": {
+    "endpoints_found": [],
+    "specs_found": [],
+    "total": 0,
+    "has_spec": false
+  },
+  "host_header_injection": {
+    "vulnerable_headers": [],
+    "reflected": false,
+    "details": []
+  },
+  "vdp": {
+    "found": false,
+    "url": "",
+    "contacts": [],
+    "policy": "",
+    "expires": "",
+    "hiring": "",
+    "encryption": "",
+    "preferred_languages": [],
+    "acknowledgments": "",
+    "canonical": "",
+    "signed": false,
+    "raw_length": 0,
+    "issues": []
+  },
+  "historical_urls": {
+    "urls": [],
+    "total": 0,
+    "interesting": 0,
+    "sources": {
+      "wayback": 0,
+      "sitemap": 0,
+      "robots": 0
+    },
+    "errors": []
+  },
+  "admin_panels": {
+    "panels_found": [],
+    "total": 0,
+    "vendors": {},
+    "vendor_list": []
+  },
+  "auth_endpoints": {
+    "endpoints": [],
+    "total": 0,
+    "categories": {},
+    "has_login": false,
+    "has_registration": false,
+    "has_oauth": false,
+    "has_mfa": false,
+    "has_sso": false
+  },
+  "port_scan": {
+    "open": [
+      {
+        "port": 80,
+        "service": "HTTP",
+        "state": "open",
+        "banner": null
+      },
+      {
+        "port": 443,
+        "service": "HTTPS",
+        "state": "open",
+        "banner": null
+      },
+      {
+        "port": 2082,
+        "service": "cPanel",
+        "state": "open",
+        "banner": null
+      },
+      {
+        "port": 2083,
+        "service": "cPanel SSL",
+        "state": "open",
+        "banner": null
+      },
+      {
+        "port": 2086,
+        "service": "WHM",
+        "state": "open",
+        "banner": null
+      },
+      {
+        "port": 2087,
+        "service": "WHM SSL",
+        "state": "open",
+        "banner": null
+      },
+      {
+        "port": 8080,
+        "service": "HTTP Proxy",
+        "state": "open",
+        "banner": null
+      },
+      {
+        "port": 8443,
+        "service": "HTTPS Alt",
+        "state": "open",
+        "banner": null
+      }
+    ],
+    "open_count": 8,
+    "closed": 0,
+    "filtered": 25,
+    "total_scanned": 33,
+    "risky_ports": []
+  },
+  "rate_limits": {
+    "threshold_rps": null,
+    "burst_limit": null,
+    "retry_after_policy": null,
+    "rate_limit_headers": {},
+    "lockout_duration": null,
+    "recommended_delay": 0.2,
+    "detection_type": "none",
+    "error": null
+  },
+  "graphql": {
+    "endpoints_found": [],
+    "introspection_enabled": [],
+    "types_found": [],
+    "total_types": 0,
+    "total_fields": 0
+  },
+  "js_endpoints": {
+    "total_endpoints": 1,
+    "api_endpoints": [],
+    "internal_paths": [],
+    "external_urls": [
+      "https://iana.org/domains/example"
+    ],
+    "websocket_urls": [],
+    "file_upload_forms": [],
+    "js_files_analyzed": 0,
+    "has_websockets": false,
+    "has_file_upload": false
+  },
+  "source_maps": {
+    "exposed": [],
+    "total": 0,
+    "severity": "info",
+    "description": ""
+  },
+  "cloud_buckets": {
+    "buckets": [
+      {
+        "name": "example-media",
+        "provider": "aws_s3",
+        "url": "https://example-media.s3.amazonaws.com",
+        "status": 403,
+        "exists": true,
+        "public_read": false,
+        "severity": "info"
+      },
+      {
+        "name": "example-static",
+        "provider": "aws_s3",
+        "url": "https://s3.amazonaws.com/example-static",
+        "status": 403,
+        "exists": true,
+        "public_read": false,
+        "severity": "info"
+      },
+      {
+        "name": "example",
+        "provider": "aws_s3",
+        "url": "https://s3.amazonaws.com/example",
+        "status": 403,
+        "exists": true,
+        "public_read": false,
+        "severity": "info"
+      },
+      {
+        "name": "example",
+        "provider": "aws_s3",
+        "url": "https://example.s3.amazonaws.com",
+        "status": 403,
+        "exists": true,
+        "public_read": false,
+        "severity": "info"
+      },
+      {
+        "name": "example-static",
+        "provider": "aws_s3",
+        "url": "https://example-static.s3.amazonaws.com",
+        "status": 403,
+        "exists": true,
+        "public_read": false,
+        "severity": "info"
+      },
+      {
+        "name": "example-data",
+        "provider": "aws_s3",
+        "url": "https://example-data.s3.amazonaws.com",
+        "status": 403,
+        "exists": true,
+        "public_read": false,
+        "severity": "info"
+      },
+      {
+        "name": "example-backup",
+        "provider": "aws_s3",
+        "url": "https://example-backup.s3.amazonaws.com",
+        "status": 403,
+        "exists": true,
+        "public_read": false,
+        "severity": "info"
+      },
+      {
+        "name": "example-uploads",
+        "provider": "aws_s3",
+        "url": "https://example-uploads.s3.amazonaws.com",
+        "status": 403,
+        "exists": true,
+        "public_read": false,
+        "severity": "info"
+      },
+      {
+        "name": "example-staging",
+        "provider": "aws_s3",
+        "url": "https://example-staging.s3.amazonaws.com",
+        "status": 403,
+        "exists": true,
+        "public_read": false,
+        "severity": "info"
+      },
+      {
+        "name": "example-staging",
+        "provider": "aws_s3",
+        "url": "https://s3.amazonaws.com/example-staging",
+        "status": 403,
+        "exists": true,
+        "public_read": false,
+        "severity": "info"
+      },
+      {
+        "name": "example",
+        "provider": "gcs",
+        "url": "https://storage.googleapis.com/example",
+        "status": 403,
+        "exists": true,
+        "public_read": false,
+        "severity": "info"
+      },
+      {
+        "name": "example",
+        "provider": "gcs",
+        "url": "https://example.storage.googleapis.com",
+        "status": 403,
+        "exists": true,
+        "public_read": false,
+        "severity": "info"
+      },
+      {
+        "name": "example-public",
+        "provider": "gcs",
+        "url": "https://storage.googleapis.com/example-public",
+        "status": 403,
+        "exists": true,
+        "public_read": false,
+        "severity": "info"
+      },
+      {
+        "name": "example-public",
+        "provider": "gcs",
+        "url": "https://example-public.storage.googleapis.com",
+        "status": 403,
+        "exists": true,
+        "public_read": false,
+        "severity": "info"
+      }
+    ],
+    "total_found": 14,
+    "public_buckets": [],
+    "total_public": 0,
+    "providers_checked": [
+      "aws_s3",
+      "azure_blob",
+      "gcs"
+    ],
+    "severity": "info"
+  },
+  "api_security": {
+    "specs_found": [],
+    "api_endpoints": [],
+    "rate_limiting": {
+      "detected": false,
+      "headers": {}
+    },
+    "authentication": {
+      "detected": false,
+      "endpoints": {}
+    },
+    "api_gateway": {
+      "detected": false,
+      "vendors": [],
+      "headers": {}
+    },
+    "total_specs": 0,
+    "total_endpoints_probed": 27,
+    "total_endpoints_found": 0,
+    "severity": "info",
+    "summary": "0 API spec/doc(s) exposed, 0 auth-protected endpoint(s), no rate limiting detected, gateway: none detected"
+  },
+  "vpn_endpoints": {
+    "vpn_endpoints": [],
+    "total_found": 0,
+    "paths_probed": 28,
+    "products": [],
+    "cve_findings": [],
+    "verified_cves": [],
+    "potential_cves": [],
+    "max_cvss": 0.0,
+    "has_critical_cves": false,
+    "severity": "info",
+    "summary": "No VPN endpoints detected"
+  },
+  "dnssec": {
+    "enabled": true,
+    "validated": false,
+    "has_dnskey": true,
+    "has_rrsig": false,
+    "ds_records": [
+      "2371 13 2 C988EC423E3880EB8DD8A46FE06CA230EE23F35B578D64E78B29C3E1 C83D245A"
+    ],
+    "nsec_type": null
+  },
+  "zone_transfer": {
+    "vulnerable": false,
+    "ns_tested": [
+      "hera.ns.cloudflare.com",
+      "elliott.ns.cloudflare.com"
+    ],
+    "ns_vulnerable": [],
+    "records_leaked": 0,
+    "sample_records": []
+  },
+  "wildcard_dns": {
+    "wildcard": false,
+    "wildcard_ips": [],
+    "tested": 3
+  },
+  "dns_rebinding": {
+    "vulnerable": false,
+    "private_ips": [],
+    "all_ips": [
+      "2606:4700::6812:1b78",
+      "2606:4700::6812:1a78",
+      "104.18.26.120",
+      "104.18.27.120"
+    ]
+  },
+  "subdomains_active": {
+    "discovered": [],
+    "waf_bypass": [],
+    "count": 0,
+    "waf_bypass_count": 0,
+    "wordlist_size": 159,
+    "parent_cdn": "cloudflare",
+    "parent_ips": [
+      "104.18.26.120",
+      "104.18.27.120"
+    ]
+  },
+  "origin_ip": {
+    "origin_ips": [],
+    "candidates": [],
+    "verified": [],
+    "parent_cdn": "cloudflare",
+    "techniques_used": [
+      "mx_records",
+      "spf_record",
+      "certificate_san",
+      "mail_subdomains",
+      "securitytrails_history"
+    ],
+    "origin_exposed": false
+  },
+  "rate_limits_critical": {
+    "paths_checked": 16,
+    "rate_limited_paths": [],
+    "headers_by_path": {},
+    "most_restrictive": null,
+    "summary": "No rate limiting detected on critical paths"
+  },
+  "ai_endpoints": {
+    "endpoints": [],
+    "ai_headers": {},
+    "port_scan": [
+      {
+        "ip": "example.com",
+        "port": 8080,
+        "service": "localai",
+        "status": "open",
+        "detail": "Port open, no HTTP response"
+      },
+      {
+        "ip": "example.com",
+        "port": 8080,
+        "service": "localai",
+        "status": "open",
+        "detail": "Port open, no HTTP response"
+      }
+    ],
+    "open_ports": [
+      {
+        "ip": "example.com",
+        "port": 8080,
+        "service": "localai",
+        "status": "open",
+        "detail": "Port open, no HTTP response"
+      },
+      {
+        "ip": "example.com",
+        "port": 8080,
+        "service": "localai",
+        "status": "open",
+        "detail": "Port open, no HTTP response"
+      }
+    ],
+    "confirmed_ports": [],
+    "technologies": [],
+    "total_probed": 88,
+    "total_found": 0,
+    "total_confirmed_ports": 0,
+    "summary": "0 AI endpoint(s) found, 0 AI header(s) detected, 2 open AI port(s), 0 confirmed self-hosted service(s)"
+  },
+  "github_recon": {
+    "org_found": true,
+    "org_login": "example-inc",
+    "org_name": null,
+    "org_url": "https://github.com/example-inc",
+    "blog": "",
+    "public_repos": 1,
+    "members": [],
+    "repos": [
+      {
+        "name": "app-operator",
+        "full_name": "example-inc/app-operator",
+        "description": "",
+        "language": "Go",
+        "stars": 2,
+        "forks": 1,
+        "last_push": "2020-04-30T02:48:00Z",
+        "url": "https://github.com/example-inc/app-operator",
+        "default_branch": "master"
+      }
+    ],
+    "commit_authors": [
+      {
+        "name": "Tom Zheng",
+        "email": "tzheng@splunk.com",
+        "repo": "app-operator"
+      }
+    ],
+    "leaked_urls": [],
+    "interesting_repos": [],
+    "error": null
+  },
+  "email_harvest": {
+    "domain": "example.com",
+    "emails": [],
+    "patterns": [],
+    "role_addresses": [
+      "admin@example.com",
+      "info@example.com",
+      "contact@example.com",
+      "support@example.com",
+      "help@example.com",
+      "sales@example.com",
+      "security@example.com",
+      "abuse@example.com",
+      "postmaster@example.com",
+      "webmaster@example.com",
+      "hostmaster@example.com",
+      "noc@example.com",
+      "billing@example.com",
+      "hr@example.com",
+      "jobs@example.com",
+      "careers@example.com",
+      "press@example.com",
+      "media@example.com",
+      "marketing@example.com",
+      "legal@example.com",
+      "privacy@example.com",
+      "compliance@example.com",
+      "cto@example.com",
+      "ceo@example.com",
+      "cfo@example.com",
+      "ciso@example.com"
+    ],
+    "sources": {
+      "role_addresses": 26
+    },
+    "error": null,
+    "total": 26
+  },
+  "employee_exposure": {
+    "domain": "example.com",
+    "emails_checked": 1,
+    "breached_emails": [],
+    "code_exposures": [],
+    "total_breaches": 0,
+    "error": null
+  },
+  "subdomain_takeover": {
+    "vulnerable": [],
+    "checked": 7,
+    "count": 0
+  },
+  "subdomain_security": {
+    "total_subdomains": 7,
+    "api_targeted": 0,
+    "bot_targeted": 0,
+    "bucket_targeted": 1,
+    "js_targeted": 2,
+    "vpn_targeted": 0,
+    "tech_fingerprints": [
+      [
+        "www.example.com",
+        {
+          "technologies": {
+            "cloudflare": 0.7
+          },
+          "primary": "cloudflare",
+          "all": [
+            "cloudflare"
+          ]
+        }
+      ]
+    ],
+    "bot_protection": [],
+    "api_security": [],
+    "cloud_buckets": [],
+    "js_endpoints": [],
+    "vpn_endpoints": [],
+    "tech_distribution": {
+      "cloudflare": {
+        "count": 1,
+        "subdomains": [
+          "www.example.com"
+        ]
+      }
+    }
+  },
+  "subdomain_sprawl": {
+    "total": 7,
+    "severity": "low",
+    "staging_envs": [
+      "dev.example.com",
+      "m.testexample.com"
+    ],
+    "staging_count": 2,
+    "numeric_patterns": {},
+    "numeric_pattern_count": 0,
+    "sprawl_score": 13
+  },
+  "cloud_distribution": {
+    "per_subdomain": [
+      {
+        "subdomain": "20mail2.example.com",
+        "ip": null,
+        "cname": null,
+        "waf": null,
+        "cdn": null,
+        "server": null,
+        "status": 0,
+        "cache_status": null,
+        "cache_age": null
+      },
+      {
+        "subdomain": "dev.example.com",
+        "ip": null,
+        "cname": null,
+        "waf": null,
+        "cdn": null,
+        "server": null,
+        "status": 0,
+        "cache_status": null,
+        "cache_age": null
+      },
+      {
+        "subdomain": "m.example.com",
+        "ip": null,
+        "cname": null,
+        "waf": null,
+        "cdn": null,
+        "server": null,
+        "status": 0,
+        "cache_status": null,
+        "cache_age": null
+      },
+      {
+        "subdomain": "m.testexample.com",
+        "ip": "13.248.169.48",
+        "cname": null,
+        "waf": null,
+        "cdn": null,
+        "server": null,
+        "status": 200,
+        "cache_status": null,
+        "cache_age": null
+      },
+      {
+        "subdomain": "products.example.com",
+        "ip": null,
+        "cname": null,
+        "waf": null,
+        "cdn": null,
+        "server": null,
+        "status": 0,
+        "cache_status": null,
+        "cache_age": null
+      },
+      {
+        "subdomain": "support.example.com",
+        "ip": null,
+        "cname": null,
+        "waf": null,
+        "cdn": null,
+        "server": null,
+        "status": 0,
+        "cache_status": null,
+        "cache_age": null
+      },
+      {
+        "subdomain": "www.example.com",
+        "ip": "2606:4700::6812:1a78",
+        "cname": null,
+        "waf": "Cloudflare",
+        "cdn": "Cloudflare",
+        "server": "cloudflare",
+        "status": 200,
+        "cache_status": "HIT",
+        "cache_age": "1168"
+      }
+    ],
+    "total_probed": 7,
+    "waf_distribution": {
+      "Cloudflare": {
+        "count": 1,
+        "pct": 14.3
+      }
+    },
+    "cdn_distribution": {
+      "Cloudflare": {
+        "count": 1,
+        "pct": 14.3
+      }
+    },
+    "waf_vendors": [
+      "Cloudflare"
+    ],
+    "cdn_vendors": [
+      "Cloudflare"
+    ],
+    "multi_waf": false,
+    "multi_cdn": false,
+    "primary_waf": "Cloudflare",
+    "primary_cdn": "Cloudflare"
+  },
+  "dns_hygiene": {
+    "score": 90,
+    "max_score": 105,
+    "grade": "A",
+    "checks": [
+      {
+        "check": "SPF",
+        "pass": true,
+        "points": 15,
+        "detail": "SPF record found"
+      },
+      {
+        "check": "DMARC",
+        "pass": true,
+        "points": 15,
+        "detail": "DMARC record found"
+      },
+      {
+        "check": "DNSSEC",
+        "pass": true,
+        "points": 15,
+        "detail": "DNSSEC enabled"
+      },
+      {
+        "check": "CAA",
+        "pass": false,
+        "points": 0,
+        "detail": "No CAA records — any CA can issue certificates"
+      },
+      {
+        "check": "Zone Transfer",
+        "pass": true,
+        "points": 15,
+        "detail": "AXFR denied on all nameservers"
+      },
+      {
+        "check": "Wildcard DNS",
+        "pass": true,
+        "points": 10,
+        "detail": "No wildcard DNS"
+      },
+      {
+        "check": "Subdomain Takeover",
+        "pass": true,
+        "points": 15,
+        "detail": "No dangling CNAMEs (7 checked)"
+      },
+      {
+        "check": "NS Redundancy",
+        "pass": true,
+        "points": 5,
+        "detail": "2 nameservers"
+      }
+    ],
+    "passed": 7,
+    "failed": 1,
+    "total_checks": 8,
+    "recommendations": [
+      "No CAA records — any CA can issue certificates"
+    ]
+  },
+  "differential": {
+    "detection_mode": "none",
+    "baseline": {
+      "status": 200,
+      "body_length": 545,
+      "response_time_ms": 222.6,
+      "headers": [
+        "accept-ranges",
+        "age",
+        "allow",
+        "cf-cache-status",
+        "cf-ray",
+        "cf-team",
+        "connection",
+        "content-type",
+        "date",
+        "last-modified",
+        "server",
+        "server-timing",
+        "transfer-encoding"
+      ]
+    },
+    "blocked_fingerprint": {},
+    "timing_delta_ms": null,
+    "body_length_delta": null,
+    "status_code_pattern": null,
+    "extra_headers_on_block": [],
+    "block_page_signatures": [],
+    "signature_detection": [],
+    "anomaly_detection": [],
+    "error": null
+  },
+  "gap_analysis": {
+    "waf_vendor": "Cloudflare",
+    "vendor_key": "cloudflare",
+    "detection_mode": "hybrid",
+    "block_behavior": {
+      "status_codes": [
+        400,
+        403,
+        503
+      ],
+      "block_patterns": [
+        "400 empty body (edge HTTP parser)",
+        "403 with cf-ray + block page",
+        "503 challenge page"
+      ],
+      "challenge_types": [
+        "js_challenge",
+        "turnstile_captcha",
+        "managed_challenge"
+      ],
+      "timing_signature": "blocked responses 30-50ms faster than normal (edge short-circuit)"
+    },
+    "bypass_strategies": [
+      {
+        "technique": "double_encoding",
+        "confidence": "high",
+        "description": "Double URL encoding bypasses signature matching on decoded values",
+        "payload_example": "%253Cscript%253E",
+        "notes": "",
+        "live_confirmed": true
+      },
+      {
+        "technique": "unicode_normalization",
+        "confidence": "low",
+        "description": "Fullwidth Unicode equivalents of < and > bypass ASCII signature rules",
+        "payload_example": "%ef%bc%9cscript%ef%bc%9e (fullwidth chars)",
+        "notes": "Blocked by Cloudflare on shopify.com but NOT by GitHub/Stripe"
+      },
+      {
+        "technique": "http1_via_biso",
+        "confidence": "high",
+        "description": "Cloudflare Browser Isolation (BISO) proxy may not apply WAF rules on HTTP/1.1 requests",
+        "payload_example": "URL-encoded XSS via HTTP/1.1 raw socket",
+        "notes": "HTTP/2 (curl) gets 403, HTTP/1.1 (raw socket) gets 200. BISO-specific bypass."
+      },
+      {
+        "technique": "content_type_confusion",
+        "confidence": "medium",
+        "description": "Some Cloudflare rules only inspect application/x-www-form-urlencoded and application/json",
+        "payload_example": "POST with Content-Type: text/plain containing XSS",
+        "notes": ""
+      },
+      {
+        "technique": "chunked_transfer",
+        "confidence": "medium",
+        "description": "Splitting payload across HTTP chunks can evade single-pass signature matching",
+        "payload_example": "Transfer-Encoding: chunked with split payload across chunks",
+        "notes": ""
+      },
+      {
+        "technique": "case_variation",
+        "confidence": "low",
+        "description": "Mixed case can bypass case-sensitive signature rules",
+        "payload_example": "<ScRiPt>alert(1)</ScRiPt>",
+        "notes": "Cloudflare normalizes case in most managed rules now"
+      }
+    ],
+    "ineffective_techniques": [
+      {
+        "technique": "null_byte_injection",
+        "reason": "Cloudflare strips null bytes before rule evaluation"
+      },
+      {
+        "technique": "raw_unencoded_chars",
+        "reason": "Edge HTTP parser returns 400 before WAF evaluation"
+      }
+    ],
+    "detection_gaps": {
+      "signature_misses": [],
+      "anomaly_misses": [
+        "long_parameter (2000 chars)",
+        "null_bytes",
+        "unicode_abuse"
+      ]
+    },
+    "technique_matrix": [
+      {
+        "technique": "double_encoding",
+        "status": "blocked",
+        "notes": "Most common bypass — works against vendors that don't recursively URL-decode"
+      },
+      {
+        "technique": "unicode_normalization",
+        "status": "blocked",
+        "notes": "Fullwidth Unicode, overlong UTF-8, or homoglyph substitution"
+      },
+      {
+        "technique": "content_type_confusion",
+        "status": "effective",
+        "notes": "Send payload in unexpected Content-Type (text/plain, text/xml, multipart)"
+      },
+      {
+        "technique": "json_body_bypass",
+        "status": "untested",
+        "notes": "Payload in JSON body when WAF only inspects URI/headers"
+      },
+      {
+        "technique": "size_constraint_bypass",
+        "status": "blocked",
+        "notes": "AWS WAF default body inspection limit is 8KB — pad before payload"
+      },
+      {
+        "technique": "parameter_pollution",
+        "status": "untested",
+        "notes": "HTTP Parameter Pollution — duplicate params with different values"
+      },
+      {
+        "technique": "origin_ip_bypass",
+        "status": "effective",
+        "notes": "Only works if origin IP is exposed — use DNS history, crt.sh, Shodan"
+      },
+      {
+        "technique": "http1_protocol_bypass",
+        "status": "effective",
+        "notes": "BISO-proxied zones may not apply WAF on HTTP/1.1 vs HTTP/2"
+      },
+      {
+        "technique": "request_smuggling",
+        "status": "untested",
+        "notes": "CL.TE or TE.CL desync between CDN edge and origin"
+      },
+      {
+        "technique": "anomaly_threshold_gaming",
+        "status": "untested",
+        "notes": "Split attack across multiple rules, each below anomaly score threshold"
+      }
+    ],
+    "recommended_categories": [
+      "modern_bypasses",
+      "csp_bypass",
+      "prototype_pollution",
+      "ssti"
+    ],
+    "recommended_delay": 0.5,
+    "risk_summary": "HIGH — 4 viable bypass techniques, 0 signature gaps, 3 anomaly gaps",
+    "error": null
+  },
+  "attack_surface": {
+    "risk_score": 20,
+    "risk_level": "MEDIUM",
+    "http_status": 200,
+    "subdomains": 7,
+    "staging_envs": [
+      "dev.example.com",
+      "m.testexample.com"
+    ],
+    "admin_panels": 0,
+    "open_admin_panels": 0,
+    "auth_endpoints": 0,
+    "has_login": false,
+    "has_registration": false,
+    "has_oauth": false,
+    "has_mfa": false,
+    "graphql_endpoints": 0,
+    "graphql_introspection": [],
+    "api_specs": 0,
+    "api_endpoints": 0,
+    "exposed_files": 0,
+    "injectable_params": 0,
+    "high_risk_params": 0,
+    "historical_urls": 0,
+    "interesting_historical": 0,
+    "favicon_hash": null,
+    "favicon_technology": null,
+    "technologies": [
+      "cloudflare"
+    ],
+    "waf_vendor": "Cloudflare",
+    "waf_redirect_target": null,
+    "waf_detection_mode": "none",
+    "cdn": "cloudflare",
+    "tls_version": "TLSv1.3",
+    "tls_grade": "A+",
+    "tls_grade_score": 100,
+    "cert_days_remaining": 67,
+    "security_headers_score": 0,
+    "csp_present": false,
+    "csp_score": 0,
+    "cors_vulnerable": false,
+    "clickjacking_vulnerable": true,
+    "captcha_detected": false,
+    "captcha_providers": [],
+    "open_ports": 8,
+    "risky_ports": [],
+    "host_header_injection": false,
+    "dangerous_http_methods": [],
+    "robots_interesting_paths": 0,
+    "subdomain_takeover": 0,
+    "waf_bypass_subdomains": 0,
+    "origin_ip_exposed": false,
+    "origin_ip_candidates": 0,
+    "origin_ip_verified": 0,
+    "vulnerable_frontend_libs": 0,
+    "frontend_cves": 0,
+    "frontend_critical_cves": 0,
+    "sri_missing": 0,
+    "findings": [
+      {
+        "severity": "medium",
+        "finding": "Clickjacking vulnerable — no X-Frame-Options or CSP frame-ancestors",
+        "risk_score": 50,
+        "category": "app"
+      },
+      {
+        "severity": "medium",
+        "finding": "Staging/dev environment(s): dev.example.com, m.testexample.com",
+        "risk_score": 40,
+        "category": "config"
+      },
+      {
+        "severity": "low",
+        "finding": "DNS hygiene score 90/100 (grade A) — 1 check(s) failed",
+        "risk_score": 30,
+        "category": "infra"
+      },
+      {
+        "severity": "low",
+        "finding": "No Content-Security-Policy header",
+        "risk_score": 20,
+        "category": "config"
+      },
+      {
+        "severity": "medium",
+        "finding": "DNSSEC enabled but not validated by resolver (broken chain of trust)",
+        "risk_score": 15,
+        "category": "infra"
+      }
+    ],
+    "attack_vectors": [
+      {
+        "type": "Unprotected Subdomain",
+        "severity": "high",
+        "count": 6,
+        "priority": 100,
+        "targets": [
+          "https://20mail2.example.com",
+          "https://dev.example.com",
+          "https://m.example.com",
+          "https://m.testexample.com",
+          "https://products.example.com",
+          "https://support.example.com"
+        ],
+        "description": "Subdomains with no CDN or WAF protection, directly exposed on the internet.",
+        "impact": "No edge security — vulnerable to direct attacks, DDoS, and automated scanning.",
+        "mitre": "T1595 — Active Scanning",
+        "detail": "6 subdomain(s) have no WAF or CDN protection. Examples: 20mail2.example.com, dev.example.com, m.example.com … and 3 more. All traffic reaches origin servers directly — no DDoS scrubbing, bot filtering, or WAF inspection."
+      },
+      {
+        "type": "Staging / Dev Environment",
+        "severity": "high",
+        "count": 2,
+        "priority": 95,
+        "targets": [
+          "https://dev.example.com",
+          "https://m.testexample.com"
+        ],
+        "description": "Non-production environments publicly accessible — often with debug mode, verbose errors, default credentials, and weaker WAF rules.",
+        "impact": "Information disclosure, default credential access, code/config leakage, and pivot to production.",
+        "mitre": "T1580 — Cloud Infrastructure Discovery",
+        "detail": "2 staging/dev environment(s) publicly accessible: dev.example.com, m.testexample.com. Staging/dev environments typically have weaker WAF rules, debug mode enabled, verbose errors, and default credentials."
+      },
+      {
+        "type": "DDoS / L7 Denial of Service",
+        "severity": "high",
+        "count": 1,
+        "priority": 90,
+        "targets": [
+          "https://example.com"
+        ],
+        "description": "Large number of unprotected subdomains without rate limiting — application-layer flood attacks possible.",
+        "impact": "Service degradation or outage via slow HTTP, resource-intensive queries, or connection exhaustion.",
+        "mitre": "T1499 — Endpoint Denial of Service",
+        "detail": "DDoS/L7 DoS surface: 6 unprotected subdomain(s) (no CDN): 20mail2.example.com, dev.example.com, m.example.com … and 3 more; 7 subdomains — large surface for distributed attacks. No rate limiting or scrubbing detected."
+      }
+    ],
+    "attack_targets": [
+      {
+        "target": "https://20mail2.example.com",
+        "type": "Unprotected Subdomain",
+        "priority": 100
+      },
+      {
+        "target": "https://dev.example.com",
+        "type": "Unprotected Subdomain",
+        "priority": 100
+      },
+      {
+        "target": "https://m.example.com",
+        "type": "Unprotected Subdomain",
+        "priority": 100
+      },
+      {
+        "target": "https://m.testexample.com",
+        "type": "Unprotected Subdomain",
+        "priority": 100
+      },
+      {
+        "target": "https://products.example.com",
+        "type": "Unprotected Subdomain",
+        "priority": 100
+      },
+      {
+        "target": "https://support.example.com",
+        "type": "Unprotected Subdomain",
+        "priority": 100
+      },
+      {
+        "target": "https://example.com",
+        "type": "DDoS / L7 Denial of Service",
+        "priority": 90
+      }
+    ],
+    "remediation": [
+      {
+        "action": "Deploy Content-Security-Policy header",
+        "severity": "critical",
+        "why": "Prevents XSS, data injection, and clickjacking attacks",
+        "how": "Add CSP header to web server config; start with report-only mode",
+        "timeline": "Immediate"
+      },
+      {
+        "action": "Harden security headers",
+        "severity": "critical",
+        "why": "Only 0/100 — missing 9 essential headers",
+        "how": "Add missing headers to reverse proxy / web server configuration",
+        "timeline": "Immediate"
+      },
+      {
+        "action": "Implement rate limiting",
+        "severity": "high",
+        "why": "No rate limiting — vulnerable to brute-force & L7 DDoS",
+        "how": "Enable rate limiting on WAF/reverse proxy (e.g., 100 req/min per IP)",
+        "timeline": "Short-term"
+      },
+      {
+        "action": "Restrict 2 staging/dev environments",
+        "severity": "high",
+        "why": "Staging environments often have weaker security controls",
+        "how": "Add authentication, IP whitelist, or remove from public DNS",
+        "timeline": "Short-term"
+      }
+    ]
+  },
+  "origin_ips": {
+    "origin_ips": [],
+    "candidates": [],
+    "verified": [],
+    "parent_cdn": "cloudflare",
+    "techniques_used": [
+      "mx_records",
+      "spf_record",
+      "certificate_san",
+      "mail_subdomains",
+      "securitytrails_history"
+    ],
+    "origin_exposed": false
+  },
+  "security_checks": {},
+  "scan_stats": {
+    "duration_seconds": 42.5,
+    "duration": "42s",
+    "checks_run": 38,
+    "checks_done": 38,
+    "mode": "default",
+    "findings": 5,
+    "risk_score": 20,
+    "risk_level": "MEDIUM",
+    "check_timings": {
+      "HTTP probe": 0.3,
+      "TLS/certificate": 0.4,
+      "Favicon fingerprint": 0.4,
+      "Page fetch": 0.4,
+      "CORS policy": 0.4,
+      "DNS records": 0.4,
+      "Error pages": 0.3,
+      "Robots & sitemap": 0.7,
+      "Parameter discovery": 0.4,
+      "VDP (security.txt)": 0.7,
+      "Exposed files": 1.1,
+      "Host header injection": 0.8,
+      "DNSSEC validation": 0.3,
+      "Zone transfer (AXFR)": 0.3,
+      "API endpoints": 1.5,
+      "DNS rebinding": 0.0,
+      "HTTP methods": 2.0,
+      "Wildcard DNS": 0.3,
+      "JS endpoint extraction": 0.0,
+      "Source map detection": 0.0,
+      "Subdomains (CT logs)": 2.2,
+      "Auth endpoints": 1.8,
+      "Subdomains (brute-force)": 0.7,
+      "Admin panels": 2.5,
+      "VPN endpoint detection": 1.2,
+      "API security detection": 1.6,
+      "Origin IP discovery": 1.9,
+      "GraphQL introspection": 3.0,
+      "Cloud bucket enumeration": 4.1,
+      "Rate limits": 13.3,
+      "Port scan": 16.1,
+      "Wayback history": 19.1,
+      "Rate limits (critical paths)": 0.7,
+      "AI/LLM endpoint discovery": 12.2,
+      "OSINT email harvest": 0.1,
+      "GitHub org recon": 3.2,
+      "Employee breach check": 0.4
+    }
+  }
+}

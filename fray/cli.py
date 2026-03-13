@@ -2212,7 +2212,7 @@ def cmd_race(args):
             print(f"  Results saved to {args.output}")
 
 
-def cmd_report(args):
+def cmd_company_report(args):
     """Generate automated security report per company (#73)."""
     from fray.company_report import generate_company_report, report_to_markdown
     domain = args.company
@@ -5591,14 +5591,14 @@ GitHub: https://github.com/dalisecurity/fray
     p_smoke.add_argument("--json", action="store_true", help="JSON output for CI")
     p_smoke.set_defaults(func=lambda args: __import__('fray.smoke_test', fromlist=['cmd_smoke']).cmd_smoke(args))
 
-    # report (#73)
-    p_report = subparsers.add_parser("report", help="Generate automated security report per company/domain (#73)")
-    p_report.add_argument("--company", required=True, help="Company domain (e.g. example.com)")
-    p_report.add_argument("-o", "--output", default=None,
+    # company-report (#73)
+    p_company_report = subparsers.add_parser("company-report", help="Generate automated security report per company/domain (#73)")
+    p_company_report.add_argument("--company", required=True, help="Company domain (e.g. example.com)")
+    p_company_report.add_argument("-o", "--output", default=None,
                           help="Output file (.md for Markdown, .json for JSON)")
-    p_report.add_argument("--json", action="store_true",
+    p_company_report.add_argument("--json", action="store_true",
                           help="Output report as JSON to stdout")
-    p_report.set_defaults(func=cmd_report)
+    p_company_report.set_defaults(func=cmd_company_report)
 
     # plugin (#163)
     p_plugin = subparsers.add_parser("plugin", help="Plugin / Extension API — list, load, inspect hooks (#163)")

@@ -14,7 +14,12 @@ from typing import Any, Dict, Optional
 # ── Progress tracker ──────────────────────────────────────────────────
 
 class _ReconProgress:
-    """Real-time progress output for recon pipeline."""
+    """Real-time progress output for recon pipeline with live findings feed."""
+
+    # Severity symbols for live feed
+    _SEV = {"critical": "\033[91m●\033[0m", "high": "\033[33m●\033[0m",
+            "medium": "\033[93m●\033[0m", "low": "\033[94m●\033[0m",
+            "info": "\033[90m●\033[0m"}
 
     def __init__(self, total: int, quiet: bool = False):
         self._total = total
@@ -22,29 +27,63 @@ class _ReconProgress:
         self._start = time.time()
         self._quiet = quiet
         self._active: set = set()
+        self._findings: list = []  # live findings feed
+        self._sev_counts: dict = {"critical": 0, "high": 0, "medium": 0, "low": 0}
         self._lock = __import__("threading").Lock()
+        self._feed_lines = 0  # lines used by findings feed
 
     def _bar(self) -> str:
-        bar_len = 20
-        filled = int(bar_len * self._done / self._total) if self._total else 0
+        bar_len = 25
+        filled = min(int(bar_len * self._done / self._total), bar_len) if self._total else 0
         return "█" * filled + "░" * (bar_len - filled)
+
+    def _sev_summary(self) -> str:
+        parts = []
+        for sev in ("critical", "high", "medium", "low"):
+            n = self._sev_counts[sev]
+            if n:
+                parts.append(f"{self._SEV[sev]} {n} {sev}")
+        return "  ".join(parts) if parts else ""
 
     def _render(self, last_done: str = "") -> None:
         elapsed = time.time() - self._start
-        pct = int(self._done / self._total * 100) if self._total else 0
-        # Show what's currently running
+        pct = min(int(self._done / self._total * 100), 100) if self._total else 0
         with self._lock:
             running = sorted(self._active)
         run_str = ", ".join(running[:3])
         if len(running) > 3:
-            run_str += f" +{len(running)-3}"
+            run_str += f" +{len(running) - 3}"
         done_mark = f"✓ {last_done}" if last_done else ""
-        line = (f"\r  [{self._bar()}] {pct:3d}% ({self._done}/{self._total}) "
-                f"{elapsed:5.1f}s  {done_mark:<30}")
+
+        # Clear previous output (bar + running + feed lines)
+        clear_n = 1 + self._feed_lines + (1 if self._done < self._total else 0)
+        for _ in range(clear_n):
+            sys.stderr.write("\033[A\033[2K")
+
+        # Progress bar line
+        line = (f"  [{self._bar()}] {pct:3d}% ({self._done}/{self._total}) "
+                f"{elapsed:5.1f}s  {done_mark}")
+        sys.stderr.write(f"\033[2K{line}\n")
+
+        # Currently running line
         if run_str and self._done < self._total:
-            line += f"\n  → {run_str:<60}"
-        # Clear previous line + write
-        sys.stderr.write(f"\033[2K\033[A\033[2K{line}")
+            sys.stderr.write(f"\033[2K  \033[90m→ {run_str}\033[0m\n")
+
+        # Live findings feed (last 3)
+        self._feed_lines = 0
+        with self._lock:
+            recent = self._findings[-3:]
+        for f in recent:
+            sev_dot = self._SEV.get(f.get("sev", "info"), self._SEV["info"])
+            sys.stderr.write(f"\033[2K  {sev_dot} {f['msg']}\n")
+            self._feed_lines += 1
+
+        # Severity summary
+        summary = self._sev_summary()
+        if summary:
+            sys.stderr.write(f"\033[2K  {summary}\n")
+            self._feed_lines += 1
+
         sys.stderr.flush()
 
     def start(self, label: str) -> None:
@@ -64,6 +103,17 @@ class _ReconProgress:
         if self._done >= self._total:
             sys.stderr.write("\n")
             sys.stderr.flush()
+
+    def finding(self, msg: str, severity: str = "info") -> None:
+        """Add a live finding to the feed — shown below the progress bar."""
+        if self._quiet:
+            return
+        sev = severity.lower()
+        with self._lock:
+            self._findings.append({"msg": msg, "sev": sev})
+            if sev in self._sev_counts:
+                self._sev_counts[sev] += 1
+        self._render()
 
     def status(self, msg: str) -> None:
         if self._quiet:
@@ -318,13 +368,14 @@ def run_recon(url: str, timeout: int = 8,
     verify = use_ssl
 
     # Count total checks for progress bar
-    n_checks = 14  # tier-1 core checks (including VDP)
+    n_checks = 15  # tier-1: HTTP, TLS, Page, DNS, Robots, CORS, Subs(CT), Favicon, Exposed, Methods, Error, Params, API, HHI, VDP
     if not is_fast:
-        n_checks += 4  # hist, admin, rate, gql
+        n_checks += 10  # hist, admin, auth, ports, rate, gql, dnssec, axfr, wildcard, rebind
     n_checks += 2  # tier-2: subdomain brute + origin
     n_checks += 1  # CPU analysis (headers/csp/cookies/fingerprint)
-    n_checks += 1  # tier-4: GitHub org recon
-    n_checks += 1  # tier-4: employee email breach check
+    n_checks += 5  # tier-3 (post-page): JS endpoints, source maps, buckets, API sec, VPN
+    n_checks += 2  # tier-3 (post-tier2): AI endpoints, rate limits critical
+    n_checks += 3  # tier-4: GitHub org, email harvest, employee breach check
     if leak:
         n_checks += 1
 
@@ -484,6 +535,59 @@ def run_recon(url: str, timeout: int = 8,
                 tls_data=tls_data, parent_cdn=parent_cdn),
             "Origin IP discovery"))
 
+        # ── Live findings feed helper ──
+        def _feed(key, data):
+            """Inspect result and emit live findings to progress bar."""
+            if not data or not isinstance(data, dict):
+                return
+            if key == "cors" and data.get("vulnerable"):
+                prog.finding(f"CORS misconfiguration — {data.get('issue', 'origin reflected')}", "high")
+            elif key == "subdomains":
+                n = len(data.get("subdomains", []))
+                if n:
+                    prog.finding(f"{n} subdomain(s) discovered via CT logs", "info")
+            elif key == "exposed_files":
+                found = [f for f in data.get("files", []) if f.get("status") == 200]
+                if found:
+                    prog.finding(f"{len(found)} exposed file(s): {', '.join(f.get('path','') for f in found[:3])}", "medium")
+            elif key == "host_header_injection" and data.get("vulnerable"):
+                prog.finding("Host header injection detected", "high")
+            elif key == "http_methods":
+                dangerous = data.get("dangerous", [])
+                if dangerous:
+                    prog.finding(f"Dangerous HTTP methods: {', '.join(dangerous)}", "medium")
+            elif key == "admin_panels":
+                panels = data.get("found", data.get("panels_found", []))
+                open_panels = [p for p in panels if isinstance(p, dict) and p.get("status") == 200]
+                if open_panels:
+                    prog.finding(f"{len(open_panels)} admin panel(s) accessible", "critical")
+            elif key == "port_scan":
+                risky = data.get("risky_ports", [])
+                if risky:
+                    ports = ", ".join(str(p.get("port", p)) if isinstance(p, dict) else str(p) for p in risky[:5])
+                    prog.finding(f"Risky ports open: {ports}", "high")
+            elif key == "graphql" and data.get("introspection_enabled"):
+                prog.finding("GraphQL introspection enabled", "high")
+            elif key == "cloud_buckets":
+                pub = data.get("total_public", 0)
+                if pub:
+                    prog.finding(f"{pub} public cloud bucket(s) found", "critical")
+            elif key == "secrets":
+                n = len(data.get("findings", []))
+                if n:
+                    prog.finding(f"{n} secret(s)/API key(s) in response", "high")
+            elif key == "js_endpoints":
+                n = len(data.get("endpoints", []))
+                if n:
+                    prog.finding(f"{n} endpoint(s) extracted from JavaScript", "info")
+            elif key == "origin_ip":
+                candidates = data.get("candidates", [])
+                verified = [c for c in candidates if isinstance(c, dict) and c.get("verified")]
+                if verified:
+                    prog.finding(f"Origin IP exposed — WAF bypassable via {verified[0].get('ip','?')}", "critical")
+                elif candidates:
+                    prog.finding(f"{len(candidates)} origin IP candidate(s)", "medium")
+
         # ── CPU-only analysis (derived from page fetch, no network) ──
         result["headers"] = check_security_headers(resp_headers)
 
@@ -508,6 +612,7 @@ def run_recon(url: str, timeout: int = 8,
         result["bot_protection"] = check_bot_protection(
             host, port, use_ssl, body=body, resp_headers=resp_headers)
         result["secrets"] = check_secrets_in_response(body, url=url)
+        _feed("secrets", result["secrets"])
         result["jwt_analysis"] = check_jwt_tokens(body, headers=resp_headers)
         prog.done("Headers/CSP/fingerprint")
 
@@ -537,35 +642,35 @@ def run_recon(url: str, timeout: int = 8,
         # ── Collect remaining tier 1 results ──
         result["http"]          = await _safe(t_http, {})
         result["robots"]        = await _safe(t_robots, {})
-        result["cors"]          = await _safe(t_cors, {})
-        result["subdomains"]    = await _safe(t_subs, {})
+        result["cors"]          = await _safe(t_cors, {}); _feed("cors", result["cors"])
+        result["subdomains"]    = await _safe(t_subs, {}); _feed("subdomains", result["subdomains"])
         result["favicon"]       = await _safe(t_favicon, {})
-        result["exposed_files"] = await _safe(t_exposed, {})
-        result["http_methods"]  = await _safe(t_methods, {})
+        result["exposed_files"] = await _safe(t_exposed, {}); _feed("exposed_files", result["exposed_files"])
+        result["http_methods"]  = await _safe(t_methods, {}); _feed("http_methods", result["http_methods"])
         result["error_page"]    = await _safe(t_error, {})
         result["params"]        = await _safe(t_params, {})
         result["api_discovery"] = await _safe(t_api, {})
-        result["host_header_injection"] = await _safe(t_hhi, {})
+        result["host_header_injection"] = await _safe(t_hhi, {}); _feed("host_header_injection", result["host_header_injection"])
         result["vdp"] = await _safe(t_vdp, {})
 
         if t_hist:
             result["historical_urls"] = await _safe(t_hist, {})
         if t_admin:
-            result["admin_panels"] = await _safe(t_admin, {})
+            result["admin_panels"] = await _safe(t_admin, {}); _feed("admin_panels", result["admin_panels"])
         if t_auth:
             result["auth_endpoints"] = await _safe(t_auth, {})
         if t_ports:
-            result["port_scan"] = await _safe(t_ports, {})
+            result["port_scan"] = await _safe(t_ports, {}); _feed("port_scan", result["port_scan"])
         if t_rate:
             result["rate_limits"] = await _safe(t_rate, {})
         if t_gql:
-            result["graphql"] = await _safe(t_gql, {})
+            result["graphql"] = await _safe(t_gql, {}); _feed("graphql", result["graphql"])
         if t_leak:
             result["leak_check"] = await _safe(t_leak, {})
         # Await new async checks (#1, #8, #10, #19, #130-132)
-        result["js_endpoints"] = await _safe(t_js_ep, {})
+        result["js_endpoints"] = await _safe(t_js_ep, {}); _feed("js_endpoints", result["js_endpoints"])
         result["source_maps"] = await _safe(t_srcmaps, {})
-        result["cloud_buckets"] = await _safe(t_buckets, {})
+        result["cloud_buckets"] = await _safe(t_buckets, {}); _feed("cloud_buckets", result["cloud_buckets"])
         result["api_security"] = await _safe(t_api_sec, {})
         result["vpn_endpoints"] = await _safe(t_vpn, {})
         if t_dnssec:
@@ -579,7 +684,7 @@ def run_recon(url: str, timeout: int = 8,
 
         # ── Collect tier 2 results ──
         result["subdomains_active"] = await _safe(t_subs_active, {})
-        result["origin_ip"]         = await _safe(t_origin, {})
+        result["origin_ip"]         = await _safe(t_origin, {}); _feed("origin_ip", result["origin_ip"])
 
         # ── Tier 3: AI endpoint discovery (needs origin IPs for port scan) ──
         _origin_data = result.get("origin_ip", {})
@@ -713,13 +818,16 @@ def run_recon(url: str, timeout: int = 8,
     if cached_subs:
         result["subdomains"]["sources"]["cache"] = len(cached_subs)
 
-    # Subdomain takeover detection (runs on merged subdomain list)
+    # Subdomain takeover detection — run in background thread while smart checks proceed
     all_subs = result["subdomains"].get("subdomains", [])
+    _takeover_future = None
     if all_subs and not is_fast:
         if not quiet:
             sys.stderr.write(f"\r  ⏳ Checking {len(all_subs)} subdomain(s) for takeover...          \n")
             sys.stderr.flush()
-        result["subdomain_takeover"] = check_subdomain_takeover(all_subs, timeout=4.0)
+        import concurrent.futures as _cf_takeover
+        _takeover_pool = _cf_takeover.ThreadPoolExecutor(max_workers=1)
+        _takeover_future = _takeover_pool.submit(check_subdomain_takeover, all_subs, 3.0)
     else:
         result["subdomain_takeover"] = {"vulnerable": [], "checked": 0, "count": 0}
 
@@ -737,8 +845,8 @@ def run_recon(url: str, timeout: int = 8,
     #
     # This avoids wasting time probing /swagger on login.example.com or
     # checking bot cookies on cdn.example.com.
-    _SUB_CHECK_WORKERS = 12
-    _sub_check_timeout = 4 if is_fast else 6
+    _SUB_CHECK_WORKERS = 20
+    _sub_check_timeout = 3 if is_fast else 4
 
     import re as _re_sub
 
@@ -808,6 +916,21 @@ def run_recon(url: str, timeout: int = 8,
             checks = _classify_subdomain(fqdn_l)
             _sub_tasks.append((fqdn_l, checks))
 
+    # Prioritize high-value subdomains and cap at 100 to keep runtime bounded
+    _SUB_CAP = 100
+    if len(_sub_tasks) > _SUB_CAP:
+        def _sub_priority(task):
+            _, checks = task
+            score = 0
+            if "api" in checks: score += 10
+            if "vpn" in checks: score += 10
+            if "bot" in checks: score += 5
+            if "bucket" in checks: score += 5
+            if "js" in checks: score += 3
+            return -score  # negative for descending sort
+        _sub_tasks.sort(key=_sub_priority)
+        _sub_tasks = _sub_tasks[:_SUB_CAP]
+
     # Count targeted subdomains per check type
     _n_api_targets = sum(1 for _, c in _sub_tasks if "api" in c)
     _n_bot_targets = sum(1 for _, c in _sub_tasks if "bot" in c)
@@ -834,9 +957,44 @@ def run_recon(url: str, timeout: int = 8,
 
         from fray.recon.http import _fetch_url as _sub_fetch
 
+        # Load per-subdomain recon cache (tech, status, body_len)
+        import json as _json_sub
+        _sub_cache_path = os.path.join(os.path.expanduser("~"), ".fray", "subdomain_recon_cache.json")
+        _sub_cache: dict = {}
+        try:
+            if os.path.exists(_sub_cache_path):
+                with open(_sub_cache_path, "r", encoding="utf-8") as _scf:
+                    _sub_cache = _json_sub.load(_scf)
+        except Exception:
+            pass
+        _sub_cache_hits = 0
+
         def _scan_subdomain_targeted(sub_fqdn: str, check_types: set):
             """Fetch one subdomain and run only the relevant checks."""
+            nonlocal _sub_cache_hits
             findings = {"fqdn": sub_fqdn, "checks_run": sorted(check_types)}
+
+            # Check cache — if we have recent results for this subdomain, reuse them
+            _cached = _sub_cache.get(sub_fqdn)
+            if _cached and _cached.get("ts", 0) > time.time() - 86400:  # 24h TTL
+                _sub_cache_hits += 1
+                findings["status"] = _cached.get("status", 0)
+                findings["body_len"] = _cached.get("body_len", 0)
+                findings["cached"] = True
+                if _cached.get("fingerprint"):
+                    findings["fingerprint"] = _cached["fingerprint"]
+                if _cached.get("bot_protection"):
+                    findings["bot_protection"] = _cached["bot_protection"]
+                if _cached.get("api_security"):
+                    findings["api_security"] = _cached["api_security"]
+                if _cached.get("cloud_buckets"):
+                    findings["cloud_buckets"] = _cached["cloud_buckets"]
+                if _cached.get("js_endpoints"):
+                    findings["js_endpoints"] = _cached["js_endpoints"]
+                if _cached.get("vpn_endpoints"):
+                    findings["vpn_endpoints"] = _cached["vpn_endpoints"]
+                return findings
+
             try:
                 _st, _bd, _hd = _sub_fetch(
                     f"https://{sub_fqdn}", timeout=_sub_check_timeout, verify_ssl=False)
@@ -900,33 +1058,82 @@ def run_recon(url: str, timeout: int = 8,
             return findings
 
         import concurrent.futures as _cf
+        _max_sub_wait = max(90, _sub_check_timeout * len(_sub_tasks) // _SUB_CHECK_WORKERS + 30)
         with _cf.ThreadPoolExecutor(max_workers=_SUB_CHECK_WORKERS) as _pool:
             _futures = {
                 _pool.submit(_scan_subdomain_targeted, sf, ct): sf
                 for sf, ct in _sub_tasks
             }
-            for _fut in _cf.as_completed(_futures, timeout=_sub_check_timeout * 10):
-                try:
-                    _res = _fut.result(timeout=_sub_check_timeout * 2)
-                    if not _res:
-                        continue
-                    _sf = _res.get("fqdn", "")
-                    if _res.get("fingerprint"):
-                        _sub_tech_findings.append((_sf, _res["fingerprint"]))
-                    if _res.get("bot_protection"):
-                        _sub_bot_findings.append((_sf, _res["bot_protection"]))
-                    if _res.get("api_security"):
-                        _sub_api_findings.append((_sf, _res["api_security"]))
-                    if _res.get("cloud_buckets"):
-                        _sub_bucket_findings.append((_sf, _res["cloud_buckets"]))
-                    if _res.get("js_endpoints"):
-                        _sub_js_findings.append((_sf, _res["js_endpoints"]))
-                    if _res.get("vpn_endpoints"):
-                        _sub_vpn_findings.append((_sf, _res["vpn_endpoints"]))
-                except Exception:
-                    pass
+            try:
+                for _fut in _cf.as_completed(_futures, timeout=_max_sub_wait):
+                    try:
+                        _res = _fut.result(timeout=_sub_check_timeout * 2)
+                        if not _res:
+                            continue
+                        _sf = _res.get("fqdn", "")
+                        if _res.get("fingerprint"):
+                            _sub_tech_findings.append((_sf, _res["fingerprint"]))
+                        if _res.get("bot_protection"):
+                            _sub_bot_findings.append((_sf, _res["bot_protection"]))
+                        if _res.get("api_security"):
+                            _sub_api_findings.append((_sf, _res["api_security"]))
+                        if _res.get("cloud_buckets"):
+                            _sub_bucket_findings.append((_sf, _res["cloud_buckets"]))
+                        if _res.get("js_endpoints"):
+                            _sub_js_findings.append((_sf, _res["js_endpoints"]))
+                        if _res.get("vpn_endpoints"):
+                            _sub_vpn_findings.append((_sf, _res["vpn_endpoints"]))
+                    except Exception:
+                        pass
+            except _cf.TimeoutError:
+                # Gracefully continue with partial results instead of crashing
+                _done = sum(1 for f in _futures if f.done())
+                if not quiet:
+                    sys.stderr.write(
+                        f"\r  ⚠ Subdomain checks timed out ({_done}/{len(_futures)} completed, continuing)          \n")
+                    sys.stderr.flush()
+                # Cancel remaining futures
+                for f in _futures:
+                    if not f.done():
+                        f.cancel()
+
+        # Save results back to subdomain recon cache
+        try:
+            _now = time.time()
+            for _sf, _fp in _sub_tech_findings:
+                if _sf not in _sub_cache:
+                    _sub_cache[_sf] = {}
+                _sub_cache[_sf]["ts"] = _now
+                _sub_cache[_sf]["fingerprint"] = _fp
+            for _sf, _bp in _sub_bot_findings:
+                _sub_cache.setdefault(_sf, {})["bot_protection"] = _bp
+                _sub_cache[_sf]["ts"] = _now
+            for _sf, _ap in _sub_api_findings:
+                _sub_cache.setdefault(_sf, {})["api_security"] = _ap
+                _sub_cache[_sf]["ts"] = _now
+            for _sf, _cb in _sub_bucket_findings:
+                _sub_cache.setdefault(_sf, {})["cloud_buckets"] = _cb
+                _sub_cache[_sf]["ts"] = _now
+            for _sf, _js in _sub_js_findings:
+                _sub_cache.setdefault(_sf, {})["js_endpoints"] = _js
+                _sub_cache[_sf]["ts"] = _now
+            for _sf, _vp in _sub_vpn_findings:
+                _sub_cache.setdefault(_sf, {})["vpn_endpoints"] = _vp
+                _sub_cache[_sf]["ts"] = _now
+            # Prune old entries (>7 days) to keep cache small
+            _cutoff = _now - 604800
+            _sub_cache = {k: v for k, v in _sub_cache.items() if v.get("ts", 0) > _cutoff}
+            os.makedirs(os.path.dirname(_sub_cache_path), exist_ok=True)
+            with open(_sub_cache_path, "w", encoding="utf-8") as _scf:
+                _json_sub.dump(_sub_cache, _scf, ensure_ascii=False)
+        except Exception:
+            pass
 
         if not quiet:
+            if _sub_cache_hits:
+                sys.stderr.write(
+                    f"\r  ⚡ {_sub_cache_hits} subdomain(s) loaded from cache          \n")
+                sys.stderr.flush()
             _n_bot = len(_sub_bot_findings)
             _n_api = len(_sub_api_findings)
             _n_bkt = len(_sub_bucket_findings)
@@ -950,6 +1157,15 @@ def run_recon(url: str, timeout: int = 8,
                 sys.stderr.write(
                     f"\r  ✓ Subdomain findings: {', '.join(parts)}          \n")
                 sys.stderr.flush()
+
+    # Collect takeover results (was running in parallel with smart checks)
+    if _takeover_future is not None:
+        try:
+            result["subdomain_takeover"] = _takeover_future.result(timeout=30)
+        except Exception:
+            result["subdomain_takeover"] = {"vulnerable": [], "checked": 0, "count": 0}
+        finally:
+            _takeover_pool.shutdown(wait=False)
 
     # Store per-subdomain findings in result for report consumption
     result["subdomain_security"] = {

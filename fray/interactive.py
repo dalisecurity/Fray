@@ -477,7 +477,7 @@ class ReconInteractive:
                 scanner = scanner_cls(target, **kwargs)
             elif vuln_type == "massassign":
                 scanner = scanner_cls(target, method="GET", level=1, **kwargs)
-            elif vuln_type == "deser":
+            elif vuln_type in ("deser", "ssrf"):
                 param = params.get("param", "") or self._guess_param(target)
                 if not param:
                     sys.stderr.write(f" no param found, skipping\n")
@@ -771,14 +771,14 @@ class GuidedPipeline:
         # ── Banner ─────────────────────────────────────────────────────
         if not self.quiet:
             out.write(banner("⚔  Fray — Guided Security Pipeline", self.target))
-            out.write(f"  {S.dim}Phase 1{S.reset} Reconnaissance\n")
+            out.write(f"  {S.dim}Phase 1{S.reset} Attack Surface Intelligence\n")
             out.write(f"  {S.dim}Phase 2{S.reset} Smart Vulnerability Testing\n")
             out.write(f"  {S.dim}Phase 3{S.reset} Report Generation\n\n")
             out.flush()
 
         # ── Phase 1: Recon ─────────────────────────────────────────────
         if not self.quiet:
-            out.write(phase_header(1, "Reconnaissance"))
+            out.write(phase_header(1, "Attack Surface Intelligence"))
         self.recon_result = self._run_recon()
 
         if not self.recon_result:
@@ -806,7 +806,7 @@ class GuidedPipeline:
             for f in findings:
                 s = f.get("severity", "info")
                 sev_counts[s] = sev_counts.get(s, 0) + 1
-            out.write(f"\n  {S.success}\u2714{S.reset} {S.bold}{S.white}Recon complete{S.reset}\n\n")
+            out.write(f"\n  {S.success}\u2714{S.reset} {S.bold}{S.white}Intelligence gathered{S.reset}\n\n")
             out.write(f"  {severity_summary(sev_counts)}\n")
             risk_c = S.critical if risk >= 70 else S.high if risk >= 40 else S.success
             out.write(summary_line("Risk", f"{risk}/100 ({risk_level})", "") + "\n")
@@ -893,8 +893,15 @@ class GuidedPipeline:
             gen = SecurityReportGenerator()
             gen.generate_recon_html_report(self.recon_result, self.report_path)
             if not self.quiet:
+                report_abs = os.path.abspath(self.report_path)
                 out.write(f"  {S.success}\u2714{S.reset} {S.white}HTML report:{S.reset} {S.target}{self.report_path}{S.reset}\n")
-                out.write(f"  {S.dim}Open: file://{os.path.abspath(self.report_path)}{S.reset}\n")
+                # Auto-open in default browser
+                try:
+                    import webbrowser
+                    webbrowser.open(f"file://{report_abs}")
+                    out.write(f"  {S.dim}Opened in browser{S.reset}\n")
+                except Exception:
+                    out.write(f"  {S.dim}Open: file://{report_abs}{S.reset}\n")
         except Exception as e:
             if not self.quiet:
                 out.write(f"  {S.warning}\u26a0{S.reset} Report generation failed: {e}\n")
@@ -912,9 +919,9 @@ class GuidedPipeline:
         summary["duration"] = duration
 
         if not self.quiet:
-            out.write(f"\n  {S.success}{'\u2501' * 62}{S.reset}\n")
-            out.write(f"  {S.success}{S.bold}  \u2714  Pipeline Complete{S.reset}\n")
-            out.write(f"  {S.success}{'\u2501' * 62}{S.reset}\n\n")
+            out.write(f"\n  {S.success}{'━' * 62}{S.reset}\n")
+            out.write(f"  {S.success}{S.bold}  ✔  Pipeline Complete{S.reset}\n")
+            out.write(f"  {S.success}{'━' * 62}{S.reset}\n\n")
 
             risk_c = severity_color(risk_level.lower() if risk_level != "?" else "info")
             out.write(summary_line("Duration", duration) + "\n")

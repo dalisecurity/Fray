@@ -163,6 +163,17 @@ class PPResult:
         }
 
 
+class PPScanner:
+    """Wrapper class for prototype pollution scanning (compatible with _run_module interface)."""
+
+    def __init__(self, target: str, timeout: int = 8, verify_ssl: bool = True, **kwargs):
+        self.target = target
+        self.timeout = timeout
+
+    def scan(self) -> PPResult:
+        return scan_prototype_pollution(self.target, timeout=self.timeout)
+
+
 def _max_severity(sevs: List[str]) -> str:
     order = {"critical": 4, "high": 3, "medium": 2, "low": 1}
     if not sevs:

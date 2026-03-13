@@ -200,7 +200,7 @@ def build(rd: Dict[str, Any]) -> str:
     parts = []
     parts.append(f'<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">'
                  f'<meta name="viewport" content="width=device-width,initial-scale=1.0">'
-                 f'<title>Recon Report — {_esc(host)} — Fray</title>'
+                 f'<title>Attack Surface Intelligence — {_esc(host)} — Fray</title>'
                  f'<style>{CSS}</style></head><body><div class="wrap">')
 
     # Header
@@ -208,7 +208,7 @@ def build(rd: Dict[str, Any]) -> str:
 <div class="hdr">
   <div>
     <div class="logo"><span class="logo-name">DALI</span><span class="logo-sub">SECURITY</span></div>
-    <h1 style="margin-top:12px;">Reconnaissance Report</h1>
+    <h1 style="margin-top:12px;">Attack Surface Intelligence</h1>
     <div class="sub">{_esc(host)} — {_esc(ts_short)} — Profile: {_esc(_profile_label)}</div>
   </div>
   <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap;">
@@ -734,6 +734,9 @@ def build(rd: Dict[str, Any]) -> str:
     elif not harvest_emails_list:
         email_html = '<tr><td class="kv-key">Emails (OSINT)</td><td class="muted">No emails discovered (set HUNTER_API_KEY for deeper results)</td></tr>'
 
+    spf_cell = '&#x2713; ' + _esc(spf[:100]) if spf else '&#x2717; <span style="color:var(--red);">Missing</span>'
+    dmarc_cell = '&#x2713; ' + _esc(dmarc[:100]) if dmarc else '&#x2717; <span style="color:var(--red);">Missing</span>'
+
     parts.append(f'''
 <div class="sec" id="dns">
   <h2>DNS &amp; Email</h2>
@@ -742,8 +745,8 @@ def build(rd: Dict[str, Any]) -> str:
     <tr><td class="kv-key">MX</td><td style="word-break:break-all;">{mx_display}</td></tr>
     <tr><td class="kv-key">CNAME Chain</td><td style="word-break:break-all;">{cname_display}</td></tr>
     <tr><td class="kv-key">DNSSEC</td><td>{dnssec_display}{dnssec_detail}</td></tr>
-    <tr><td class="kv-key">SPF</td><td>{'&#x2713; ' + _esc(spf[:100]) if spf else '&#x2717; <span style=\"color:var(--red);\">Missing</span>'}</td></tr>
-    <tr><td class="kv-key">DMARC</td><td>{'&#x2713; ' + _esc(dmarc[:100]) if dmarc else '&#x2717; <span style=\"color:var(--red);\">Missing</span>'}</td></tr>
+    <tr><td class="kv-key">SPF</td><td>{spf_cell}</td></tr>
+    <tr><td class="kv-key">DMARC</td><td>{dmarc_cell}</td></tr>
     {email_html}
   </table>
 </div>''')
@@ -1012,7 +1015,7 @@ def build(rd: Dict[str, Any]) -> str:
     <tr><td class="kv-key">API Gateway</td><td>{gw_html}</td></tr>
     <tr><td class="kv-key">Rate Limiting</td><td>{rl_api_html}</td></tr>
     <tr><td class="kv-key">Authentication</td><td>{auth_html}</td></tr>
-    <tr><td class="kv-key">Specs Exposed</td><td>{"<span style=\"color:var(--red);font-weight:600;\">" + str(n_api_specs) + " spec(s)</span>" if n_api_specs else "<span style=\"color:var(--green);\">None exposed</span>"}</td></tr>
+    <tr><td class="kv-key">Specs Exposed</td><td>{('<span style="color:var(--red);font-weight:600;">' + str(n_api_specs) + ' spec(s)</span>') if n_api_specs else '<span style="color:var(--green);">None exposed</span>'}</td></tr>
   </table>
   {f'<p class="muted" style="margin-top:8px;font-size:0.85em;">{_esc(api_summary)}</p>' if api_summary else ''}
   {spec_rows}{sub_api_html}
@@ -1067,10 +1070,11 @@ def build(rd: Dict[str, Any]) -> str:
             sub_bkt_html = f'<details style="margin-top:14px;"><summary style="cursor:pointer;font-size:0.85em;color:var(--accent);">Subdomain Bucket Findings ({len(sub_bkt_list)})</summary><table style="margin-top:8px;"><tr><th>Subdomain</th><th>Total</th><th>Public</th></tr>{sb_rows}</table></details>'
 
         pub_color = 'var(--red)' if n_public_buckets else 'var(--green)'
+        pub_warning = '<div style="margin-bottom:14px;background:var(--surface2);border-radius:10px;padding:14px 18px;border-left:3px solid #ef4444;"><p style="font-size:0.9em;line-height:1.6;margin:0;"><strong style="color:var(--red);">Public buckets detected!</strong> These cloud storage containers are accessible without authentication. Data exfiltration, backup leakage, and sensitive file exposure are immediate risks.</p></div>' if n_public_buckets else ''
         parts.append(f'''
 <div class="sec" id="buckets">
   <h2>Cloud Storage Buckets <span class="count">({n_buckets} found, <span style="color:{pub_color};">{n_public_buckets} public</span>)</span></h2>
-  {"<div style=\"margin-bottom:14px;background:var(--surface2);border-radius:10px;padding:14px 18px;border-left:3px solid #ef4444;\"><p style=\"font-size:0.9em;line-height:1.6;margin:0;\"><strong style=\"color:var(--red);\">Public buckets detected!</strong> These cloud storage containers are accessible without authentication. Data exfiltration, backup leakage, and sensitive file exposure are immediate risks.</p></div>" if n_public_buckets else ""}
+  {pub_warning}
   <table><tr><th>Bucket</th><th>Vendor</th><th>Access</th><th>Found On</th><th>Status</th></tr>{bkt_rows}</table>
   {sub_bkt_html}
 </div>''')
