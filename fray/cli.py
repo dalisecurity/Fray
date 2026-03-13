@@ -2004,10 +2004,10 @@ def cmd_cve_payload(args):
 
     if not cve_id and not description:
         print("  Usage: fray cve-payload CVE-2024-12345")
-        print("         fray cve-payload CVE-2024-12345 --poc")
-        print("         fray cve-payload CVE-2024-12345 --poc --mutate")
-        print("         fray cve-payload CVE-2024-12345 --poc --interactive")
-        print("         fray cve-payload CVE-2024-12345 --poc -i -T https://target.com")
+        print("         fray cve-payload CVE-2024-12345 --mutate")
+        print("         fray cve-payload CVE-2024-12345 --interactive")
+        print("         fray cve-payload CVE-2024-12345 -i -T https://target.com")
+        print("         fray cve-payload CVE-2024-12345 --no-poc  # skip PoC extraction")
         print("         fray cve-payload --description \"SQL injection in login\"")
         print("         fray cve-payload --file cves.jsonl -o payloads.json")
         return
@@ -2017,7 +2017,7 @@ def cmd_cve_payload(args):
         description=description,
         max_payloads=getattr(args, 'max', 10),
         timeout=getattr(args, 'timeout', 10),
-        extract_poc=getattr(args, 'poc', False),
+        extract_poc=not getattr(args, 'no_poc', False),
     )
 
     # Auto-generate payload variants if --mutate
@@ -2070,6 +2070,23 @@ def cmd_cve_payload(args):
                 pass
         bypassed = tested - blocked
         print(f"  Tested: {tested} | Blocked: {blocked} | Bypassed: {bypassed}")
+
+
+def cmd_poc_recheck(args):
+    """Re-check CVEs for newly available PoC exploits."""
+    from fray.cve_payload import recheck_stale_pocs
+
+    json_mode = getattr(args, 'json', False)
+    stats = recheck_stale_pocs(
+        max_age_days=getattr(args, 'age', 7),
+        max_cves=getattr(args, 'limit', 50),
+        timeout=getattr(args, 'timeout', 10),
+        verbose=not json_mode,
+    )
+
+    if json_mode:
+        import json as _json
+        print(_json.dumps(stats, ensure_ascii=False, default=str))
 
 
 def cmd_wizard(args):
@@ -3041,7 +3058,7 @@ def cmd_feed(args):
         category_filter=getattr(args, 'category', '') or '',
         auto_add=getattr(args, 'auto_add', False),
         dry_run=getattr(args, 'dry_run', False),
-        enrich_poc=getattr(args, 'poc', False),
+        enrich_poc=not getattr(args, 'no_poc', False),
         test_target=getattr(args, 'test_target', '') or '',
         test_delay=getattr(args, 'delay', 0.3),
         test_timeout=getattr(args, 'timeout', 8),
@@ -5253,8 +5270,8 @@ GitHub: https://github.com/dalisecurity/fray
                         help="Skip SSL verification for tests")
     p_feed.add_argument("--warm-cache", action="store_true", dest="warm_cache",
                         help="Pre-populate adaptive cache with threat intel payloads (#46)")
-    p_feed.add_argument("--poc", action="store_true",
-                        help="Extract real PoC payloads from GitHub/PacketStorm for new CVEs")
+    p_feed.add_argument("--no-poc", action="store_true", dest="no_poc",
+                        help="Skip PoC extraction (PoC extraction is on by default)")
     p_feed.add_argument("--json", action="store_true", help="Output as JSON")
     p_feed.add_argument("-o", "--output", default=None, help="Save results to file")
     p_feed.add_argument("--notify", default=None, metavar="WEBHOOK_URL",
@@ -5625,13 +5642,25 @@ GitHub: https://github.com/dalisecurity/fray
     p_cvepay.add_argument("-T", "--test-target", default=None, dest="test_target",
                            help="Test generated payloads against this URL")
     p_cvepay.add_argument("-d", "--delay", type=float, default=0.3, help="Delay for testing (default: 0.3)")
-    p_cvepay.add_argument("--poc", action="store_true",
-                           help="Extract real PoC payloads from GitHub/PacketStorm/ExploitDB references")
+    p_cvepay.add_argument("--no-poc", action="store_true", dest="no_poc",
+                           help="Skip PoC extraction (PoC extraction is on by default)")
     p_cvepay.add_argument("--mutate", action="store_true",
                            help="Auto-generate payload variants (encoding, obfuscation, param tweaks)")
     p_cvepay.add_argument("-i", "--interactive", action="store_true",
                            help="Interactive mode: pick payloads & variants, send selectively")
     p_cvepay.set_defaults(func=cmd_cve_payload)
+
+    # poc-recheck — re-scan CVEs that had no PoC (PoCs appear later)
+    p_pocre = subparsers.add_parser("poc-recheck",
+        help="Re-check CVEs for newly available PoC exploits (PoCs often appear days/weeks after disclosure)")
+    p_pocre.add_argument("--age", type=int, default=7,
+                          help="Re-check CVEs older than this many days (default: 7)")
+    p_pocre.add_argument("--limit", type=int, default=50,
+                          help="Max CVEs to re-check per run (default: 50)")
+    p_pocre.add_argument("-t", "--timeout", type=int, default=10,
+                          help="Request timeout (default: 10)")
+    p_pocre.add_argument("--json", action="store_true", help="Output as JSON")
+    p_pocre.set_defaults(func=cmd_poc_recheck)
 
     # wizard (#143)
     p_wizard = subparsers.add_parser("wizard", help="Interactive scan wizard — guided mode (#143)")

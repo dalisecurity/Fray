@@ -24,7 +24,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from fray.cve_payload import generate_payloads_from_cve
 
 CACHE_PATH = Path.home() / ".fray" / "cve_poc_cache.json"
-NVD_DELAY = 6.5  # ~5 requests per 30s without API key
+NVD_DELAY = 2.0  # Reduced: GitHub searches add natural inter-request delays
+
+def _print(*args, **kwargs):
+    """Print with flush for real-time output."""
+    print(*args, **kwargs, flush=True)
 
 
 def discover_cves() -> list:
@@ -163,10 +167,10 @@ def enrich_batch(cves: list, cache: dict, force: bool = False, limit: int = 0) -
 
     total = len(todo)
     skipped = len(real_cves) - total
-    print(f"\n{D}{'━' * 64}{R}")
-    print(f"  {B}CVE PoC Batch Enrichment{R}")
-    print(f"  {C}{total}{R} to process  {D}{skipped} cached/skipped  {len(cves) - len(real_cves)} synthetic{R}")
-    print(f"{D}{'━' * 64}{R}\n")
+    _print(f"\n{D}{'━' * 64}{R}")
+    _print(f"  {B}CVE PoC Batch Enrichment{R}")
+    _print(f"  {C}{total}{R} to process  {D}{skipped} cached/skipped  {len(cves) - len(real_cves)} synthetic{R}")
+    _print(f"{D}{'━' * 64}{R}\n")
 
     new_poc = 0
     new_sources = 0
@@ -209,9 +213,9 @@ def enrich_batch(cves: list, cache: dict, force: bool = False, limit: int = 0) -
             if poc_count > 0:
                 new_poc += poc_count
                 new_sources += source_count
-                print(f"  {G}●{R} {elapsed_label} {C}{cve_id}{R}  {cvss_color}CVSS {cvss:4.1f}{R}  {vtype_str:12s}  {G}{poc_count} PoC from {source_count} sources{R}")
+                _print(f"  {G}●{R} {elapsed_label} {C}{cve_id}{R}  {cvss_color}CVSS {cvss:4.1f}{R}  {vtype_str:12s}  {G}{poc_count} PoC from {source_count} sources{R}")
             else:
-                print(f"  {D}○{R} {elapsed_label} {C}{cve_id}{R}  {cvss_color}CVSS {cvss:4.1f}{R}  {vtype_str:12s}  {D}no PoC ({source_count} refs checked){R}")
+                _print(f"  {D}○{R} {elapsed_label} {C}{cve_id}{R}  {cvss_color}CVSS {cvss:4.1f}{R}  {vtype_str:12s}  {D}no PoC ({source_count} refs checked){R}")
 
             if result.get("error"):
                 errors += 1
@@ -219,7 +223,7 @@ def enrich_batch(cves: list, cache: dict, force: bool = False, limit: int = 0) -
         except Exception as e:
             errors += 1
             cache[cve_id] = {"error": str(e)[:200], "enriched_at": time.strftime("%Y-%m-%dT%H:%M:%SZ")}
-            print(f"  {RED}✗{R} {elapsed_label} {cve_id}  {RED}{str(e)[:60]}{R}")
+            _print(f"  {RED}✗{R} {elapsed_label} {cve_id}  {RED}{str(e)[:60]}{R}")
 
         # Save cache every 5 CVEs (resume support)
         if i % 5 == 0:
@@ -235,11 +239,11 @@ def enrich_batch(cves: list, cache: dict, force: bool = False, limit: int = 0) -
     # Summary
     total_poc = sum(v.get("poc_count", 0) for v in cache.values())
     total_cached = len(cache)
-    print(f"\n{D}{'─' * 64}{R}")
-    print(f"  {B}Batch complete:{R} {total} processed, {new_poc} new PoC payloads, {errors} errors")
-    print(f"  {B}Cache total:{R} {total_cached} CVEs, {total_poc} PoC payloads")
-    print(f"  {B}Saved:{R} {CACHE_PATH}")
-    print(f"{D}{'━' * 64}{R}\n")
+    _print(f"\n{D}{'─' * 64}{R}")
+    _print(f"  {B}Batch complete:{R} {total} processed, {new_poc} new PoC payloads, {errors} errors")
+    _print(f"  {B}Cache total:{R} {total_cached} CVEs, {total_poc} PoC payloads")
+    _print(f"  {B}Saved:{R} {CACHE_PATH}")
+    _print(f"{D}{'━' * 64}{R}\n")
 
     return cache
 
@@ -263,7 +267,7 @@ def main():
         cves = [args.cve]
     else:
         cves = discover_cves()
-        print(f"  Discovered {len(cves)} CVEs in payload database")
+        _print(f"  Discovered {len(cves)} CVEs in payload database")
 
     cache = enrich_batch(cves, cache, force=args.force, limit=args.limit)
     print_stats(cache)

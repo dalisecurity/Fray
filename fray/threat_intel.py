@@ -1016,7 +1016,7 @@ def run_feed(*, sources: Optional[List[str]] = None,
              category_filter: str = "",
              auto_add: bool = False,
              dry_run: bool = False,
-             enrich_poc: bool = False,
+             enrich_poc: bool = True,
              test_target: str = "",
              test_delay: float = 0.3,
              test_timeout: int = 8,
@@ -1030,7 +1030,7 @@ def run_feed(*, sources: Optional[List[str]] = None,
         category_filter: only this Fray category
         auto_add: automatically add to payload database
         dry_run: show what would be added without writing
-        enrich_poc: scrape GitHub/PacketStorm for real PoC payloads
+        enrich_poc: scrape GitHub/PacketStorm for real PoC payloads (default: True)
         test_target: if set, auto-test new payloads against this URL
         test_delay: delay between test requests
         test_timeout: request timeout for tests

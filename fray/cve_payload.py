@@ -351,7 +351,7 @@ def generate_payloads_from_cve(
     cve_data: Optional[Dict[str, Any]] = None,
     max_payloads: int = 10,
     timeout: int = 10,
-    extract_poc: bool = False,
+    extract_poc: bool = True,
 ) -> Dict[str, Any]:
     """Generate targeted payloads from a CVE ID or description.
 
@@ -361,7 +361,7 @@ def generate_payloads_from_cve(
         cve_data: Pre-fetched NVD CVE data dict (skip API call).
         max_payloads: Maximum number of payloads to generate.
         timeout: API request timeout.
-        extract_poc: If True, scrape GitHub/PacketStorm for real PoC payloads.
+        extract_poc: Scrape GitHub/PacketStorm for real PoC payloads (default: True).
 
     Returns:
         Dict with cve_info, vuln_types, payloads, poc_payloads, and metadata.
@@ -564,6 +564,123 @@ def generate_payloads_batch(
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
     return results
+
+
+# ── PoC Re-check (stale CVEs) ────────────────────────────────────────────────
+
+_POC_CACHE_PATH = Path.home() / ".fray" / "cve_poc_cache.json"
+
+
+def recheck_stale_pocs(
+    max_age_days: int = 30,
+    max_cves: int = 50,
+    timeout: int = 10,
+    verbose: bool = True,
+) -> Dict[str, Any]:
+    """Re-check CVEs that previously had no PoC.
+
+    PoCs often appear days or weeks after a CVE is publicly disclosed.
+    This function looks at the PoC cache, finds CVEs with poc_count=0
+    that haven't been re-checked recently, and tries again.
+
+    Args:
+        max_age_days: Only re-check entries older than this many days.
+        max_cves: Maximum number of CVEs to re-check per run.
+        timeout: Per-request timeout.
+        verbose: Print progress.
+
+    Returns:
+        Dict with stats: checked, new_pocs, updated_cves, etc.
+    """
+    stats = {"checked": 0, "new_pocs": 0, "updated_cves": [], "errors": 0}
+
+    # Load cache
+    cache = {}
+    if _POC_CACHE_PATH.exists():
+        try:
+            cache = json.loads(_POC_CACHE_PATH.read_text())
+        except Exception:
+            pass
+
+    if not cache:
+        if verbose:
+            print("  No PoC cache found. Run 'fray cve-payload' or 'fray feed' first.")
+        return stats
+
+    # Find stale CVEs: poc_count=0 and enriched_at > max_age_days ago
+    import datetime
+    cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=max_age_days)
+    cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    stale = []
+    for cve_id, entry in cache.items():
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("poc_count", 0) > 0:
+            continue  # already has PoC
+        enriched = entry.get("enriched_at", "")
+        recheck_at = entry.get("last_recheck", enriched)
+        if recheck_at and recheck_at < cutoff_str:
+            cvss = entry.get("cvss_score", 0)
+            stale.append((cve_id, cvss, recheck_at))
+
+    # Sort by CVSS score descending (highest severity first)
+    stale.sort(key=lambda x: -x[1])
+    todo = stale[:max_cves]
+
+    if verbose:
+        print(f"\n  PoC Re-check: {len(stale)} stale CVEs, processing top {len(todo)}")
+
+    for i, (cve_id, cvss, _) in enumerate(todo, 1):
+        stats["checked"] += 1
+        try:
+            result = generate_payloads_from_cve(
+                cve_id=cve_id, max_payloads=15,
+                timeout=timeout, extract_poc=True,
+            )
+            poc_count = len(result.get("poc_payloads", []))
+            now_str = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+            if poc_count > 0:
+                stats["new_pocs"] += poc_count
+                stats["updated_cves"].append(cve_id)
+                # Update cache with new PoC data
+                cache[cve_id].update({
+                    "poc_count": poc_count,
+                    "poc_payloads": result.get("poc_payloads", []),
+                    "poc_sources": result.get("poc_sources", []),
+                    "source_count": len(result.get("poc_sources", [])),
+                    "last_recheck": now_str,
+                })
+                if verbose:
+                    print(f"  ● [{i}/{len(todo)}] {cve_id}  CVSS {cvss:4.1f}  "
+                          f"\033[92m{poc_count} NEW PoC found!\033[0m")
+            else:
+                cache[cve_id]["last_recheck"] = now_str
+                if verbose:
+                    print(f"  ○ [{i}/{len(todo)}] {cve_id}  CVSS {cvss:4.1f}  still no PoC")
+
+        except Exception as e:
+            stats["errors"] += 1
+            if verbose:
+                print(f"  ✗ [{i}/{len(todo)}] {cve_id}  {str(e)[:50]}")
+
+        # Rate limit
+        if i < len(todo):
+            time.sleep(2.0)
+
+    # Save updated cache
+    _POC_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _POC_CACHE_PATH.write_text(json.dumps(cache, indent=2, ensure_ascii=False, default=str))
+
+    if verbose:
+        print(f"\n  Re-check complete: {stats['checked']} checked, "
+              f"{stats['new_pocs']} new PoC payloads across "
+              f"{len(stats['updated_cves'])} CVEs")
+        if stats["updated_cves"]:
+            print(f"  Updated: {', '.join(stats['updated_cves'][:10])}")
+
+    return stats
 
 
 # ── CVE Payload Mutator ──────────────────────────────────────────────────────

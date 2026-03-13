@@ -28,6 +28,7 @@ Supported PoC code formats:
 
 import http.client
 import json
+import os
 import re
 import ssl
 import time
@@ -171,42 +172,80 @@ _EXPLOIT_FILENAMES = [
 ]
 
 
-def _github_repo_to_raw_urls(repo_url: str) -> List[Tuple[str, str]]:
+def _github_repo_to_raw_urls(repo_url: str, cve_id: str = "") -> List[Tuple[str, str]]:
     """Convert a GitHub repo URL to raw content URLs for likely exploit files.
 
+    Minimal candidate list for speed: README, CVE-named .py, exploit.py, poc.py.
     Returns list of (filename, raw_url) tuples.
     """
-    # Extract owner/repo from URL
+    m = re.match(r'https?://github\.com/([^/]+)/([^/]+)', repo_url)
+    if not m:
+        return []
+    owner, repo = m.group(1), m.group(2).rstrip("/")
+    base = f"https://raw.githubusercontent.com/{owner}/{repo}"
+
+    urls: List[Tuple[str, str]] = []
+    branches = ("main", "master")
+
+    # 1. README (highest priority — most PoCs have inline code)
+    for b in branches:
+        urls.append(("README.md", f"{base}/{b}/README.md"))
+
+    # 2. CVE-named .py and .sh (most common PoC naming pattern)
+    if cve_id:
+        for slug in (cve_id.upper(), cve_id.lower()):
+            for ext in (".py", ".sh"):
+                for b in branches:
+                    urls.append((f"{slug}{ext}", f"{base}/{b}/{slug}{ext}"))
+
+    # 3. Standard exploit filenames
+    for fname in ("exploit.py", "poc.py", "exp.py"):
+        for b in branches:
+            urls.append((fname, f"{base}/{b}/{fname}"))
+
+    return urls
+
+
+def _discover_repo_files(repo_url: str, timeout: int = 6) -> List[str]:
+    """Use GitHub Trees API to discover actual files in a repo.
+
+    Returns list of file paths that look like exploit code.
+    """
     m = re.match(r'https?://github\.com/([^/]+)/([^/]+)', repo_url)
     if not m:
         return []
     owner, repo = m.group(1), m.group(2).rstrip("/")
 
-    urls = []
-    # Try common exploit filenames on main/master branches
-    for branch in ("main", "master"):
-        for fname in _EXPLOIT_FILENAMES:
-            raw = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{fname}"
-            urls.append((fname, raw))
+    exploit_extensions = {".py", ".sh", ".rb", ".go", ".pl", ".java", ".yaml", ".yml"}
+    results = []
 
-    # Also try README for inline PoC
-    for branch in ("main", "master"):
-        urls.append(("README.md", f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/README.md"))
+    try:
+        api_url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/HEAD?recursive=1"
+        status, body = _fetch_url_with_headers(api_url, timeout, {
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "Fray-Security-Scanner",
+        })
+        if status == 200 and body:
+            data = json.loads(body)
+            for item in data.get("tree", []):
+                if item.get("type") != "blob":
+                    continue
+                path = item.get("path", "")
+                _, ext = os.path.splitext(path)
+                if ext.lower() in exploit_extensions:
+                    results.append(path)
+    except Exception:
+        pass
 
-    return urls
+    return results
 
 
-def scrape_github_poc(repo_url: str, timeout: int = 10,
-                      delay: float = 0.3) -> Dict[str, Any]:
+def scrape_github_poc(repo_url: str, timeout: int = 8,
+                      delay: float = 0.05, cve_id: str = "") -> Dict[str, Any]:
     """Scrape a GitHub PoC repo for exploit code.
 
-    Args:
-        repo_url: GitHub repository URL.
-        timeout: Request timeout.
-        delay: Delay between requests.
-
-    Returns:
-        Dict with found files, extracted code, and parsed payloads.
+    Strategy: (1) Try Trees API to discover real filenames, (2) fall back to
+    brute-force candidates.  Stops after finding 3 code files.
     """
     result: Dict[str, Any] = {
         "repo": repo_url,
@@ -215,22 +254,67 @@ def scrape_github_poc(repo_url: str, timeout: int = 10,
         "extracted_payloads": [],
     }
 
-    candidates = _github_repo_to_raw_urls(repo_url)
+    m = re.match(r'https?://github\.com/([^/]+)/([^/]+)', repo_url)
+    if not m:
+        return result
+    owner, repo_name = m.group(1), m.group(2).rstrip("/")
+    base = f"https://raw.githubusercontent.com/{owner}/{repo_name}"
 
-    for fname, raw_url in candidates:
-        if delay > 0:
+    tried_urls = set()
+    found_fnames = set()
+
+    def _try_fetch(fname: str, raw_url: str) -> bool:
+        """Fetch a file and add to results. Returns True if found."""
+        if raw_url in tried_urls:
+            return False
+        if fname in found_fnames:
+            return False
+        tried_urls.add(raw_url)
+        if delay > 0 and result["files_found"]:
             time.sleep(delay)
         status, body = _fetch_url(raw_url, timeout)
         if status == 200 and len(body) > 50:
+            found_fnames.add(fname)
             result["files_found"].append(fname)
             result["code_snippets"].append({
                 "filename": fname,
-                "content": body[:32768],  # cap at 32KB
+                "content": body[:32768],
                 "size": len(body),
             })
-            # Stop after finding 3 meaningful files
-            if len(result["files_found"]) >= 3:
-                break
+            return True
+        return False
+
+    # Phase A: Brute-force candidates (README + CVE-named + standard filenames)
+    # This is the most reliable approach — raw.githubusercontent.com has no rate limit
+    candidates = _github_repo_to_raw_urls(repo_url, cve_id)
+    for fname, raw_url in candidates:
+        _try_fetch(fname, raw_url)
+        if len(result["files_found"]) >= 3:
+            break
+
+    # Phase B: Trees API discovery (only if we found < 2 files)
+    # GitHub API has 60 req/hr unauthenticated limit, so this is a fallback
+    if len(result["files_found"]) < 2:
+        discovered = _discover_repo_files(repo_url, timeout=5)
+        if discovered:
+            def _score(p):
+                s = 0
+                pl = p.lower()
+                if "exploit" in pl or "poc" in pl or "exp" in pl: s -= 10
+                if cve_id and cve_id.lower().replace("-", "") in pl.replace("-", "").replace("_", ""): s -= 5
+                if pl.endswith(".py"): s -= 3
+                if pl.endswith(".sh"): s -= 2
+                if "/" in pl: s += 1
+                return s
+            discovered.sort(key=_score)
+
+            for fpath in discovered[:5]:
+                for branch in ("main", "master"):
+                    raw_url = f"{base}/{branch}/{fpath}"
+                    if _try_fetch(fpath, raw_url):
+                        break
+                if len(result["files_found"]) >= 3:
+                    break
 
     return result
 
@@ -283,38 +367,104 @@ def scrape_packetstorm(url: str, timeout: int = 10) -> Dict[str, Any]:
 def search_github_pocs(cve_id: str, timeout: int = 10) -> List[str]:
     """Search GitHub for PoC repositories matching a CVE ID.
 
-    Uses GitHub code search API (unauthenticated) to find repos.
-    Falls back to URL pattern guessing.
+    Uses 5 strategies in priority order:
+    1. GitHub REST API search (repos)
+    2. nomi-sec/PoC-in-GitHub aggregator (curated CVE→repo mapping)
+    3. GitHub HTML search with broad matching
+    4. Common naming pattern probing (direct URL check)
+    5. ExploitDB search
 
     Returns list of GitHub repo URLs.
     """
-    repos = []
+    repos: List[str] = []
+    seen = set()
     slug = cve_id.upper()
+    slug_lower = cve_id.lower()
+    # e.g. CVE-2021-44228 → "2021" and "44228"
+    parts = slug.replace("CVE-", "").split("-", 1)
+    year = parts[0] if parts else ""
+    num = parts[1] if len(parts) > 1 else ""
 
-    # Strategy 1: GitHub search via HTML (no API key needed)
-    search_url = f"https://github.com/search?q={urllib.parse.quote(slug)}&type=repositories"
-    status, body = _fetch_url(search_url, timeout)
-    if status == 200 and body:
-        # Extract repo links from search results
-        matches = re.findall(r'href="/([^/]+/' + re.escape(slug) + r'[^"]*)"', body, re.IGNORECASE)
-        for m in matches[:5]:
-            repo_url = f"https://github.com/{m}"
-            if repo_url not in repos:
-                repos.append(repo_url)
+    def _add(url: str):
+        clean = url.rstrip("/")
+        if clean not in seen and "github.com/" in clean:
+            seen.add(clean)
+            repos.append(clean)
 
-    # Strategy 2: Try well-known PoC aggregator repos
-    poc_aggregators = [
-        f"https://github.com/nomi-sec/PoC-in-GitHub",  # auto-aggregated
-    ]
+    # Strategy 1: nomi-sec/PoC-in-GitHub — curated auto-aggregated CVE→PoC mapping
+    # This is a single fast raw.githubusercontent.com fetch, no rate limits
+    try:
+        nomi_url = f"https://raw.githubusercontent.com/nomi-sec/PoC-in-GitHub/master/{year}/{slug}.json"
+        status, body = _fetch_url(nomi_url, timeout)
+        if status == 200 and body:
+            entries = json.loads(body)
+            if isinstance(entries, list):
+                for entry in entries[:8]:
+                    html_url = entry.get("html_url", "")
+                    if html_url:
+                        _add(html_url)
+    except Exception:
+        pass
 
-    # Strategy 3: Common naming patterns
-    cve_lower = cve_id.lower()
-    cve_nodash = cve_id.replace("-", "")
-    common_patterns = [
-        f"https://github.com/search?q={urllib.parse.quote(cve_lower)}&type=repositories",
-    ]
+    # Strategy 2: GitHub REST API search (10 req/min unauthenticated)
+    if len(repos) < 3:
+        try:
+            api_url = f"https://api.github.com/search/repositories?q={urllib.parse.quote(slug)}+poc+OR+exploit&sort=stars&per_page=5"
+            status, body = _fetch_url_with_headers(api_url, timeout, {
+                "Accept": "application/vnd.github.v3+json",
+                "User-Agent": "Fray-Security-Scanner",
+            })
+            if status == 200 and body:
+                data = json.loads(body)
+                for item in data.get("items", [])[:5]:
+                    html_url = item.get("html_url", "")
+                    if html_url:
+                        _add(html_url)
+        except Exception:
+            pass
 
-    return repos[:5]
+    # Strategy 3: GitHub HTML search (broader regex, no API rate limit)
+    if len(repos) < 2:
+        try:
+            search_url = f"https://github.com/search?q={urllib.parse.quote(slug)}&type=repositories"
+            status, body = _fetch_url(search_url, timeout)
+            if status == 200 and body:
+                cve_pattern = slug.replace("-", r"[-_]?")
+                matches = re.findall(r'href="/([^"]+)"', body)
+                for m in matches:
+                    if re.search(cve_pattern, m, re.IGNORECASE) and m.count("/") == 1:
+                        _add(f"https://github.com/{m}")
+        except Exception:
+            pass
+
+    return repos[:8]
+
+
+def _fetch_url_with_headers(url: str, timeout: int = 12, extra_headers: Dict[str, str] = None) -> Tuple[int, str]:
+    """Fetch URL with custom headers (used for GitHub API)."""
+    try:
+        parsed = urllib.parse.urlparse(url)
+        host = parsed.hostname or ""
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        path = parsed.path or "/"
+        if parsed.query:
+            path += "?" + parsed.query
+
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+
+        conn = http.client.HTTPSConnection(host, port, timeout=timeout, context=ctx)
+        headers = {"Host": host, "User-Agent": "Fray-Security-Scanner"}
+        if extra_headers:
+            headers.update(extra_headers)
+        conn.request("GET", path, headers=headers)
+        resp = conn.getresponse()
+        body = resp.read(256 * 1024).decode("utf-8", "replace")
+        conn.close()
+        return resp.status, body
+    except Exception:
+        return 0, ""
 
 
 # ── PoC Code Parser ──────────────────────────────────────────────────────────
@@ -706,28 +856,31 @@ def extract_poc_payloads(
     """
     result = PoCResult(cve_id=cve_id)
 
-    # Get references
+    # Get references from NVD data
     if references is None and cve_data:
         references = cve_data.get("references", [])
+    if references is None:
+        references = []
 
-    if not references:
-        return result
-
-    # Classify and rank references
-    classified = classify_references(references, cve_id)
+    # Classify and rank NVD references
+    classified = classify_references(references, cve_id) if references else []
     result.poc_references = [{"url": r.url, "source": r.source, "priority": r.priority}
                              for r in classified]
 
-    # If no GitHub repos in NVD references, search GitHub directly
-    has_github = any(r.source == "github_repo" for r in classified)
-    if not has_github and cve_id:
+    # ALWAYS search GitHub for PoC repos (primary source of real exploits)
+    if cve_id:
         try:
             github_repos = search_github_pocs(cve_id, timeout)
-            for repo_url in github_repos[:3]:
-                classified.insert(0, PoCReference(repo_url, "github_repo", True))
-                result.poc_references.insert(0, {"url": repo_url, "source": "github_repo", "priority": 1})
+            existing_urls = {r.url for r in classified}
+            for repo_url in github_repos[:5]:
+                if repo_url not in existing_urls:
+                    classified.insert(0, PoCReference(repo_url, "github_repo", True))
+                    result.poc_references.insert(0, {"url": repo_url, "source": "github_repo", "priority": 1})
         except Exception:
             pass
+
+    if not classified:
+        return result
 
     # Scrape top sources
     all_code_snippets: List[Dict[str, str]] = []
@@ -738,7 +891,7 @@ def extract_poc_payloads(
             time.sleep(delay)
 
         if ref.source == "github_repo":
-            scraped = scrape_github_poc(ref.url, timeout, delay)
+            scraped = scrape_github_poc(ref.url, timeout, delay, cve_id=cve_id)
             if scraped["files_found"]:
                 result.sources_found += 1
                 all_code_snippets.extend(scraped["code_snippets"])
