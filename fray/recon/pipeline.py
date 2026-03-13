@@ -378,6 +378,8 @@ def run_recon(url: str, timeout: int = 8,
     n_checks += 3  # tier-4: GitHub org, email harvest, employee breach check
     if leak:
         n_checks += 1
+    # Post-async phases (subdomain takeover, smart checks, WAF detection)
+    n_checks += 3
 
     prog = _ReconProgress(n_checks, quiet=quiet)
     if not quiet:
@@ -1166,6 +1168,8 @@ def run_recon(url: str, timeout: int = 8,
             result["subdomain_takeover"] = {"vulnerable": [], "checked": 0, "count": 0}
         finally:
             _takeover_pool.shutdown(wait=False)
+    prog.done("Subdomain takeover")
+    prog.done("Smart subdomain checks")
 
     # Store per-subdomain findings in result for report consumption
     result["subdomain_security"] = {
@@ -1266,6 +1270,7 @@ def run_recon(url: str, timeout: int = 8,
     result["differential"] = check_differential_responses(host, port, use_ssl,
                                                            timeout=timeout,
                                                            extra_headers=headers)
+    prog.done("WAF detection")
 
     # 24. WAF rule gap analysis (cross-reference vendor against waf_intel)
     result["gap_analysis"] = waf_gap_analysis(recon_result=result)
