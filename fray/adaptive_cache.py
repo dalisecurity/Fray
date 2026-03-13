@@ -832,6 +832,156 @@ def print_waf_market_share() -> None:
     print()
 
 
+def get_corporate_waf_report() -> Dict:
+    """#71 — Aggregate WAF coverage across all scanned domains.
+
+    Returns a structured report with per-domain WAF vendor, block rate,
+    scan count, and last-scanned timestamp — suitable for corporate
+    security posture dashboards.
+
+    Returns:
+        Dict with 'domains' (list of per-domain dicts), 'summary' stats.
+    """
+    cache = load_cache()
+    if not cache:
+        return {"domains": [], "summary": {}}
+
+    rows = []
+    for domain, entry in sorted(cache.items()):
+        if not isinstance(entry, dict):
+            continue
+        if domain.startswith("__"):
+            continue  # skip synthetic keys like __threat_intel__
+        n_blocked = len(entry.get("blocked", {}))
+        n_passed = len(entry.get("passed", {}))
+        total = n_blocked + n_passed
+        block_rate = round(n_blocked / total * 100, 1) if total > 0 else 0.0
+        rows.append({
+            "domain": domain,
+            "waf_vendor": entry.get("waf_vendor", "") or "(none)",
+            "total_scans": entry.get("total_scans", 0),
+            "blocked": n_blocked,
+            "passed": n_passed,
+            "total_payloads": total,
+            "block_rate": block_rate,
+            "updated_at": entry.get("updated_at", ""),
+        })
+
+    # Summary
+    vendors = {}
+    for r in rows:
+        v = r["waf_vendor"]
+        vendors[v] = vendors.get(v, 0) + 1
+
+    return {
+        "domains": rows,
+        "summary": {
+            "total_domains": len(rows),
+            "vendors": vendors,
+            "unique_vendors": len([v for v in vendors if v != "(none)"]),
+            "domains_with_waf": sum(1 for r in rows if r["waf_vendor"] != "(none)"),
+            "domains_without_waf": sum(1 for r in rows if r["waf_vendor"] == "(none)"),
+            "avg_block_rate": round(
+                sum(r["block_rate"] for r in rows) / len(rows), 1
+            ) if rows else 0.0,
+        },
+    }
+
+
+def print_corporate_waf_report() -> None:
+    """#71 — Print a rich corporate WAF coverage report."""
+    from rich.table import Table
+    from rich.panel import Panel
+    from rich.text import Text
+
+    try:
+        from fray.output import console
+    except ImportError:
+        from rich.console import Console
+        console = Console()
+
+    report = get_corporate_waf_report()
+    rows = report["domains"]
+    summary = report["summary"]
+
+    if not rows:
+        console.print("[yellow]  No scan data yet. Run:[/yellow]")
+        console.print("    cat domains.txt | fray recon --fast")
+        return
+
+    table = Table(show_lines=False, pad_edge=False, box=None)
+    table.add_column("#", width=4, justify="right", style="dim")
+    table.add_column("Domain", min_width=25, style="bold")
+    table.add_column("WAF Vendor", min_width=16)
+    table.add_column("Block Rate", width=10, justify="right")
+    table.add_column("", min_width=15)  # bar
+    table.add_column("Blocked", width=8, justify="right")
+    table.add_column("Bypassed", width=8, justify="right")
+    table.add_column("Scans", width=6, justify="right", style="dim")
+    table.add_column("Last Scan", width=12, style="dim")
+
+    for i, r in enumerate(rows):
+        rate = r["block_rate"]
+        if rate >= 95:
+            color = "bright_red"
+        elif rate >= 80:
+            color = "red"
+        elif rate >= 60:
+            color = "yellow"
+        elif rate >= 40:
+            color = "bright_yellow"
+        else:
+            color = "green"
+
+        bar_w = int(rate / 100 * 15)
+        bar = Text("█" * bar_w + "░" * (15 - bar_w), style=color)
+        rate_txt = Text(f"{rate:.1f}%", style=f"bold {color}")
+
+        waf_style = "dim" if r["waf_vendor"] == "(none)" else "cyan"
+        bypassed_style = "bold green" if r["passed"] > 0 else "dim"
+
+        last_scan = r["updated_at"][:10] if r["updated_at"] else "—"
+
+        table.add_row(
+            str(i + 1),
+            r["domain"],
+            Text(r["waf_vendor"], style=waf_style),
+            rate_txt,
+            bar,
+            str(r["blocked"]),
+            Text(str(r["passed"]), style=bypassed_style),
+            str(r["total_scans"]),
+            last_scan,
+        )
+
+    from fray import __version__
+    console.print()
+    console.print(Panel(
+        table,
+        title=f"[bold]Fray v{__version__} — Corporate WAF Coverage Report[/bold]",
+        subtitle=(f"[dim]{summary['total_domains']} domains · "
+                  f"{summary['unique_vendors']} WAF vendors · "
+                  f"{summary['domains_with_waf']} protected · "
+                  f"{summary['domains_without_waf']} unprotected · "
+                  f"avg block rate {summary['avg_block_rate']}%[/dim]"),
+        border_style="bright_cyan",
+        expand=False,
+    ))
+
+    # Vendor distribution summary
+    if summary["vendors"]:
+        console.print()
+        console.print("  [bold]WAF Vendor Distribution:[/bold]")
+        sorted_v = sorted(summary["vendors"].items(), key=lambda x: -x[1])
+        for vendor, count in sorted_v:
+            pct = round(count / summary["total_domains"] * 100, 1)
+            bar = "█" * int(pct / 2.5)
+            style = "dim" if vendor == "(none)" else ""
+            console.print(f"    [{style}]{vendor:<25} {count:>4}  ({pct:>5.1f}%)  {bar}[/{style}]")
+
+    console.print()
+
+
 def export_cache(output_path: str, domain: str = "") -> Dict:
     """Export adaptive cache to a portable JSON file.
 

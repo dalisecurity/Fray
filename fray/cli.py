@@ -1675,6 +1675,14 @@ def cmd_stats(args):
             print_waf_leaderboard()
         return
 
+    if getattr(args, 'waf_report', False):
+        from fray.adaptive_cache import get_corporate_waf_report, print_corporate_waf_report
+        if getattr(args, 'json', False):
+            _json_print(get_corporate_waf_report())
+        else:
+            print_corporate_waf_report()
+        return
+
     if getattr(args, 'waf_market', False):
         from fray.adaptive_cache import get_waf_market_share, print_waf_market_share
         if getattr(args, 'json', False):
@@ -1925,37 +1933,34 @@ def cmd_recon(args):
     retirejs = getattr(args, 'retirejs', False)
 
     all_results = []
-    for target in targets:
-        json_mode = getattr(args, 'json', False)
-        ai_mode = getattr(args, 'ai', False)
-        quiet_mode = getattr(args, 'quiet', False)
-        suppress_progress = json_mode or ai_mode or ci_mode or quiet_mode
-        result = run_recon(target, timeout=getattr(args, 'timeout', 8),
-                           headers=auth_headers, mode=scan_mode,
-                           stealth=stealth, retirejs=retirejs,
-                           leak=getattr(args, 'leak', False),
-                           quiet=suppress_progress)
+    json_mode = getattr(args, 'json', False)
+    ai_mode = getattr(args, 'ai', False)
+    quiet_mode = getattr(args, 'quiet', False)
+    suppress_progress = json_mode or ai_mode or ci_mode or quiet_mode
+    parallel = getattr(args, 'parallel', 0) or 0
 
-        # SARIF output for recon
-        if getattr(args, 'sarif', False):
-            sarif = _build_recon_sarif_output(target=target, recon_result=result)
-            sarif_str = json.dumps(sarif, indent=2, ensure_ascii=False)
-            output_file = getattr(args, 'output', None) or "fray_recon.sarif"
-            _validate_output_path(output_file)
-            with open(output_file, 'w', encoding='utf-8') as f:
-                f.write(sarif_str)
-            findings = len(sarif["runs"][0]["results"])
-            rules = len(sarif["runs"][0]["tool"]["driver"]["rules"])
-            print(f"\n  SARIF 2.1.0 recon report generated: {output_file}")
-            print(f"  {findings} finding(s) across {rules} rule(s)")
-            print(f"\n  Upload to GitHub:")
-            print(f"    gh code-scanning upload-sarif --sarif {output_file}")
-            return
+    def _recon_one(target):
+        """Run recon on a single target (thread-safe)."""
+        return target, run_recon(target, timeout=getattr(args, 'timeout', 8),
+                                  headers=auth_headers, mode=scan_mode,
+                                  stealth=stealth, retirejs=retirejs,
+                                  leak=getattr(args, 'leak', False),
+                                  quiet=True)
 
-        if multi:
-            # Pipe mode: compact one-line JSONL per target (attack surface summary)
+    # ── Parallel multi-target recon (#182) ──
+    # When multiple targets + parallel workers requested (or auto: pipe mode),
+    # run recon concurrently via ThreadPoolExecutor.
+    if multi and suppress_progress and not getattr(args, 'sarif', False):
+        import concurrent.futures
+        workers = parallel if parallel > 0 else min(len(targets), 5)
+        if not quiet_mode and not json_mode:
+            sys.stderr.write(f"  ⚡ Parallel recon: {len(targets)} targets, {workers} workers\n")
+
+        _print_lock = __import__("threading").Lock()
+
+        def _format_summary(target, result):
             atk = result.get("attack_surface", {})
-            summary = {
+            return json.dumps({
                 "target": target,
                 "risk_score": atk.get("risk_score", 0),
                 "risk_level": atk.get("risk_level", "?"),
@@ -1974,10 +1979,72 @@ def cmd_recon(args):
                 "per_subdomain_waf_cdn": result.get("cloud_distribution", {}).get("per_subdomain", []),
                 "multi_waf": result.get("cloud_distribution", {}).get("multi_waf", False),
                 "multi_cdn": result.get("cloud_distribution", {}).get("multi_cdn", False),
-            }
-            print(json.dumps(summary, ensure_ascii=False))
-            all_results.append(result)
-            continue
+            }, ensure_ascii=False)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(_recon_one, t): t for t in targets}
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    target, result = future.result()
+                    with _print_lock:
+                        print(_format_summary(target, result))
+                    all_results.append(result)
+                except Exception as e:
+                    t = futures[future]
+                    with _print_lock:
+                        print(json.dumps({"target": t, "error": str(e)}, ensure_ascii=False))
+
+    else:
+        # Sequential (single target, interactive, SARIF, CI, etc.)
+        for target in targets:
+            result = run_recon(target, timeout=getattr(args, 'timeout', 8),
+                               headers=auth_headers, mode=scan_mode,
+                               stealth=stealth, retirejs=retirejs,
+                               leak=getattr(args, 'leak', False),
+                               quiet=suppress_progress)
+
+            # SARIF output for recon
+            if getattr(args, 'sarif', False):
+                sarif = _build_recon_sarif_output(target=target, recon_result=result)
+                sarif_str = json.dumps(sarif, indent=2, ensure_ascii=False)
+                output_file = getattr(args, 'output', None) or "fray_recon.sarif"
+                _validate_output_path(output_file)
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    f.write(sarif_str)
+                findings = len(sarif["runs"][0]["results"])
+                rules = len(sarif["runs"][0]["tool"]["driver"]["rules"])
+                print(f"\n  SARIF 2.1.0 recon report generated: {output_file}")
+                print(f"  {findings} finding(s) across {rules} rule(s)")
+                print(f"\n  Upload to GitHub:")
+                print(f"    gh code-scanning upload-sarif --sarif {output_file}")
+                return
+
+            if multi:
+                # Pipe mode: compact one-line JSONL per target (attack surface summary)
+                atk = result.get("attack_surface", {})
+                summary = {
+                    "target": target,
+                    "risk_score": atk.get("risk_score", 0),
+                    "risk_level": atk.get("risk_level", "?"),
+                    "subdomains": atk.get("subdomains", 0),
+                    "admin_panels": atk.get("admin_panels", 0),
+                    "open_admin_panels": atk.get("open_admin_panels", 0),
+                    "graphql_endpoints": atk.get("graphql_endpoints", 0),
+                    "api_endpoints": atk.get("api_endpoints", 0),
+                    "exposed_files": atk.get("exposed_files", 0),
+                    "injectable_params": atk.get("injectable_params", 0),
+                    "staging_envs": atk.get("staging_envs", []),
+                    "waf": atk.get("waf_vendor"),
+                    "cdn": atk.get("cdn"),
+                    "technologies": atk.get("technologies", []),
+                    "findings": len(atk.get("findings", [])),
+                    "per_subdomain_waf_cdn": result.get("cloud_distribution", {}).get("per_subdomain", []),
+                    "multi_waf": result.get("cloud_distribution", {}).get("multi_waf", False),
+                    "multi_cdn": result.get("cloud_distribution", {}).get("multi_cdn", False),
+                }
+                print(json.dumps(summary, ensure_ascii=False))
+                all_results.append(result)
+                continue
 
         # ── CI/CD mode: compact JSON, severity gate ──
         if ci_mode:
@@ -4537,6 +4604,8 @@ GitHub: https://github.com/dalisecurity/fray
     # Global flags
     parser.add_argument("--no-hints", action="store_true", default=False,
                         help="Suppress 'Next Steps' hints after commands (or set FRAY_NO_HINTS=1)")
+    parser.add_argument("--plugin", action="append", default=None, dest="plugins",
+                        help="Load plugin file or directory (repeatable, or set FRAY_PLUGINS=a.py,b.py)")
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
@@ -4598,6 +4667,8 @@ GitHub: https://github.com/dalisecurity/fray
                           help="AI-powered summary: prioritized findings + recommended next fray commands (needs OPENAI_API_KEY or ANTHROPIC_API_KEY)")
     p_recon.add_argument("--no-interactive", dest="no_interactive", action="store_true",
                           help="Skip interactive menu after recon (default: show menu in TTY)")
+    p_recon.add_argument("--parallel", type=int, default=0, metavar="N",
+                          help="Parallel workers for multi-target recon (default: auto, max 5)")
     p_recon.set_defaults(func=cmd_recon)
 
     # detect
@@ -5061,6 +5132,8 @@ GitHub: https://github.com/dalisecurity/fray
                           help="Show historical trend for a domain")
     p_stats.add_argument("--waf", action="store_true",
                           help="Show WAF effectiveness leaderboard (block rate per vendor from scan history)")
+    p_stats.add_argument("--waf-report", action="store_true", dest="waf_report",
+                          help="Corporate WAF coverage report: per-domain WAF vendor, block rate, scan history (#71)")
     p_stats.set_defaults(func=cmd_stats)
 
     # version
@@ -5401,6 +5474,14 @@ GitHub: https://github.com/dalisecurity/fray
     # ── --no-hints → FRAY_NO_HINTS ──
     if getattr(args, 'no_hints', False):
         os.environ["FRAY_NO_HINTS"] = "1"
+
+    # ── Load plugins (#163) ──
+    plugin_paths = getattr(args, 'plugins', None)
+    if plugin_paths or os.environ.get("FRAY_PLUGINS"):
+        from fray.plugins import load_plugins
+        n = load_plugins(plugin_paths)
+        if n and not getattr(args, 'json', False):
+            sys.stderr.write(f"  Loaded {n} plugin(s)\n")
 
     # ── Environment variable overrides (FRAY_* → argparse defaults) ──
     _apply_env_overrides(args)

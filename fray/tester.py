@@ -580,6 +580,19 @@ class WAFTester:
             try:
                 enc = urllib.parse.quote(payload, safe='')
 
+                # #163: Plugin hook — on_request
+                try:
+                    from fray.plugins import emit
+                    scheme = 'https' if current_ssl else 'http'
+                    emit("on_request", {
+                        "method": method if hop == 0 else "GET",
+                        "url": f"{scheme}://{current_host}{current_path}",
+                        "payload": payload, "param": param,
+                        "target": self.target, "hop": hop,
+                    })
+                except Exception:
+                    pass
+
                 stealth_hdrs = self._get_browser_headers()
 
                 if method == 'GET' or hop > 0:
@@ -811,6 +824,19 @@ class WAFTester:
                     if hdr_name in headers:
                         sec_headers[hdr_name] = headers[hdr_name]
 
+                # #163: Plugin hook — on_response
+                try:
+                    from fray.plugins import emit
+                    scheme = 'https' if current_ssl else 'http'
+                    emit("on_response", {
+                        "method": method, "url": f"{scheme}://{current_host}{current_path}",
+                        "status": status, "blocked": blocked,
+                        "body_length": len(resp_body), "elapsed_ms": elapsed_ms,
+                        "target": self.target, "payload": payload,
+                    })
+                except Exception:
+                    pass
+
                 baseline = self._measure_baseline(param)
                 confidence = self._compute_bypass_confidence(
                     blocked, reflected, status, len(resp_body),
@@ -1005,6 +1031,16 @@ class WAFTester:
 
         self.start_time = datetime.now()
 
+        # #163: Plugin hook — on_scan_start
+        try:
+            from fray.plugins import emit as _emit
+            _emit("on_scan_start", {
+                "target": self.target, "total_payloads": total,
+                "method": method, "param": param, "waf_vendor": waf_vendor,
+            })
+        except Exception:
+            pass
+
         if quiet:
             # Silent mode for --json: no rich output
             for idx, payload_data in enumerate(payloads[:total], 1):
@@ -1142,6 +1178,30 @@ class WAFTester:
                 clear_checkpoint(self.target)
             except Exception:
                 pass
+
+        # #163: Plugin hook — on_scan_end
+        try:
+            from fray.plugins import emit as _emit
+            elapsed_s = (datetime.now() - self.start_time).total_seconds() if self.start_time else 0
+            n_blocked = sum(1 for r in results if r.get('blocked'))
+            _emit("on_scan_end", {
+                "target": self.target, "total": len(results),
+                "blocked": n_blocked, "passed": len(results) - n_blocked,
+                "elapsed_s": round(elapsed_s, 1), "waf_vendor": waf_vendor,
+            })
+            # Emit on_finding for each bypass
+            for r in results:
+                if not r.get('blocked') and r.get('bypass_confidence', 0) > 0:
+                    _emit("on_finding", {
+                        "target": self.target, "category": r.get('category', ''),
+                        "payload": r.get('payload', ''), "status": r.get('status', 0),
+                        "blocked": False, "reflected": r.get('reflected', False),
+                        "bypass_confidence": r.get('bypass_confidence', 0),
+                        "description": r.get('description', ''),
+                        "severity": 'high' if r.get('bypass_confidence', 0) >= 75 else 'medium',
+                    })
+        except Exception:
+            pass
 
         return results
 
