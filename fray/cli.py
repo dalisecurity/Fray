@@ -1936,6 +1936,122 @@ def cmd_waf_report(args):
         print(f"  Report saved to {output}")
 
 
+def cmd_proto(args):
+    """Multi-protocol security testing — WebSocket, GraphQL, gRPC (#164)."""
+    from fray.multiproto import test_multi_protocol, print_multi_protocol_result
+
+    target = getattr(args, 'target', '')
+    if not target:
+        print("  Usage: fray proto https://example.com")
+        return
+
+    ws = not getattr(args, 'graphql_only', False) and not getattr(args, 'grpc_only', False)
+    graphql = not getattr(args, 'ws_only', False) and not getattr(args, 'grpc_only', False)
+    grpc = not getattr(args, 'ws_only', False) and not getattr(args, 'graphql_only', False)
+
+    if getattr(args, 'ws_only', False):
+        ws, graphql, grpc = True, False, False
+    elif getattr(args, 'graphql_only', False):
+        ws, graphql, grpc = False, True, False
+    elif getattr(args, 'grpc_only', False):
+        ws, graphql, grpc = False, False, True
+
+    result = test_multi_protocol(
+        target=target,
+        timeout=getattr(args, 'timeout', 8),
+        delay=getattr(args, 'delay', 0.15),
+        ws=ws, graphql=graphql, grpc=grpc,
+    )
+
+    output = getattr(args, 'output', '') or ''
+    if output:
+        from pathlib import Path
+        Path(output).parent.mkdir(parents=True, exist_ok=True)
+        Path(output).write_text(json.dumps(result, indent=2, ensure_ascii=False))
+        print(f"  Results saved to {output}")
+    elif getattr(args, 'json', False):
+        _json_print(result)
+    else:
+        print_multi_protocol_result(result)
+
+
+def cmd_cve_payload(args):
+    """Generate payloads from CVE description (#144)."""
+    from fray.cve_payload import (generate_payloads_from_cve, generate_payloads_batch,
+                                   print_cve_payloads)
+
+    source_file = getattr(args, 'file', None)
+    if source_file:
+        output = getattr(args, 'output', '') or ''
+        results = generate_payloads_batch(
+            source=source_file,
+            max_payloads=getattr(args, 'max', 10),
+            output=output,
+            timeout=getattr(args, 'timeout', 10),
+        )
+        if getattr(args, 'json', False):
+            _json_print(results)
+        elif not output:
+            for r in results:
+                print_cve_payloads(r)
+        else:
+            print(f"  {len(results)} CVE(s) processed → {output}")
+        return
+
+    cve_id = getattr(args, 'cve_id', '') or ''
+    description = getattr(args, 'description', '') or ''
+
+    if not cve_id and not description:
+        print("  Usage: fray cve-payload CVE-2024-12345")
+        print("         fray cve-payload --description \"SQL injection in login\"")
+        print("         fray cve-payload --file cves.jsonl -o payloads.json")
+        return
+
+    result = generate_payloads_from_cve(
+        cve_id=cve_id,
+        description=description,
+        max_payloads=getattr(args, 'max', 10),
+        timeout=getattr(args, 'timeout', 10),
+    )
+
+    output = getattr(args, 'output', '') or ''
+    if output:
+        from pathlib import Path
+        Path(output).parent.mkdir(parents=True, exist_ok=True)
+        Path(output).write_text(json.dumps(result, indent=2, ensure_ascii=False))
+        print(f"  Payloads saved to {output}")
+    elif getattr(args, 'json', False):
+        _json_print(result)
+    else:
+        print_cve_payloads(result)
+
+    # Optional: test payloads against target
+    test_target = getattr(args, 'test_target', None)
+    if test_target and result.get("payloads"):
+        print(f"  Testing {len(result['payloads'])} payloads against {test_target}...")
+        from fray.tester import WAFTester
+        tester = WAFTester(test_target,
+                          timeout=getattr(args, 'timeout', 8),
+                          delay=getattr(args, 'delay', 0.3))
+        tested = blocked = 0
+        for p in result["payloads"]:
+            try:
+                r = tester.test_payload(p["payload"])
+                tested += 1
+                if r.get("blocked"):
+                    blocked += 1
+            except Exception:
+                pass
+        bypassed = tested - blocked
+        print(f"  Tested: {tested} | Blocked: {blocked} | Bypassed: {bypassed}")
+
+
+def cmd_wizard(args):
+    """Interactive scan wizard — guided mode (#143)."""
+    from fray.wizard import run_wizard
+    run_wizard()
+
+
 def cmd_batch(args):
     """Batch recon for domain lists (#70)."""
     from fray.batch import run_batch, load_domains_file, _NIKKEI225_SAMPLE
@@ -5451,6 +5567,44 @@ GitHub: https://github.com/dalisecurity/fray
     p_wafrep.add_argument("-o", "--output", default=None, help="Save report (.md or .json)")
     p_wafrep.add_argument("--json", action="store_true", help="Output as JSON")
     p_wafrep.set_defaults(func=cmd_waf_report)
+
+    # proto (#164)
+    p_proto = subparsers.add_parser("proto", help="Multi-protocol security testing — WebSocket, GraphQL, gRPC (#164)")
+    p_proto.add_argument("target", help="Target URL")
+    p_proto.add_argument("-t", "--timeout", type=int, default=8, help="Request timeout (default: 8)")
+    p_proto.add_argument("-d", "--delay", type=float, default=0.15, help="Delay between probes (default: 0.15)")
+    p_proto.add_argument("-o", "--output", default=None, help="Save results JSON to file")
+    p_proto.add_argument("--json", action="store_true", help="Output as JSON to stdout")
+    p_proto.add_argument("--ws-only", action="store_true", dest="ws_only",
+                          help="Test WebSocket only")
+    p_proto.add_argument("--graphql-only", action="store_true", dest="graphql_only",
+                          help="Test GraphQL only")
+    p_proto.add_argument("--grpc-only", action="store_true", dest="grpc_only",
+                          help="Test gRPC only")
+    p_proto.set_defaults(func=cmd_proto)
+
+    # cve-payload (#144)
+    p_cvepay = subparsers.add_parser("cve-payload", help="Generate payloads from CVE description or ID (#144)")
+    p_cvepay.add_argument("cve_id", nargs="?", default="", help="CVE ID (e.g. CVE-2024-12345)")
+    p_cvepay.add_argument("--description", default=None,
+                           help="Free-text vulnerability description (alternative to CVE ID)")
+    p_cvepay.add_argument("--file", default=None, help="JSONL file with CVEs for batch processing")
+    p_cvepay.add_argument("-m", "--max", type=int, default=10, help="Max payloads per CVE (default: 10)")
+    p_cvepay.add_argument("-t", "--timeout", type=int, default=10, help="NVD API timeout (default: 10)")
+    p_cvepay.add_argument("-o", "--output", default=None, help="Save payloads to file")
+    p_cvepay.add_argument("--json", action="store_true", help="Output as JSON to stdout")
+    p_cvepay.add_argument("--test-target", default=None, dest="test_target",
+                           help="Test generated payloads against this URL")
+    p_cvepay.add_argument("-d", "--delay", type=float, default=0.3, help="Delay for testing (default: 0.3)")
+    p_cvepay.set_defaults(func=cmd_cve_payload)
+
+    # wizard (#143)
+    p_wizard = subparsers.add_parser("wizard", help="Interactive scan wizard — guided mode (#143)")
+    p_wizard.set_defaults(func=cmd_wizard)
+
+    # init (alias for wizard)
+    p_init = subparsers.add_parser("init", help="Interactive scan wizard (alias for 'wizard')")
+    p_init.set_defaults(func=cmd_wizard)
 
     # batch (#70)
     p_batch = subparsers.add_parser("batch", help="Batch recon across domain lists (Nikkei 225, custom) (#70)")

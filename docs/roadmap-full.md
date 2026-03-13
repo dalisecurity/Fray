@@ -214,8 +214,8 @@
 | 140 | Auto-mutation feedback loop | HIGH | done |
 | 141 | LLM-assisted bypass generation | HIGH | done |
 | 142 | Natural language query for findings | MEDIUM | done |
-| 143 | Interactive scan wizard (guided mode) | MEDIUM | pending |
-| 144 | Payload creation from CVE description | MEDIUM | pending |
+| 143 | Interactive scan wizard (guided mode) | MEDIUM | done |
+| 144 | Payload creation from CVE description | MEDIUM | done |
 | 145 | Auto-remediation suggestion engine | MEDIUM | done |
 | 146 | Continuous learning from community results | LOW | pending |
 | 147 | Benchmark mode (test against known-vulnerable apps) | LOW | pending |
@@ -239,7 +239,7 @@
 | 161 | WAF Fingerprint DB Expansion (30→150+ WAFs) | HIGH | done |
 | 162 | Vulnerability Verification/Proof (dump data, screenshot XSS) | HIGH | done |
 | 163 | Plugin / Extension API (Python hooks, marketplace) | MEDIUM | done |
-| 164 | Multi-Protocol (WebSocket, GraphQL, gRPC testing) | MEDIUM | pending |
+| 164 | Multi-Protocol (WebSocket, GraphQL, gRPC testing) | MEDIUM | done |
 | 165 | SARIF + Standard Formats (JUnit XML, CSV, JSONL) | HIGH | done |
 | 166 | Headless Browser Engine (Playwright SPA, DOM XSS) | HIGH | done |
 | 167 | Scan Profile Presets (--profile quick/standard/deep) | HIGH | done |
