@@ -820,18 +820,25 @@ def run_recon(url: str, timeout: int = 8,
     if cached_subs:
         result["subdomains"]["sources"]["cache"] = len(cached_subs)
 
-    # Subdomain takeover detection — run in background thread while smart checks proceed
+    # Subdomain takeover + WAF detection — run in background threads while smart checks proceed
     all_subs = result["subdomains"].get("subdomains", [])
+    import concurrent.futures as _cf_bg
+    _bg_pool = _cf_bg.ThreadPoolExecutor(max_workers=2)
     _takeover_future = None
+    _waf_future = None
     if all_subs and not is_fast:
         if not quiet:
             sys.stderr.write(f"\r  ⏳ Checking {len(all_subs)} subdomain(s) for takeover...          \n")
             sys.stderr.flush()
-        import concurrent.futures as _cf_takeover
-        _takeover_pool = _cf_takeover.ThreadPoolExecutor(max_workers=1)
-        _takeover_future = _takeover_pool.submit(check_subdomain_takeover, all_subs, 3.0)
+        _takeover_future = _bg_pool.submit(check_subdomain_takeover, all_subs, 3.0)
     else:
         result["subdomain_takeover"] = {"vulnerable": [], "checked": 0, "count": 0}
+    # Start WAF detection early — doesn't depend on subdomain results
+    if not quiet:
+        sys.stderr.write(f"\r  ⏳ WAF detection (differential response analysis)...          \n")
+        sys.stderr.flush()
+    _waf_future = _bg_pool.submit(check_differential_responses, host, port, use_ssl,
+                                   timeout, headers)
 
     # ── Smart per-subdomain security checks ─────────────────────────────
     # Instead of blanket scanning all subdomains, target each check type
@@ -1166,8 +1173,6 @@ def run_recon(url: str, timeout: int = 8,
             result["subdomain_takeover"] = _takeover_future.result(timeout=30)
         except Exception:
             result["subdomain_takeover"] = {"vulnerable": [], "checked": 0, "count": 0}
-        finally:
-            _takeover_pool.shutdown(wait=False)
     prog.done("Subdomain takeover")
     prog.done("Smart subdomain checks")
 
@@ -1261,16 +1266,16 @@ def run_recon(url: str, timeout: int = 8,
         if "csp_bypass" not in result["recommended_categories"]:
             result["recommended_categories"].insert(0, "csp_bypass")
 
-    # 23. Differential response analysis (WAF detection mode) — sequential, sends attack probes
-    if not quiet:
-        sys.stderr.write(f"\r  ⏳ WAF detection (differential response analysis)...          \n")
-        sys.stderr.flush()
-    if stealth:
-        time.sleep(random.uniform(1.0, 2.0))
-    result["differential"] = check_differential_responses(host, port, use_ssl,
-                                                           timeout=timeout,
-                                                           extra_headers=headers)
+    # 23. Collect WAF detection result (was started in background before smart checks)
+    if _waf_future is not None:
+        try:
+            result["differential"] = _waf_future.result(timeout=60)
+        except Exception:
+            result["differential"] = {}
+    else:
+        result["differential"] = {}
     prog.done("WAF detection")
+    _bg_pool.shutdown(wait=False)
 
     # 24. WAF rule gap analysis (cross-reference vendor against waf_intel)
     result["gap_analysis"] = waf_gap_analysis(recon_result=result)

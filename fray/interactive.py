@@ -846,12 +846,25 @@ class GuidedPipeline:
             out.write(f"  {S.dim}Modules:{S.reset} {mods}\n\n")
             out.flush()
 
-        # Run each module and collect results
+        # Run test modules in parallel (each module is independent)
         module_results = []
-        for vtype in vuln_types[:5]:
-            res = menu._run_module(vtype, self.target, {})
-            if res:
-                module_results.append(res)
+        if len(vuln_types[:5]) > 1:
+            import concurrent.futures as _cf_test
+            with _cf_test.ThreadPoolExecutor(max_workers=min(3, len(vuln_types[:5]))) as _tpool:
+                _futs = {_tpool.submit(menu._run_module, vt, self.target, {}): vt
+                         for vt in vuln_types[:5]}
+                for fut in _cf_test.as_completed(_futs, timeout=120):
+                    try:
+                        res = fut.result(timeout=60)
+                        if res:
+                            module_results.append(res)
+                    except Exception:
+                        pass
+        else:
+            for vtype in vuln_types[:5]:
+                res = menu._run_module(vtype, self.target, {})
+                if res:
+                    module_results.append(res)
 
         total_vulns = sum(1 for r in module_results if r.get("vulnerable"))
         total_findings = sum(r.get("findings", 0) for r in module_results)
