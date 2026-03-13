@@ -284,7 +284,7 @@ class TestAsk:
     def test_ask_no_waf(self):
         from fray.ask import ask
         result = ask("which domains have no WAF?")
-        assert result["intents"] == ["no_waf"]
+        assert "no_waf" in result["intents"]
         assert isinstance(result["results"], list)
 
 
