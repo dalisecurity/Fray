@@ -1,0 +1,77 @@
+name: Smoke Test — Real Sites + Vulnerable Targets
+
+on:
+  push:
+    branches: [main, hugo]
+    paths:
+      - 'fray/**'
+      - 'payloads/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'fray/**'
+      - 'payloads/**'
+  workflow_dispatch:
+    inputs:
+      zone:
+        description: 'Target zone: all, real, vulnerable'
+        required: false
+        default: 'all'
+      mode:
+        description: 'Test mode: quick or full'
+        required: false
+        default: 'quick'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-test:
+    name: Smoke Test (${{ github.event.inputs.zone || 'all' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install Fray
+      run: pip install -e .
+
+    - name: Run smoke test
+      run: |
+        ZONE="${{ github.event.inputs.zone || 'all' }}"
+        MODE="${{ github.event.inputs.mode || 'quick' }}"
+
+        echo "Running smoke test: zone=$ZONE mode=$MODE"
+        if [ "$MODE" = "full" ]; then
+          python -m fray smoke --zone "$ZONE" --full --json > smoke_results.json 2>&1
+        else
+          python -m fray smoke --zone "$ZONE" --quick --json > smoke_results.json 2>&1
+        fi
+
+        # Show results
+        cat smoke_results.json | python -m json.tool 2>/dev/null || cat smoke_results.json
+
+        # Check pass/fail
+        FAILED=$(python -c "import json; d=json.load(open('smoke_results.json')); print(d.get('failed', 0))" 2>/dev/null || echo "0")
+        PASSED=$(python -c "import json; d=json.load(open('smoke_results.json')); print(d.get('passed', 0))" 2>/dev/null || echo "0")
+        echo "Passed: $PASSED, Failed: $FAILED"
+
+        if [ "$FAILED" -gt "2" ]; then
+          echo "::error::Too many smoke test failures: $FAILED"
+          exit 1
+        fi
+
+    - name: Upload smoke test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: smoke-test-results
+        path: smoke_results.json
+        retention-days: 30

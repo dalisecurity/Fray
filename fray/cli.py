@@ -5584,6 +5584,15 @@ GitHub: https://github.com/dalisecurity/fray
                           help="Generate Markdown bounty report from fray test JSON output (#118)")
     p_bounty.set_defaults(func=cmd_bounty)
 
+    # smoke test
+    p_smoke = subparsers.add_parser("smoke", help="Smoke test against 10 hardcoded real + vulnerable targets")
+    p_smoke.add_argument("--zone", default="all", choices=["all", "real", "vulnerable"],
+                         help="Target zone: all (default), real (production sites), vulnerable (community test apps)")
+    p_smoke.add_argument("--quick", action="store_true", help="Quick mode: WAF detect + recon only (default)")
+    p_smoke.add_argument("--full", action="store_true", help="Full mode: detect + recon + payload test on vuln sites")
+    p_smoke.add_argument("--json", action="store_true", help="JSON output for CI")
+    p_smoke.set_defaults(func=lambda args: __import__('fray.smoke_test', fromlist=['cmd_smoke']).cmd_smoke(args))
+
     # report (#73)
     p_report = subparsers.add_parser("report", help="Generate automated security report per company/domain (#73)")
     p_report.add_argument("--company", required=True, help="Company domain (e.g. example.com)")
