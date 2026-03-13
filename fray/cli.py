@@ -2003,6 +2003,7 @@ def cmd_cve_payload(args):
 
     if not cve_id and not description:
         print("  Usage: fray cve-payload CVE-2024-12345")
+        print("         fray cve-payload CVE-2024-12345 --poc")
         print("         fray cve-payload --description \"SQL injection in login\"")
         print("         fray cve-payload --file cves.jsonl -o payloads.json")
         return
@@ -2012,6 +2013,7 @@ def cmd_cve_payload(args):
         description=description,
         max_payloads=getattr(args, 'max', 10),
         timeout=getattr(args, 'timeout', 10),
+        extract_poc=getattr(args, 'poc', False),
     )
 
     output = getattr(args, 'output', '') or ''
@@ -5596,6 +5598,8 @@ GitHub: https://github.com/dalisecurity/fray
     p_cvepay.add_argument("--test-target", default=None, dest="test_target",
                            help="Test generated payloads against this URL")
     p_cvepay.add_argument("-d", "--delay", type=float, default=0.3, help="Delay for testing (default: 0.3)")
+    p_cvepay.add_argument("--poc", action="store_true",
+                           help="Extract real PoC payloads from GitHub/PacketStorm/ExploitDB references")
     p_cvepay.set_defaults(func=cmd_cve_payload)
 
     # wizard (#143)

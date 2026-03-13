@@ -351,6 +351,7 @@ def generate_payloads_from_cve(
     cve_data: Optional[Dict[str, Any]] = None,
     max_payloads: int = 10,
     timeout: int = 10,
+    extract_poc: bool = False,
 ) -> Dict[str, Any]:
     """Generate targeted payloads from a CVE ID or description.
 
@@ -360,15 +361,18 @@ def generate_payloads_from_cve(
         cve_data: Pre-fetched NVD CVE data dict (skip API call).
         max_payloads: Maximum number of payloads to generate.
         timeout: API request timeout.
+        extract_poc: If True, scrape GitHub/PacketStorm for real PoC payloads.
 
     Returns:
-        Dict with cve_info, vuln_types, payloads, and metadata.
+        Dict with cve_info, vuln_types, payloads, poc_payloads, and metadata.
     """
     result: Dict[str, Any] = {
         "cve_id": cve_id,
         "description": description,
         "vuln_types": [],
         "payloads": [],
+        "poc_payloads": [],
+        "poc_sources": [],
         "affected_software": [],
         "cvss_score": 0.0,
         "parameters": {},
@@ -426,10 +430,61 @@ def generate_payloads_from_cve(
     params = _extract_parameters(description)
     result["parameters"] = params
 
-    # Step 4: Generate payloads
+    # Step 4: Extract real PoC payloads from exploit references
+    poc_payloads = []
+    if extract_poc and cve_data:
+        try:
+            from fray.poc_extractor import extract_poc_payloads
+            poc_result = extract_poc_payloads(
+                cve_id=result.get("cve_id", cve_id),
+                cve_data=cve_data,
+                max_sources=4,
+                timeout=timeout,
+                delay=0.5,
+            )
+            result["poc_sources"] = poc_result.poc_references[:6]
+
+            # Convert extracted PoC payloads into our payload format
+            for ep in poc_result.extracted_payloads:
+                sev = vuln_matches[0][1] if vuln_matches else "high"
+                entry = {
+                    "payload": ep["payload"][:500],
+                    "vuln_type": vuln_matches[0][0] if vuln_matches else "unknown",
+                    "severity": sev,
+                    "context": ep.get("context", ""),
+                    "technique": ep.get("technique", ""),
+                    "source": "poc",
+                    "confidence": ep.get("confidence", 0.0),
+                    "method": ep.get("method", ""),
+                    "path": ep.get("path", ""),
+                }
+                if ep.get("headers"):
+                    entry["headers"] = ep["headers"]
+                if ep.get("body"):
+                    entry["body"] = ep["body"][:500]
+                if ep.get("source_file"):
+                    entry["source_file"] = ep["source_file"]
+                poc_payloads.append(entry)
+        except Exception as e:
+            result["error"] = f"PoC extraction error: {str(e)[:100]}"
+
+    result["poc_payloads"] = poc_payloads
+
+    # Step 5: Generate template-based payloads
     payloads = []
     seen = set()
+
+    # PoC payloads go first (real exploit data = highest priority)
+    for pp in poc_payloads:
+        key = pp["payload"][:200]
+        if key not in seen and len(payloads) < max_payloads:
+            seen.add(key)
+            payloads.append(pp)
+
+    # Fill remaining slots with template payloads
     for vuln_type, severity in vuln_matches:
+        if len(payloads) >= max_payloads:
+            break
         templates = _PAYLOAD_TEMPLATES.get(vuln_type, _DEFAULT_PAYLOADS)
         for tmpl in templates:
             p = tmpl["payload"]
@@ -442,6 +497,7 @@ def generate_payloads_from_cve(
                 "severity": severity,
                 "context": tmpl.get("context", ""),
                 "technique": tmpl.get("technique", ""),
+                "source": "template",
             }
             # Customize with extracted parameters
             if params.get("parameter"):
@@ -451,8 +507,6 @@ def generate_payloads_from_cve(
             payloads.append(entry)
             if len(payloads) >= max_payloads:
                 break
-        if len(payloads) >= max_payloads:
-            break
 
     # If no specific payloads matched, add defaults
     if not payloads:
@@ -463,6 +517,7 @@ def generate_payloads_from_cve(
                 "severity": "medium",
                 "context": tmpl["context"],
                 "technique": tmpl["technique"],
+                "source": "template",
             })
 
     result["payloads"] = payloads
@@ -571,18 +626,52 @@ def print_cve_payloads(result: Dict[str, Any]):
     if params:
         print(f"  {B}Extracted:{R} {', '.join(f'{k}={v}' for k, v in params.items())}")
 
+    # PoC sources
+    poc_sources = result.get("poc_sources", [])
+    if poc_sources:
+        print(f"\n  {B}Exploit References ({len(poc_sources)}){R}")
+        icons = {"github_repo": "🐙", "packetstorm": "📦", "exploitdb": "💾",
+                 "github_advisory": "🔒", "blog": "📝"}
+        for ref in poc_sources[:4]:
+            icon = icons.get(ref.get("source", ""), "🔗")
+            print(f"    {icon} {D}{ref.get('url', '')[:62]}{R}")
+
     # Payloads
     payloads = result.get("payloads", [])
     if payloads:
-        print(f"\n  {B}Payloads ({len(payloads)}){R}")
+        poc_count = sum(1 for p in payloads if p.get("source") == "poc")
+        tmpl_count = len(payloads) - poc_count
+        label = f"Payloads ({len(payloads)})"
+        if poc_count:
+            label += f"  {GRN}●{R} {poc_count} from PoC  {D}●{R} {tmpl_count} from templates"
+        print(f"\n  {B}{label}{R}")
         for i, p in enumerate(payloads, 1):
             sev = p.get("severity", "medium")
             color = RED if sev in ("critical",) else YEL if sev == "high" else GRN
             technique = p.get("technique", "")
             context = p.get("context", "")
-            print(f"    {color}{i:2d}.{R} {p['payload'][:60]}")
+            source = p.get("source", "template")
+            src_tag = f"{GRN}[PoC]{R}" if source == "poc" else f"{D}[tmpl]{R}"
+            method = p.get("method", "")
+            path = p.get("path", "")
+
+            payload_display = p['payload'][:55]
+            if method and path and source == "poc":
+                print(f"    {color}{i:2d}.{R} {src_tag} {method} {path}")
+                if payload_display != path:
+                    print(f"        {D}payload: {payload_display}{R}")
+            else:
+                print(f"    {color}{i:2d}.{R} {src_tag} {payload_display}")
+
             if technique or context:
-                print(f"        {D}{p['vuln_type']} | {technique} | {context}{R}")
+                print(f"        {D}{p.get('vuln_type','')} | {technique} | {context}{R}")
+            if p.get("headers") and source == "poc":
+                hdrs = ", ".join(f"{k}: {v[:20]}" for k, v in list(p["headers"].items())[:2])
+                print(f"        {D}headers: {hdrs}{R}")
+            if p.get("body") and source == "poc":
+                print(f"        {D}body: {p['body'][:55]}{R}")
+            if p.get("source_file") and source == "poc":
+                print(f"        {D}from: {p['source_file']}{R}")
 
     # Error
     if result.get("error"):
