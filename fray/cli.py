@@ -36,6 +36,7 @@ Usage:
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -2004,6 +2005,9 @@ def cmd_cve_payload(args):
     if not cve_id and not description:
         print("  Usage: fray cve-payload CVE-2024-12345")
         print("         fray cve-payload CVE-2024-12345 --poc")
+        print("         fray cve-payload CVE-2024-12345 --poc --mutate")
+        print("         fray cve-payload CVE-2024-12345 --poc --interactive")
+        print("         fray cve-payload CVE-2024-12345 --poc -i -T https://target.com")
         print("         fray cve-payload --description \"SQL injection in login\"")
         print("         fray cve-payload --file cves.jsonl -o payloads.json")
         return
@@ -2015,6 +2019,26 @@ def cmd_cve_payload(args):
         timeout=getattr(args, 'timeout', 10),
         extract_poc=getattr(args, 'poc', False),
     )
+
+    # Auto-generate payload variants if --mutate
+    if getattr(args, 'mutate', False) and result.get("payloads"):
+        from fray.cve_payload import mutate_cve_payload
+        original_count = len(result["payloads"])
+        all_variants = []
+        for p in list(result["payloads"]):
+            variants = mutate_cve_payload(p, max_variants=6)
+            all_variants.extend(variants)
+        result["payloads"].extend(all_variants)
+        result["variants_generated"] = len(all_variants)
+        if not getattr(args, 'json', False):
+            print(f"  Mutations: {original_count} originals → {len(all_variants)} variants generated")
+
+    # Interactive mode — payload lab
+    if getattr(args, 'interactive', False):
+        from fray.cve_payload import interactive_cve_payloads
+        test_target = getattr(args, 'test_target', '') or ''
+        interactive_cve_payloads(result, target=test_target)
+        return
 
     output = getattr(args, 'output', '') or ''
     if output:
@@ -3017,6 +3041,7 @@ def cmd_feed(args):
         category_filter=getattr(args, 'category', '') or '',
         auto_add=getattr(args, 'auto_add', False),
         dry_run=getattr(args, 'dry_run', False),
+        enrich_poc=getattr(args, 'poc', False),
         test_target=getattr(args, 'test_target', '') or '',
         test_delay=getattr(args, 'delay', 0.3),
         test_timeout=getattr(args, 'timeout', 8),
@@ -5228,6 +5253,8 @@ GitHub: https://github.com/dalisecurity/fray
                         help="Skip SSL verification for tests")
     p_feed.add_argument("--warm-cache", action="store_true", dest="warm_cache",
                         help="Pre-populate adaptive cache with threat intel payloads (#46)")
+    p_feed.add_argument("--poc", action="store_true",
+                        help="Extract real PoC payloads from GitHub/PacketStorm for new CVEs")
     p_feed.add_argument("--json", action="store_true", help="Output as JSON")
     p_feed.add_argument("-o", "--output", default=None, help="Save results to file")
     p_feed.add_argument("--notify", default=None, metavar="WEBHOOK_URL",
@@ -5595,11 +5622,15 @@ GitHub: https://github.com/dalisecurity/fray
     p_cvepay.add_argument("-t", "--timeout", type=int, default=10, help="NVD API timeout (default: 10)")
     p_cvepay.add_argument("-o", "--output", default=None, help="Save payloads to file")
     p_cvepay.add_argument("--json", action="store_true", help="Output as JSON to stdout")
-    p_cvepay.add_argument("--test-target", default=None, dest="test_target",
+    p_cvepay.add_argument("-T", "--test-target", default=None, dest="test_target",
                            help="Test generated payloads against this URL")
     p_cvepay.add_argument("-d", "--delay", type=float, default=0.3, help="Delay for testing (default: 0.3)")
     p_cvepay.add_argument("--poc", action="store_true",
                            help="Extract real PoC payloads from GitHub/PacketStorm/ExploitDB references")
+    p_cvepay.add_argument("--mutate", action="store_true",
+                           help="Auto-generate payload variants (encoding, obfuscation, param tweaks)")
+    p_cvepay.add_argument("-i", "--interactive", action="store_true",
+                           help="Interactive mode: pick payloads & variants, send selectively")
     p_cvepay.set_defaults(func=cmd_cve_payload)
 
     # wizard (#143)

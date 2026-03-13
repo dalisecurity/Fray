@@ -567,8 +567,12 @@ def cve_to_payloads(cve_id: str, description: str, category: str = "",
 
 def fetch_nvd(since_days: int = 7, category_filter: str = "",
               max_results: int = 50,
+              enrich_poc: bool = False,
               verbose: bool = True) -> List[ThreatPayload]:
-    """Fetch recent CVEs from NIST NVD API 2.0 (free, no key required)."""
+    """Fetch recent CVEs from NIST NVD API 2.0 (free, no key required).
+
+    If enrich_poc=True, also scrapes GitHub/PacketStorm for real PoC payloads.
+    """
     now = datetime.now(timezone.utc)
     start = now - timedelta(days=since_days)
     start_str = start.strftime("%Y-%m-%dT%H:%M:%S.000+00:00")
@@ -658,6 +662,22 @@ def fetch_nvd(since_days: int = 7, category_filter: str = "",
             if "Exploit" in tags_r or "exploit" in url_r.lower():
                 poc_urls.append(url_r)
 
+        # Extract real PoC payloads from exploit references
+        extra_poc = []
+        if enrich_poc and poc_urls and cvss >= 7.0:
+            try:
+                from fray.poc_extractor import extract_poc_payloads
+                poc_result = extract_poc_payloads(
+                    cve_id=cve_id, cve_data=cve_data,
+                    max_sources=3, timeout=12, delay=0.5,
+                )
+                for ep in poc_result.extracted_payloads:
+                    extra_poc.append(ep.get("payload", "")[:500])
+                if verbose and extra_poc:
+                    print(f"    {_C.G}PoC: {cve_id} — {len(extra_poc)} real payloads extracted{_C.E}")
+            except Exception:
+                pass
+
         payloads = cve_to_payloads(
             cve_id=cve_id,
             description=description,
@@ -665,6 +685,7 @@ def fetch_nvd(since_days: int = 7, category_filter: str = "",
             severity=severity,
             source=f"NVD (CVSS {cvss})",
             reference=ref_url,
+            extra_payloads=extra_poc if extra_poc else None,
         )
         results.extend(payloads)
 
@@ -995,6 +1016,7 @@ def run_feed(*, sources: Optional[List[str]] = None,
              category_filter: str = "",
              auto_add: bool = False,
              dry_run: bool = False,
+             enrich_poc: bool = False,
              test_target: str = "",
              test_delay: float = 0.3,
              test_timeout: int = 8,
@@ -1008,6 +1030,7 @@ def run_feed(*, sources: Optional[List[str]] = None,
         category_filter: only this Fray category
         auto_add: automatically add to payload database
         dry_run: show what would be added without writing
+        enrich_poc: scrape GitHub/PacketStorm for real PoC payloads
         test_target: if set, auto-test new payloads against this URL
         test_delay: delay between test requests
         test_timeout: request timeout for tests
@@ -1050,6 +1073,8 @@ def run_feed(*, sources: Optional[List[str]] = None,
                 kwargs["since_days"] = since_days
             if "category_filter" in fn.__code__.co_varnames:
                 kwargs["category_filter"] = category_filter
+            if "enrich_poc" in fn.__code__.co_varnames:
+                kwargs["enrich_poc"] = enrich_poc
             payloads = fn(**kwargs)
             stats.items_fetched += len(payloads)
             all_payloads.extend(payloads)
