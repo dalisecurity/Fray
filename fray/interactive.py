@@ -456,7 +456,7 @@ class ReconInteractive:
 
             # Build scanner kwargs
             kwargs = {
-                "timeout": 15,
+                "timeout": 6,
                 "verify_ssl": False,
             }
 

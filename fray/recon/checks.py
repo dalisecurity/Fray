@@ -1983,6 +1983,9 @@ def check_differential_responses(host: str, port: int, use_ssl: bool,
                     if not data:
                         break
                     resp += data
+                    # Early exit: once we have headers + start of body, stop reading
+                    if b"\r\n\r\n" in resp and len(resp) > 512:
+                        break
                     if len(resp) > 16000:
                         break
                 except (socket.error, socket.timeout, OSError):
