@@ -291,45 +291,41 @@ def _get_threat_intel_summary() -> Dict:
 # ── What's New ───────────────────────────────────────────────────────────────
 
 _WHATS_NEW = [
-    ("Guided pipeline", "fray go <url>", "Zero-knowledge: recon → smart test → report in one command"),
-    ("Interactive hints", "After every command", "Smart next-step suggestions — no security knowledge needed"),
-    ("Blind injection detection", "fray test <url> --blind", "Time-based SQLi/SSTI/CMDi + OOB DNS callbacks"),
-    ("Self-improving agent", "fray agent <url>", "Iterative probe → mutate → learn loop with persistent cache"),
-    ("Threat intel feed", "fray feed --auto-add", "Auto-ingest CVEs from NVD, CISA, GitHub, ExploitDB, RSS, Nuclei"),
-    ("Cloud sync", "fray update / fray sync", "Pull/push payload database via Cloudflare R2 or GitHub releases"),
+    ("\U0001f680", "One command does everything", "fray go <url>", "Recon + smart test + HTML report, zero config"),
+    ("\U0001f9e0", "AI agent that learns", "fray agent <url>", "Remembers what\u2019s blocked, never repeats, gets smarter"),
+    ("\U0001f4e1", "Auto CVE feed", "Runs daily", "New CVEs auto-detected, PoC extracted, payloads ready"),
+    ("\U0001f50d", "Deep recon", "fray recon <url>", "Subdomains, WAF, tech stack, JS endpoints, secrets"),
 ]
 
 # ── Tips ─────────────────────────────────────────────────────────────────────
 
 _TIPS = [
-    "Use {B}--smart{R} to auto-detect your target's tech stack and pick the right payloads",
-    "Pipe targets: {C}cat domains.txt | fray detect{R} — works like httpx",
-    "Use {B}fray agent <url>{R} for self-improving testing that remembers what's blocked",
-    "Add {B}--blind{R} to detect time-based SQLi and OOB vulnerabilities",
-    "Try {B}fray recon <url> --js{R} to extract API endpoints from JavaScript files",
-    "Set up auth once: {B}fray test <url> --auth-profile ~/.fray/auth/site.json{R}",
-    "Try {B}fray go <url>{R} for a zero-knowledge guided pipeline (recon+test+report)",
-    "Use {B}fray scan <url> --sarif{R} to upload results to GitHub Security tab",
-    "Run {B}fray todo add \"my task\"{R} to track your private roadmap",
-    "The threat feed runs daily in CI: {B}fray feed --auto-add --test-target <url>{R}",
-    "Use {B}fray explain CVE-2024-XXXX{R} to get payloads + remediation for any CVE",
-    "Add {B}--stealth{R} for extra evasion: DNT, randomized timing, cache-control",
-    "Chain tools: {B}fray recon <url> --json | jq '.technologies'{R}",
+    "Just type {C}fray go <url>{R} \u2014 it does recon + testing + report automatically",
+    "Not sure what to test? {C}fray go{R} picks the right attacks for your target",
+    "Pipe targets: {C}cat domains.txt | fray detect{R} \u2014 works like httpx",
+    "New CVEs are auto-detected daily \u2014 payloads appear in your next {C}fray test{R}",
+    "The agent learns from each run: {C}fray agent <url>{R} gets smarter over time",
+    "Need auth? Just add {C}--cookie 'session=abc'{R} to any command",
+    "Found a CVE? {C}fray explain CVE-2024-XXXX{R} gives you payloads instantly",
+    "Want to go deeper? {C}fray scan <url>{R} crawls + finds + tests automatically",
+    "All results auto-save \u2014 run {C}fray report{R} to generate HTML anytime",
 ]
-
 
 # ── Main render ──────────────────────────────────────────────────────────────
 
 def render_welcome() -> str:
-    """Render the full welcome screen as a string."""
+    """Render the full welcome screen — vibe security theme.
+
+    Design: friendly, conversational, zero-research-needed.
+    User sees what Fray can do and just picks an action.
+    """
     lines = []
-    w = 70  # max width
 
     name = _get_user_name()
     greeting = _get_greeting()
     total_payloads, num_cats = _count_payloads()
     activities = _get_recent_activity()
-    todo_pending, todo_done, todo_top = _get_todo_summary()
+    ti = _get_threat_intel_summary()
 
     # ── Logo ─────────────────────────────────────────────────────────────
     lines.append("")
@@ -337,97 +333,85 @@ def render_welcome() -> str:
         lines.append(f"  {line}")
     lines.append("")
 
-    # ── Greeting + version ───────────────────────────────────────────────
+    # ── Friendly greeting ───────────────────────────────────────────────
     lines.append(f"  {_C.BOLD}{greeting}, {_C.BCYAN}{name}{_C.R}{_C.BOLD}!{_C.R}")
-    lines.append(f"  {_C.DIM}{total_payloads:,} payloads · {num_cats} categories · ready to deploy{_C.R}")
+    lines.append(f"  {_C.DIM}Your arsenal: {_C.R}{_C.BCYAN}{total_payloads:,}{_C.R}{_C.DIM} payloads across {_C.R}{_C.BCYAN}{num_cats}{_C.R}{_C.DIM} categories — locked and loaded.{_C.R}")
     lines.append("")
 
-    # ── Recent Activity ──────────────────────────────────────────────────
-    if activities:
-        lines.append(f"  {_C.BOLD}{_C.WHITE}Recent Activity{_C.R}")
-        lines.append(f"  {_C.DIM}{'─' * 50}{_C.R}")
-        for act in activities[:4]:
-            time_str = f"  {_C.DIM}{act['time']}{_C.R}" if act.get("time") else ""
-            lines.append(f"  {act['icon']}  {act['text']}{time_str}")
-        lines.append("")
-
-    # ── TODO ─────────────────────────────────────────────────────────────
-    if todo_pending > 0:
-        lines.append(f"  {_C.BOLD}{_C.WHITE}TODO{_C.R}  {_C.DIM}({todo_pending} pending, {todo_done} done){_C.R}")
-        lines.append(f"  {_C.DIM}{'─' * 50}{_C.R}")
-        if todo_top:
-            truncated = todo_top[:55] + ("..." if len(todo_top) > 55 else "")
-            lines.append(f"  {_C.YELLOW}→{_C.R} {truncated}")
-        lines.append(f"  {_C.DIM}  fray todo{_C.R}")
-        lines.append("")
-
-    # ── Threat Intel ─────────────────────────────────────────────────────
-    ti = _get_threat_intel_summary()
+    # ── Live Threat Intel Dashboard ──────────────────────────────────────
     if ti["total_cves"] > 0:
-        feed_status = f"  {_C.DIM}Last feed: {ti['last_feed'] or 'never'}{_C.R}" if ti["last_feed"] else ""
-        lines.append(f"  {_C.BOLD}{_C.WHITE}🛡️  Threat Intelligence{_C.R}{feed_status}")
-        lines.append(f"  {_C.DIM}{'─' * 50}{_C.R}")
+        feed_ago = ti['last_feed'] or 'never'
+        lines.append(f"  {_C.BOLD}{_C.WHITE}\U0001f6e1\ufe0f  Live Threat Intel{_C.R}  {_C.DIM}updated {feed_ago}{_C.R}")
+        lines.append(f"  {_C.DIM}{chr(9473) * 56}{_C.R}")
         lines.append(
-            f"  {_C.CYAN}{ti['total_cves']}{_C.R} CVEs tracked  "
-            f"{_C.GREEN}●{_C.R} {_C.GREEN}{ti['cves_with_poc']}{_C.R} with real PoC  "
-            f"{_C.DIM}{ti['total_poc_payloads']} exploit payloads{_C.R}"
+            f"  {_C.BCYAN}{ti['total_cves']}{_C.R} CVEs   "
+            f"{_C.GREEN}{_C.BOLD}{ti['cves_with_poc']}{_C.R} real exploits   "
+            f"{_C.YELLOW}{ti['total_poc_payloads']}{_C.R} payloads ready"
         )
         if ti["recent_cves"]:
-            lines.append(f"  {_C.DIM}Recently enriched:{_C.R}")
-            for cve in ti["recent_cves"][:4]:
+            lines.append(f"  {_C.DIM}Latest:{_C.R}")
+            for cve in ti["recent_cves"][:3]:
                 src = cve.get("source", "")
                 if src in ("generic", "nvd_template"):
-                    badge = f"{_C.DIM}template{_C.R}"
+                    dot = f"{_C.YELLOW}\u25cf{_C.R}"
                 else:
-                    badge = f"{_C.GREEN}real PoC{_C.R}"
+                    dot = f"{_C.GREEN}\u25cf{_C.R}"
                 lines.append(
-                    f"    {_C.RED}▸{_C.R} {_C.BOLD}{cve['cve_id']}{_C.R}  "
-                    f"{cve['poc_count']} payloads [{badge}]"
+                    f"    {dot} {_C.BOLD}{cve['cve_id']}{_C.R}  "
+                    f"{_C.DIM}{cve['poc_count']} payloads{_C.R}"
                 )
-        lines.append(f"  {_C.DIM}  Auto-updated via: NVD · CISA KEV · ExploitDB · GitHub · Nuclei{_C.R}")
-        lines.append(f"  {_C.DIM}  Run manually: fray feed --auto-add{_C.R}")
+        lines.append(f"  {_C.DIM}Feeds: NVD \u00b7 CISA KEV \u00b7 ExploitDB \u00b7 GitHub \u00b7 Nuclei \u00b7 Metasploit{_C.R}")
         lines.append("")
 
-    # ── What's New ─────────────────────────────────────────────────────────
-    lines.append(f"  {_C.BOLD}{_C.WHITE}What's New{_C.R}")
-    lines.append(f"  {_C.DIM}{'─' * 50}{_C.R}")
-    for feat_name, feat_cmd, feat_desc in _WHATS_NEW[:4]:
-        lines.append(f"  {_C.GREEN}●{_C.R} {_C.BOLD}{feat_name}{_C.R}  {_C.DIM}— {feat_desc}{_C.R}")
-    lines.append("")
+    # ── What do you want to do? (Action cards) ─────────────────────────
+    lines.append(f"  {_C.BOLD}{_C.WHITE}What do you want to do?{_C.R}")
+    lines.append(f"  {_C.DIM}{chr(9473) * 56}{_C.R}")
 
-    # ── Quick Start ──────────────────────────────────────────────────────
-    lines.append(f"  {_C.BOLD}{_C.WHITE}Quick Start{_C.R}")
-    lines.append(f"  {_C.DIM}{'─' * 50}{_C.R}")
-    cmds = [
-        ("fray go <url>", "Guided pipeline (recon→test→report)"),
-        ("fray recon <url>", "Reconnaissance & fingerprinting"),
-        ("fray test <url>", "Test WAF with payloads"),
-        ("fray scan <url>", "Auto crawl → discover → inject"),
-        ("fray agent <url>", "Self-improving payload agent"),
-        ("fray detect <url>", "Identify the WAF vendor"),
+    actions = [
+        ("\U0001f680", "Test everything automatically", "fray go <url>",
+         "Recon + smart testing + report in one shot"),
+        ("\U0001f50d", "Scan a target",                "fray recon <url>",
+         "Discover WAF, tech stack, subdomains, secrets"),
+        ("\u2694\ufe0f",  "Test WAF defenses",             "fray test <url> -c xss",
+         "Fire payloads and see what gets through"),
+        ("\U0001f9e0", "Let the AI figure it out",      "fray agent <url>",
+         "Self-improving agent that learns and adapts"),
+        ("\U0001f578\ufe0f",  "Deep crawl + inject",          "fray scan <url>",
+         "Auto-discover pages, forms, params and test them"),
+        ("\U0001f4e1", "Get latest CVE payloads",       "fray feed --auto-add",
+         "Pull new exploits from 8 intel sources"),
+        ("\U0001f4cb", "Explain a CVE",                 "fray explain CVE-XXXX",
+         "Instant payloads + remediation for any CVE"),
     ]
-    for cmd, desc in cmds:
-        lines.append(f"  {_C.BCYAN}{cmd:<28s}{_C.R} {_C.DIM}{desc}{_C.R}")
+
+    for emoji, title, cmd, desc in actions:
+        lines.append(
+            f"  {emoji}  {_C.BOLD}{title}{_C.R}"
+        )
+        lines.append(
+            f"      {_C.BCYAN}{cmd}{_C.R}  {_C.DIM}\u2014 {desc}{_C.R}"
+        )
     lines.append("")
 
-    # ── More Commands ────────────────────────────────────────────────────
-    lines.append(f"  {_C.DIM}More: fray bypass, fray smuggle, fray osint, fray bounty, fray feed{_C.R}")
-    lines.append(f"  {_C.DIM}Auth: --cookie, --bearer, --auth-profile, --login-flow{_C.R}")
-    lines.append(f"  {_C.DIM}Pipe: cat targets.txt | fray detect  (works like httpx){_C.R}")
-    lines.append(f"  {_C.DIM}Full help: fray help{_C.R}")
-    lines.append("")
+    # ── Recent Activity (compact) ───────────────────────────────────────
+    if activities:
+        lines.append(f"  {_C.BOLD}{_C.WHITE}\U0001f4ac  Recent{_C.R}")
+        lines.append(f"  {_C.DIM}{chr(9473) * 56}{_C.R}")
+        for act in activities[:3]:
+            time_str = f"{_C.DIM}{act['time']}{_C.R}" if act.get("time") else ""
+            lines.append(f"  {act['icon']}  {act['text']}  {time_str}")
+        lines.append("")
 
-    # ── Tip of the day ───────────────────────────────────────────────────
+    # ── Tip ─────────────────────────────────────────────────────────────
     tip_raw = random.choice(_TIPS)
-    tip = tip_raw.replace("{B}", _C.BOLD).replace("{R}", _C.R).replace("{C}", _C.CYAN).replace("{T}", _C.BCYAN)
-    lines.append(f"  {_C.DIM}💡 Tip:{_C.R} {tip}")
+    tip = tip_raw.replace("{B}", _C.BOLD).replace("{R}", _C.R).replace("{C}", _C.BCYAN).replace("{T}", _C.BCYAN)
+    lines.append(f"  {_C.DIM}\U0001f4a1{_C.R} {tip}")
     lines.append("")
 
-    # ── Footer ───────────────────────────────────────────────────────────
-    lines.append(f"  {_C.DIM}──────────────────────────────────────────────────{_C.R}")
-    lines.append(f"  {_C.BCYAN}📖 Docs:{_C.R}   https://dalisec.io/docs/#quickstart")
-    lines.append(f"  {_C.DIM}🔗 GitHub:{_C.R} https://github.com/dalisecurity/fray")
-    lines.append(f"  {_C.DIM}⚠  Only test systems you own or have written permission to test.{_C.R}")
+    # ── Footer ─────────────────────────────────────────────────────────
+    lines.append(f"  {_C.DIM}{chr(9473) * 56}{_C.R}")
+    lines.append(f"  {_C.DIM}\U0001f4d6 {_C.BCYAN}dalisec.io/docs{_C.R}  {_C.DIM}\u00b7  \U0001f517 {_C.R}{_C.DIM}github.com/dalisecurity/fray{_C.R}")
+    lines.append(f"  {_C.DIM}\u26a0  Only test systems you own or have written permission to test.{_C.R}")
     lines.append("")
 
     return "\n".join(lines)
