@@ -271,6 +271,41 @@ class WAFDetector:
                     ctx.verify_mode = ssl.CERT_NONE
                 sock = socket.create_connection((host, port), timeout=timeout)
                 conn = ctx.wrap_socket(sock, server_hostname=host)
+
+                # ── TLS cert org fingerprinting ──
+                # Extract certificate issuer/subject org to identify CDN/WAF providers
+                try:
+                    cert = conn.getpeercert()
+                    if cert:
+                        _cert_subject = dict(x[0] for x in cert.get('subject', ()) if x)
+                        _cert_issuer = dict(x[0] for x in cert.get('issuer', ()) if x)
+                        _cert_org = _cert_subject.get('organizationName', '')
+                        _cert_issuer_org = _cert_issuer.get('organizationName', '')
+                        _cert_san = [v for t, v in cert.get('subjectAltName', ()) if t == 'DNS']
+                        results['tls_cert'] = {
+                            'subject_org': _cert_org,
+                            'issuer_org': _cert_issuer_org,
+                            'san_count': len(_cert_san),
+                        }
+                        # Known CDN/WAF cert org names → boost detection confidence
+                        _TLS_CERT_HINTS = {
+                            'cloudflare': 'cloudflare',
+                            'amazon': 'aws_waf',
+                            'akamai': 'akamai',
+                            'imperva': 'imperva',
+                            'incapsula': 'imperva',
+                            'fastly': 'fastly',
+                            'stackpath': 'stackpath',
+                            'sucuri': 'sucuri',
+                            'google trust': 'google_cloud_armor',
+                        }
+                        _combined_org = f"{_cert_org} {_cert_issuer_org}".lower()
+                        for _hint_key, _hint_vendor in _TLS_CERT_HINTS.items():
+                            if _hint_key in _combined_org:
+                                results['tls_cert']['waf_hint'] = _hint_vendor
+                                break
+                except Exception:
+                    pass
             else:
                 conn = socket.create_connection((host, port), timeout=timeout)
             
@@ -328,7 +363,89 @@ class WAFDetector:
             # Detect WAF
             detection_results = self._analyze_signatures(results)
             results.update(detection_results)
-            
+
+            # ── Vendor-specific canary probes ──
+            # If passive detection found candidates with moderate confidence,
+            # send vendor-specific payloads to confirm via block response fingerprint.
+            _CANARY_PROBES = {
+                'cloudflare': {
+                    'payload': '?fray_canary=<script>cf_canary</script>',
+                    'confirm': [r'cloudflare', r'cf-error', r'attention required', r'ray id'],
+                },
+                'aws_waf': {
+                    'payload': "?fray_canary=' OR 1=1--",
+                    'confirm': [r'x-amzn-requestid', r'aws-waf', r'request blocked'],
+                },
+                'akamai': {
+                    'payload': '?fray_canary=../../etc/passwd',
+                    'confirm': [r'reference\s*#[\d.]+', r'akamai'],
+                },
+                'imperva': {
+                    'payload': '?fray_canary=|id',
+                    'confirm': [r'incapsula', r'incident\s*id', r'imperva'],
+                },
+                'f5_bigip': {
+                    'payload': '?fray_canary=<script>alert(1)</script>',
+                    'confirm': [r'the requested url was rejected', r'support id'],
+                },
+            }
+            _all_dets = results.get('all_detections', [])
+            _canary_results = []
+            # Only run canaries for vendors detected with confidence 20-80 (uncertain)
+            _candidates = [d for d in _all_dets if 20 <= d.get('confidence', 0) <= 80]
+            for _cand in _candidates[:3]:
+                _v = _cand['vendor'].lower().replace(' ', '_')
+                for _ck, _cv in _CANARY_PROBES.items():
+                    if _ck in _v or _v in _ck:
+                        try:
+                            _csock = socket.create_connection((host, port), timeout=timeout)
+                            if use_ssl:
+                                _cctx = ssl.create_default_context()
+                                if not verify_ssl:
+                                    _cctx.check_hostname = False
+                                    _cctx.verify_mode = ssl.CERT_NONE
+                                _cconn = _cctx.wrap_socket(_csock, server_hostname=host)
+                            else:
+                                _cconn = _csock
+                            _cpayload = urllib.parse.quote(_cv['payload'], safe='?=&/')
+                            _creq = f"GET {path}{_cpayload} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: Mozilla/5.0\r\nConnection: close\r\n\r\n"
+                            _cconn.sendall(_creq.encode('utf-8', errors='replace'))
+                            _cresp = b""
+                            while True:
+                                try:
+                                    _cd = _cconn.recv(4096)
+                                    if not _cd:
+                                        break
+                                    _cresp += _cd
+                                    if b"\r\n\r\n" in _cresp and len(_cresp) > 512:
+                                        break
+                                    if len(_cresp) > 16000:
+                                        break
+                                except (socket.error, socket.timeout, OSError):
+                                    break
+                            _cconn.close()
+                            _cresp_str = _cresp.decode('utf-8', errors='replace').lower()
+                            _confirmed = any(re.search(p, _cresp_str, re.I) for p in _cv['confirm'])
+                            if _confirmed:
+                                _cand['confidence'] = min(_cand['confidence'] + 25, 100)
+                                _cand['signatures'].append(f"Canary probe confirmed: {_ck}")
+                                _cand['signature_count'] += 1
+                                _canary_results.append({'vendor': _ck, 'confirmed': True})
+                            else:
+                                _canary_results.append({'vendor': _ck, 'confirmed': False})
+                        except Exception:
+                            pass
+                        break
+            if _canary_results:
+                results['canary_probes'] = _canary_results
+                # Re-sort and update top match after canary boosts
+                _all_dets.sort(key=lambda x: (x['confidence'], x['signature_count']), reverse=True)
+                if _all_dets:
+                    _top = _all_dets[0]
+                    results['waf_vendor'] = _top['vendor']
+                    results['confidence'] = _top['confidence']
+                    results['signatures_found'] = _top['signatures']
+
         except Exception as e:
             results['error'] = str(e)
         
@@ -498,6 +615,24 @@ class WAFDetector:
                     'signature_count': signature_count
                 })
         
+        # Boost confidence from TLS cert org hint
+        _tls_hint = results.get('tls_cert', {}).get('waf_hint', '')
+        if _tls_hint:
+            for dw in detected_wafs:
+                if _tls_hint.lower() in dw['vendor'].lower() or dw['vendor'].lower() in _tls_hint.lower():
+                    dw['confidence'] = min(dw['confidence'] + 15, 100)
+                    dw['signatures'].append(f"TLS cert org: {results['tls_cert'].get('issuer_org', '')}")
+                    dw['signature_count'] += 1
+                    break
+            else:
+                # TLS hint vendor not yet in detected list — add as low-confidence detection
+                detected_wafs.append({
+                    'vendor': _tls_hint,
+                    'confidence': 15,
+                    'signatures': [f"TLS cert org: {results['tls_cert'].get('issuer_org', '')}"],
+                    'signature_count': 1,
+                })
+
         # Sort by confidence, then by signature count
         detected_wafs.sort(key=lambda x: (x['confidence'], x['signature_count']), reverse=True)
         

@@ -1473,10 +1473,138 @@ def build(rd: Dict[str, Any]) -> str:
   <ol style="padding-left:20px;line-height:1.8;">{cl}</ol>
 </div>''')
 
-    # Remediation Plan
-    if remediation:
+    # Remediation Plan — auto-enrich from recon data
+    _auto_remediation = list(remediation) if remediation else []
+    _existing_actions = {r.get('action', '').lower() for r in _auto_remediation if isinstance(r, dict)}
+
+    # Auto-generate remediation items from recon findings
+    # 1. Unprotected subdomains (no WAF/CDN)
+    _sub_waf = rd.get('subdomain_security', {}) or {}
+    _sub_total = _sub_waf.get('total_subdomains', 0)
+    _sub_techs = _sub_waf.get('tech_fingerprints', [])
+    _n_no_waf = 0
+    if isinstance(_sub_techs, list):
+        for _st in _sub_techs:
+            if isinstance(_st, (list, tuple)) and len(_st) >= 2:
+                _fp = _st[1] if isinstance(_st[1], dict) else {}
+                _waf_name = _fp.get('waf', _fp.get('cdn', ''))
+                if not _waf_name:
+                    _n_no_waf += 1
+    if _n_no_waf > 5 and 'waf coverage' not in ' '.join(_existing_actions):
+        _auto_remediation.append({
+            'action': f'Add WAF coverage for {_n_no_waf} unprotected subdomain(s)',
+            'severity': 'high',
+            'why': f'{_n_no_waf} of {_sub_total} subdomain(s) have no WAF/CDN protection — exposed to direct attacks',
+            'how': 'Extend WAF rules to cover all subdomains, or route through CDN (Cloudflare, Akamai, AWS WAF)',
+            'timeline': 'Short-term',
+        })
+
+    # 2. CORS misconfiguration
+    _cors = rd.get('cors', {}) or {}
+    _cors_issues = _cors.get('issues', [])
+    if _cors_issues and 'cors' not in ' '.join(_existing_actions):
+        _n_cors = len(_cors_issues)
+        _worst = max(_cors_issues, key=lambda x: {'critical':4,'high':3,'medium':2,'low':1}.get(x.get('severity','low'), 0))
+        _auto_remediation.append({
+            'action': f'Fix {_n_cors} CORS misconfiguration(s)',
+            'severity': _worst.get('severity', 'medium'),
+            'why': _worst.get('risk', 'Cross-origin data theft possible'),
+            'how': 'Validate Origin header server-side; never reflect arbitrary origins; avoid Access-Control-Allow-Credentials with wildcards',
+            'timeline': 'Immediate' if _worst.get('severity') == 'critical' else 'Short-term',
+        })
+
+    # 3. Weak security header values
+    _hdrs = rd.get('headers', {}) or {}
+    _hdr_issues = _hdrs.get('value_issues', [])
+    if _hdr_issues and 'header value' not in ' '.join(_existing_actions):
+        _weak_names = [h.get('header', '') for h in _hdr_issues[:4]]
+        _auto_remediation.append({
+            'action': f'Fix {len(_hdr_issues)} weak security header value(s)',
+            'severity': 'high',
+            'why': f'Headers present but misconfigured: {", ".join(_weak_names)}',
+            'how': 'Review and strengthen header values — e.g., remove unsafe-inline from CSP, increase HSTS max-age to 1 year',
+            'timeline': 'Short-term',
+        })
+
+    # 4. Exposed files found
+    _exposed = rd.get('exposed_files', {}) or {}
+    _exposed_list = _exposed.get('exposed', [])
+    _crit_exposed = [e for e in _exposed_list if isinstance(e, dict) and e.get('severity') == 'critical']
+    if _crit_exposed and 'exposed file' not in ' '.join(_existing_actions):
+        _paths = ', '.join(e.get('path', '') for e in _crit_exposed[:3])
+        _auto_remediation.append({
+            'action': f'Remove {len(_crit_exposed)} critically exposed file(s)',
+            'severity': 'critical',
+            'why': f'Sensitive files publicly accessible: {_paths}',
+            'how': 'Block access via web server config (deny rules), remove from webroot, or add authentication',
+            'timeline': 'Immediate',
+        })
+
+    # 5. Subdomain takeover vulnerabilities
+    _takeover = rd.get('subdomain_takeover', {}) or {}
+    _takeover_vulns = _takeover.get('vulnerable', [])
+    if _takeover_vulns and 'takeover' not in ' '.join(_existing_actions):
+        _auto_remediation.append({
+            'action': f'Fix {len(_takeover_vulns)} subdomain takeover vulnerability(ies)',
+            'severity': 'critical',
+            'why': 'Dangling DNS records point to unclaimed services — attacker can claim and serve malicious content',
+            'how': 'Remove stale CNAME records or reclaim the service (S3 bucket, Heroku app, Azure, etc.)',
+            'timeline': 'Immediate',
+        })
+
+    # 6. WAF in monitor mode
+    _diff = rd.get('differential', {}) or {}
+    _waf_mode = _diff.get('waf_mode', '')
+    if _waf_mode == 'monitoring' and 'monitor' not in ' '.join(_existing_actions):
+        _auto_remediation.append({
+            'action': 'Switch WAF from monitor mode to blocking mode',
+            'severity': 'critical',
+            'why': 'WAF is logging attacks but not blocking them — all payloads pass through',
+            'how': 'Change WAF policy from monitor/detect to block/prevent mode in WAF management console',
+            'timeline': 'Immediate',
+        })
+
+    # 7. Missing DNSSEC
+    _dns = rd.get('dns', {}) or {}
+    _dnssec = rd.get('dnssec', {}) or {}
+    if isinstance(_dnssec, dict) and not _dnssec.get('signed', False) and 'dnssec' not in ' '.join(_existing_actions):
+        _auto_remediation.append({
+            'action': 'Enable DNSSEC',
+            'severity': 'medium',
+            'why': 'DNS responses are not signed — vulnerable to DNS spoofing/cache poisoning',
+            'how': 'Enable DNSSEC signing at your DNS provider (Cloudflare, Route53, etc.)',
+            'timeline': 'Medium-term',
+        })
+
+    # 8. Secrets/API keys in responses
+    _secrets = rd.get('secrets', {}) or {}
+    _secret_findings = _secrets.get('findings', []) if isinstance(_secrets, dict) else []
+    if _secret_findings and 'secret' not in ' '.join(_existing_actions) and 'api key' not in ' '.join(_existing_actions):
+        _auto_remediation.append({
+            'action': f'Rotate and remove {len(_secret_findings)} exposed secret(s)/API key(s)',
+            'severity': 'critical',
+            'why': 'API keys or credentials found in HTTP responses — immediate compromise risk',
+            'how': 'Rotate all exposed keys, move to environment variables or secrets manager, add to .gitignore',
+            'timeline': 'Immediate',
+        })
+
+    # 9. VPN endpoint CVEs
+    if vpn_cve_findings and 'vpn' not in ' '.join(_existing_actions):
+        _auto_remediation.append({
+            'action': f'Patch {len(vpn_cve_findings)} VPN endpoint CVE(s)',
+            'severity': 'critical',
+            'why': 'Known CVEs found on VPN endpoints — pre-auth RCE or credential theft possible',
+            'how': 'Apply vendor security patches immediately; if EOL, migrate to a supported VPN solution',
+            'timeline': 'Immediate',
+        })
+
+    # Sort: critical first, then high, medium, low
+    _sev_order = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3, 'info': 4}
+    _auto_remediation.sort(key=lambda r: _sev_order.get(r.get('severity', 'medium') if isinstance(r, dict) else 'medium', 3))
+
+    if _auto_remediation:
         rr = ''
-        for i, r in enumerate(remediation[:10], 1):
+        for i, r in enumerate(_auto_remediation[:15], 1):
             if isinstance(r, dict):
                 ra = _esc(r.get('action', ''))
                 rs = r.get('severity', 'medium')
@@ -1489,7 +1617,7 @@ def build(rd: Dict[str, Any]) -> str:
                 rr += f'<tr><td class="num">{i}</td><td colspan="5">{_esc(str(r))}</td></tr>'
         parts.append(f'''
 <div class="sec" id="remediation">
-  <h2>Remediation Plan <span class="count">({len(remediation)} action items)</span></h2>
+  <h2>Remediation Plan <span class="count">({len(_auto_remediation)} action items)</span></h2>
   <p class="muted" style="margin-bottom:14px;">Prioritised remediation actions sorted by severity and business impact.</p>
   <table><tr><th>#</th><th>Action</th><th>Severity</th><th>Why</th><th>How</th><th>Timeline</th></tr>{rr}</table>
 </div>''')
