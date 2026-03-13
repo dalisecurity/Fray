@@ -1915,7 +1915,7 @@ def check_rate_limits(host: str, port: int, use_ssl: bool,
 # ── Differential Response Analysis ──────────────────────────────────────
 
 def check_differential_responses(host: str, port: int, use_ssl: bool,
-                                  timeout: int = 8,
+                                  timeout: int = 4,
                                   extra_headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     """Compare responses between benign and malicious requests to fingerprint WAF detection mode.
 
@@ -1983,7 +1983,7 @@ def check_differential_responses(host: str, port: int, use_ssl: bool,
                     if not data:
                         break
                     resp += data
-                    if len(resp) > 50000:
+                    if len(resp) > 16000:
                         break
                 except (socket.error, socket.timeout, OSError):
                     break
@@ -2013,7 +2013,7 @@ def check_differential_responses(host: str, port: int, use_ssl: bool,
     benign_times = []
     benign_headers_set = set()
 
-    for _ in range(3):
+    for _ in range(2):
         s, h, b, t = _send_raw("GET", path)
         if s == 0:
             continue
@@ -2021,7 +2021,7 @@ def check_differential_responses(host: str, port: int, use_ssl: bool,
         benign_lengths.append(len(b))
         benign_times.append(t)
         benign_headers_set.update(h.keys())
-        time.sleep(0.2)
+        time.sleep(0.1)
 
     if not benign_statuses:
         result["error"] = "Target unreachable for baseline"
@@ -2069,7 +2069,7 @@ def check_differential_responses(host: str, port: int, use_ssl: bool,
                 benign_lengths = []
                 benign_times = []
                 benign_headers_set = set()
-                for _ in range(3):
+                for _ in range(2):
                     s, h, b, t = _send_raw("GET", path)
                     if s == 0:
                         continue
@@ -2077,7 +2077,7 @@ def check_differential_responses(host: str, port: int, use_ssl: bool,
                     benign_lengths.append(len(b))
                     benign_times.append(t)
                     benign_headers_set.update(h.keys())
-                    time.sleep(0.2)
+                    time.sleep(0.1)
 
                 if benign_statuses:
                     avg_benign_status = max(set(benign_statuses), key=benign_statuses.count)
@@ -2148,30 +2148,7 @@ def check_differential_responses(host: str, port: int, use_ssl: bool,
         "captcha", "challenge",
     )
 
-    for label, payload_path in signature_payloads:
-        s, h, b, t = _send_raw("GET", path + payload_path)
-        if s == 0:
-            continue
-
-        is_blk = _is_blocked(s, b, _sig_block_sigs)
-
-        if is_blk:
-            result["signature_detection"].append({
-                "label": label,
-                "payload": payload_path,
-                "status": s,
-                "response_time_ms": round(t, 1),
-                "body_length": len(b),
-            })
-            blocked_statuses.append(s)
-            blocked_lengths.append(len(b))
-            blocked_times.append(t)
-            blocked_headers_set.update(h.keys())
-            block_bodies.append(b)
-        time.sleep(0.3)
-
     # ── Phase 3: Anomaly-triggering payloads ──
-    # These are syntactically valid but unusual — anomaly-based WAFs may flag them
     anomaly_payloads = [
         ("Long param", "?input=" + "A" * 2000),
         ("Unusual encoding", "?input=%00%0d%0a"),
@@ -2179,27 +2156,43 @@ def check_differential_responses(host: str, port: int, use_ssl: bool,
         ("Double encoding", "?input=%253Cscript%253E"),
     ]
 
-    for label, payload_path in anomaly_payloads:
+    # Send all payloads in parallel for speed
+    import concurrent.futures as _cf_waf
+    all_payloads = [(label, payload_path, _sig_block_sigs, "signature") for label, payload_path in signature_payloads] + \
+                   [(label, payload_path, _anom_block_sigs, "anomaly") for label, payload_path in anomaly_payloads]
+
+    def _probe_payload(args):
+        label, payload_path, sigs, ptype = args
         s, h, b, t = _send_raw("GET", path + payload_path)
         if s == 0:
-            continue
+            return None
+        is_blk = _is_blocked(s, b, sigs)
+        return {"label": label, "payload": payload_path, "status": s,
+                "response_time_ms": round(t, 1), "body_length": len(b),
+                "blocked": is_blk, "type": ptype, "headers": h, "body": b, "time": t}
 
-        is_blk = _is_blocked(s, b, _anom_block_sigs)
-
-        if is_blk:
-            result["anomaly_detection"].append({
-                "label": label,
-                "payload": payload_path,
-                "status": s,
-                "response_time_ms": round(t, 1),
-                "body_length": len(b),
-            })
-            blocked_statuses.append(s)
-            blocked_lengths.append(len(b))
-            blocked_times.append(t)
-            blocked_headers_set.update(h.keys())
-            block_bodies.append(b)
-        time.sleep(0.3)
+    with _cf_waf.ThreadPoolExecutor(max_workers=4) as _waf_pool:
+        for res in _cf_waf.as_completed(
+                [_waf_pool.submit(_probe_payload, p) for p in all_payloads], timeout=30):
+            try:
+                r = res.result(timeout=10)
+                if r is None:
+                    continue
+                if r["blocked"]:
+                    entry = {"label": r["label"], "payload": r["payload"],
+                             "status": r["status"], "response_time_ms": r["response_time_ms"],
+                             "body_length": r["body_length"]}
+                    if r["type"] == "signature":
+                        result["signature_detection"].append(entry)
+                    else:
+                        result["anomaly_detection"].append(entry)
+                    blocked_statuses.append(r["status"])
+                    blocked_lengths.append(r["body_length"])
+                    blocked_times.append(r["time"])
+                    blocked_headers_set.update(r["headers"].keys())
+                    block_bodies.append(r["body"])
+            except Exception:
+                pass
 
     # ── Phase 4: Analyze differences ──
     if blocked_statuses:

@@ -364,7 +364,7 @@ def run_recon(url: str, timeout: int = 8,
     # Eliminates the phase-1/phase-2 barrier — tasks overlap freely within
     # the concurrency limit, cutting total recon time by 3-5x.
 
-    concurrency = 3 if stealth else 10
+    concurrency = 3 if stealth else 15
     verify = use_ssl
 
     # Count total checks for progress bar
