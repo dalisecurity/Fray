@@ -662,9 +662,10 @@ def fetch_nvd(since_days: int = 7, category_filter: str = "",
             if "Exploit" in tags_r or "exploit" in url_r.lower():
                 poc_urls.append(url_r)
 
-        # Extract real PoC payloads from exploit references
+        # Extract real PoC payloads — always search all 8 sources for
+        # high-severity CVEs, don't wait for NVD to tag "Exploit" references
         extra_poc = []
-        if enrich_poc and poc_urls and cvss >= 7.0:
+        if enrich_poc and cvss >= 7.0:
             try:
                 from fray.poc_extractor import extract_poc_payloads
                 poc_result = extract_poc_payloads(
@@ -695,8 +696,12 @@ def fetch_nvd(since_days: int = 7, category_filter: str = "",
 # ── 2. CISA KEV ──────────────────────────────────────────────────────────────
 
 def fetch_cisa_kev(since_days: int = 30,
+                   enrich_poc: bool = True,
                    verbose: bool = True) -> List[ThreatPayload]:
-    """Fetch from CISA Known Exploited Vulnerabilities catalog."""
+    """Fetch from CISA Known Exploited Vulnerabilities catalog.
+
+    CISA KEV entries are actively exploited — always extract PoCs.
+    """
     url = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
     if verbose:
         print(f"    {_C.DIM}CISA KEV: fetching catalog...{_C.E}")
@@ -728,7 +733,21 @@ def fetch_cisa_kev(since_days: int = 30,
         description = v.get("shortDescription", "") or v.get("vulnerabilityName", "")
         cat = classify_category(description)
 
-        # CISA KEV = actively exploited = always critical
+        # CISA KEV = actively exploited — always extract PoCs
+        extra_poc = []
+        if enrich_poc and cve_id:
+            try:
+                from fray.poc_extractor import extract_poc_payloads
+                poc_result = extract_poc_payloads(
+                    cve_id=cve_id, max_sources=3, timeout=12, delay=0.5,
+                )
+                for ep in poc_result.extracted_payloads:
+                    extra_poc.append(ep.get("payload", "")[:500])
+                if verbose and extra_poc:
+                    print(f"    {_C.G}PoC: {cve_id} — {len(extra_poc)} real payloads extracted{_C.E}")
+            except Exception:
+                pass
+
         payloads = cve_to_payloads(
             cve_id=cve_id,
             description=description,
@@ -736,6 +755,7 @@ def fetch_cisa_kev(since_days: int = 30,
             severity="critical",
             source="CISA KEV (actively exploited)",
             reference=f"https://nvd.nist.gov/vuln/detail/{cve_id}",
+            extra_payloads=extra_poc if extra_poc else None,
         )
         results.extend(payloads)
 
@@ -1096,8 +1116,10 @@ def run_feed(*, sources: Optional[List[str]] = None,
         if h in seen_hashes or h in existing_hashes:
             stats.payloads_duplicate += 1
             continue
-        # Skip if we've processed this CVE before (but keep non-CVE payloads)
-        if p.cve and p.cve in seen_cves:
+        # Skip if we've processed this CVE before AND it already has payloads
+        # (don't skip CVEs that were seen but had 0 payloads — they may have
+        # new PoCs available now)
+        if p.cve and p.cve in seen_cves and h in existing_hashes:
             stats.payloads_duplicate += 1
             continue
         seen_hashes.add(h)
