@@ -1,7 +1,7 @@
 # Fray Full Roadmap — 222 Items Across 27 Layers
 
-**Status:** 114 done · 108 pending  
-**Last updated:** 2026-03-11
+**Status:** 132 done · 90 pending  
+**Last updated:** 2026-03-13
 
 ---
 
@@ -43,12 +43,12 @@
 | 21 | Insecure Deserialization payloads | HIGH | done |
 | 22 | Mass Assignment / parameter pollution | MEDIUM | done |
 | 23 | GraphQL-specific attacks (batching, introspection abuse) | MEDIUM | done |
-| 24 | Race condition testing (TOCTOU) | MEDIUM | pending |
-| 25 | Business logic bypass templates | MEDIUM | pending |
+| 24 | Race condition testing (TOCTOU) | MEDIUM | done |
+| 25 | Business logic bypass templates | MEDIUM | done |
 | 26 | HTTP/2 specific attacks (HPACK bomb, etc.) | LOW | pending |
 | 27 | Cache poisoning via headers | MEDIUM | done |
 | 28 | Web cache deception | MEDIUM | done |
-| 29 | Client-side prototype pollution verification | LOW | pending |
+| 29 | Client-side prototype pollution verification | LOW | done |
 
 ## L5 — Supply Chain Pipeline (3 items)
 | # | Item | Priority | Status |
@@ -117,10 +117,10 @@
 ## L11 — Nikkei 225 Bugs + Features (10 items)
 | # | Item | Priority | Status |
 |---|------|----------|--------|
-| 70 | Batch recon for Fortune 500 / Nikkei 225 | HIGH | pending |
-| 71 | Corporate WAF coverage report | MEDIUM | pending |
-| 72 | Industry-level security posture comparison | MEDIUM | pending |
-| 73 | Automated report generation per company | MEDIUM | pending |
+| 70 | Batch recon for Fortune 500 / Nikkei 225 | HIGH | done |
+| 71 | Corporate WAF coverage report | MEDIUM | done |
+| 72 | Industry-level security posture comparison | MEDIUM | done |
+| 73 | Automated report generation per company | MEDIUM | done |
 | 74 | DNS hygiene scoring | LOW | done |
 | 75 | Certificate transparency monitoring | MEDIUM | done |
 | 76 | Subdomain sprawl detection | LOW | done |
@@ -146,7 +146,7 @@
 | 88 | Fray landing page on dalisec.io | HIGH | pending |
 | 89 | docs.dalisec.io hosted documentation | HIGH | pending |
 | 90 | Demo video/GIF refresh | MEDIUM | pending |
-| 91 | Docker image (Dockerfile) | HIGH | pending |
+| 91 | Docker image (Dockerfile) | HIGH | done |
 | 92 | PyPI package optimization | LOW | pending |
 | 93 | Kali Linux package (apt) | MEDIUM | pending |
 | 94 | CONTRIBUTING.md + AGENTS.md | LOW | done |
@@ -176,12 +176,12 @@
 | # | Item | Priority | Status |
 |---|------|----------|--------|
 | 112 | HackerOne API scope auto-fetch | HIGH | done |
-| 113 | Bugcrowd API scope auto-fetch | MEDIUM | pending |
+| 113 | Bugcrowd API scope auto-fetch | MEDIUM | done |
 | 114 | Auto-submit findings to HackerOne | MEDIUM | pending |
 | 115 | Bounty program recommendation engine | LOW | pending |
 | 116 | Scope validation + out-of-scope detection | HIGH | done |
 | 117 | Multi-target batch bounty testing | MEDIUM | done |
-| 118 | Bounty report template generator | MEDIUM | pending |
+| 118 | Bounty report template generator | MEDIUM | done |
 | 119 | Duplicate finding detection (cross-program) | LOW | pending |
 | 120 | Payout tracking / statistics | LOW | pending |
 | 121 | VDP (Vulnerability Disclosure Policy) parser | LOW | pending |
@@ -213,14 +213,14 @@
 | 139 | Payload effectiveness scoring per WAF | HIGH | done |
 | 140 | Auto-mutation feedback loop | HIGH | done |
 | 141 | LLM-assisted bypass generation | HIGH | done |
-| 142 | Natural language query for findings | MEDIUM | pending |
+| 142 | Natural language query for findings | MEDIUM | done |
 | 143 | Interactive scan wizard (guided mode) | MEDIUM | pending |
 | 144 | Payload creation from CVE description | MEDIUM | pending |
 | 145 | Auto-remediation suggestion engine | MEDIUM | done |
 | 146 | Continuous learning from community results | LOW | pending |
 | 147 | Benchmark mode (test against known-vulnerable apps) | LOW | pending |
 | 148 | Payload similarity clustering | LOW | pending |
-| 149 | WAF rule reverse engineering | MEDIUM | pending |
+| 149 | WAF rule reverse engineering | MEDIUM | done |
 | 150 | Attack chain suggestion (multi-step exploits) | LOW | pending |
 | 151 | Payload obfuscation scoring | LOW | pending |
 | 152 | False positive reduction via ML | LOW | pending |
@@ -238,7 +238,7 @@
 | 160 | Stdin/Stdout Pipeline (cat | fray recon -) | HIGH | done |
 | 161 | WAF Fingerprint DB Expansion (30→150+ WAFs) | HIGH | done |
 | 162 | Vulnerability Verification/Proof (dump data, screenshot XSS) | HIGH | done |
-| 163 | Plugin / Extension API (Python hooks, marketplace) | MEDIUM | pending |
+| 163 | Plugin / Extension API (Python hooks, marketplace) | MEDIUM | done |
 | 164 | Multi-Protocol (WebSocket, GraphQL, gRPC testing) | MEDIUM | pending |
 | 165 | SARIF + Standard Formats (JUnit XML, CSV, JSONL) | HIGH | done |
 | 166 | Headless Browser Engine (Playwright SPA, DOM XSS) | HIGH | done |
@@ -265,10 +265,10 @@
 |---|------|----------|--------|
 | 180 | Fast mode optimization (42s→28s) | HIGH | done |
 | 181 | Shell completions (bash/zsh/fish) | MEDIUM | done |
-| 182 | Parallel multi-target recon | MEDIUM | pending |
+| 182 | Parallel multi-target recon | MEDIUM | done |
 | 183 | Progress bar improvements (ETA, speed) | LOW | pending |
-| 184 | Color theme customization | LOW | pending |
-| 185 | Config file validation (JSON Schema) | LOW | pending |
+| 184 | Color theme customization | LOW | done |
+| 185 | Config file validation (JSON Schema) | LOW | done |
 
 ## L21 — Packaging + Distribution
 | # | Item | Priority | Status |
@@ -331,9 +331,9 @@
 |---|------|----------|--------|
 | 218 | Parallel/async request execution (asyncio + aiohttp) | HIGH | done |
 | 219 | Response diffing / false positive reduction | MEDIUM | done |
-| 220 | Redirect chain following in testing | MEDIUM | pending |
+| 220 | Redirect chain following in testing | MEDIUM | done |
 | 221 | --resume flag for interrupted scan checkpoint | MEDIUM | done |
-| 222 | Test coverage expansion (pytest, >80%) | LOW | pending |
+| 222 | Test coverage expansion (pytest, >80%) | LOW | done |
 
 ---
 
@@ -341,31 +341,31 @@
 
 | Layer | Items | Done | Pending |
 |-------|-------|------|---------|
-| L1 Core Discovery | 5 | 2 | 3 |
-| L2 Endpoint Classification | 8 | 4 | 4 |
+| L1 Core Discovery | 5 | 5 | 0 |
+| L2 Endpoint Classification | 8 | 8 | 0 |
 | L3 Secret/Credential Detection | 6 | 6 | 0 |
-| L4 New Attack Classes | 10 | 0 | 10 |
-| L5 Supply Chain | 3 | 2 | 1 |
+| L4 New Attack Classes | 10 | 9 | 1 |
+| L5 Supply Chain | 3 | 3 | 0 |
 | L6 OSINT | 6 | 6 | 0 |
-| L7 Cache + D1 Sync | 8 | 5 | 3 |
+| L7 Cache + D1 Sync | 8 | 6 | 2 |
 | L8 DNS Recon Phase 2 | 5 | 5 | 0 |
 | L9 Bot Detection | 5 | 4 | 1 |
 | L10 Dashboard / Web UI | 13 | 0 | 13 |
-| L11 Nikkei 225 | 10 | 6 | 4 |
+| L11 Nikkei 225 | 10 | 10 | 0 |
 | L12 Integrations | 4 | 4 | 0 |
-| L13 GitHub Repos | 12 | 6 | 6 |
+| L13 GitHub Repos | 12 | 7 | 5 |
 | L14 Growth / Stars | 16 | 3 | 13 |
-| L15 Bug Bounty | 11 | 2 | 9 |
+| L15 Bug Bounty | 11 | 6 | 5 |
 | L16 Credential OSINT | 13 | 5 | 8 |
-| L17 Interactive + Self-Learning | 18 | 7 | 11 |
-| L18 Competitive Parity | 16 | 3 | 13 |
+| L17 Interactive + Self-Learning | 18 | 10 | 8 |
+| L18 Competitive Parity | 16 | 12 | 4 |
 | L19 Recent Session | 10 | 10 | 0 |
-| L20 Performance + UX | 6 | 2 | 4 |
+| L20 Performance + UX | 6 | 5 | 1 |
 | L21 Packaging | 6 | 2 | 4 |
 | L22 Docs + Marketing | 6 | 0 | 6 |
 | L23 Extensions | 5 | 1 | 4 |
 | L24 Monitoring | 3 | 2 | 1 |
 | L25 AI Intelligence | 5 | 0 | 5 |
 | L26 CF Workers AI Gateway | 7 | 0 | 7 |
-| L27 Architecture + Quality | 5 | 2 | 3 |
-| **TOTAL** | **222** | **89** | **133** |
+| L27 Architecture + Quality | 5 | 5 | 0 |
+| **TOTAL** | **222** | **132** | **90** |
