@@ -818,14 +818,15 @@ class GuidedPipeline:
         # ── Banner ─────────────────────────────────────────────────────
         if not self.quiet:
             out.write(banner("⚔  Fray — Guided Security Pipeline", self.target))
-            out.write(f"  {S.dim}Phase 1{S.reset} Attack Surface Intelligence\n")
-            out.write(f"  {S.dim}Phase 2{S.reset} Smart Vulnerability Testing\n")
-            out.write(f"  {S.dim}Phase 3{S.reset} Report Generation\n\n")
+            out.write(f"  {S.dim}[1/3]{S.reset} Recon       Fingerprint tech stack, WAF, TLS, headers, DNS...\n")
+            out.write(f"  {S.dim}[2/3]{S.reset} Test        Select & run payloads based on what recon found\n")
+            out.write(f"  {S.dim}[3/3]{S.reset} Report      Generate findings report with remediation\n\n")
             out.flush()
 
         # ── Phase 1: Recon ─────────────────────────────────────────────
         if not self.quiet:
             out.write(phase_header(1, "Attack Surface Intelligence"))
+            out.write(f"  {S.dim}Checking TLS, headers, DNS, CORS, subdomains, tech stack, WAF...{S.reset}\n")
         if _dash:
             _dash.set_phase(1, "Recon", total=50)
         self.recon_result = self._run_recon()
@@ -877,7 +878,9 @@ class GuidedPipeline:
 
         # ── Phase 2: Smart Testing ─────────────────────────────────────
         if not self.quiet:
+            _waf_note = f" against {waf}" if waf else ""
             out.write(phase_header(2, "Smart Vulnerability Testing"))
+            out.write(f"  {S.dim}Selecting payloads based on recon findings{_waf_note}...{S.reset}\n")
         if _dash:
             _n_modules = len(vuln_types[:5]) + len(_smart_cats if '_smart_cats' in dir() else [])
             _dash.set_phase(2, "Testing", total=max(_n_modules, 5))
@@ -1086,6 +1089,7 @@ class GuidedPipeline:
         # ── Phase 3: Report ────────────────────────────────────────────
         if not self.quiet:
             out.write(phase_header(3, "Report Generation"))
+            out.write(f"  {S.dim}Compiling findings into HTML report with remediation guidance...{S.reset}\n")
 
         domain = self.recon_result.get("host", "target")
         if self.output_dir:

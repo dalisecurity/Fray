@@ -5873,7 +5873,20 @@ def cmd_monitor(args):
 
 
 def cmd_help(args):
-    """Friendly high-level guide to every fray command."""
+    """Friendly high-level guide to every fray command.
+
+    fray help          → same as fray help --all (full grouped guide)
+    fray help --all    → full grouped guide (all 20 commands)
+    fray help <cmd>    → deep-dive on one command
+    """
+    topic = ' '.join(getattr(args, 'topic', []) or []).strip()
+
+    # ── Deep dive: fray help <command> ──
+    if topic and topic != '--all':
+        _cmd_help_topic(topic)
+        return
+
+    # ── Full grouped guide (fray help / fray help --all) ──
     print(f"""
   \033[1m⚔️  Fray v{__version__} — WAF Security Testing Toolkit\033[0m
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -5886,7 +5899,7 @@ def cmd_help(args):
   \033[36mCORE\033[0m — Security testing workflow
   ─────────────────────────────
   fray go <url>           \033[33m★\033[0m Full assessment: recon → smart test → report
-  fray recon <url>          Reconnaissance & fingerprinting (24+ checks)
+  fray recon <url>          Reconnaissance & fingerprinting (35+ checks)
                             --deep --js --history --params --graph --harden
   fray test <url>           Test WAF with payloads
                             -c xss --smart --bypass --ai --agent --smuggle --race
@@ -5923,16 +5936,24 @@ def cmd_help(args):
   fray ask <query>          Natural language query over your data
   fray learn [topic]        Interactive CTF-style security tutorial
   fray doctor [--fix]       Check environment & auto-fix issues
-  fray help                 This guide
+  fray help [<command>]     This guide, or deep-dive on a command
 
   \033[36mGLOBAL FLAGS\033[0m (work with most commands)
   ─────────────────────────────
-  --json                    JSON output
+  --json                    JSON output (all commands)
   --stealth                 Anti-detection mode (random UA, jitter, TLS spoof)
   --profile <name>          Preset: quick / deep / stealth / bounty
   -o, --output <file>       Save results to file
+  -t, --timeout <secs>      Request timeout (default: 8)
+  -d, --delay <secs>        Delay between requests (default: 0.5)
   --cookie / --bearer / -H  Authentication headers
   --notify <webhook>        Slack/Discord/Teams notification
+
+  \033[36mEXIT CODES\033[0m
+  ─────────────────────────────
+  0                         Clean — no findings
+  1                         Findings — vulnerabilities or bypasses detected
+  2                         Error — invalid input, network failure, etc.
 
   \033[36mPIPE-FRIENDLY\033[0m (like httpx)
   ─────────────────────────────
@@ -5944,6 +5965,328 @@ def cmd_help(args):
   \033[2mGitHub: https://github.com/dalisecurity/fray\033[0m
   \033[2m⚠️  Only test systems you own or have written permission to test.\033[0m
 """)
+
+
+# ── Deep-dive help per command ──
+_HELP_TOPICS = {
+    'go': """
+  \033[1mfray go <url>\033[0m — Full pipeline: recon → smart test → report
+
+  \033[36mUSAGE\033[0m
+    fray go https://target.com                # Full assessment
+    fray https://target.com                   # Same (bare URL shortcut)
+    fray go https://target.com --deep         # Deep mode
+    fray go https://target.com --stealth      # Rate-limited, randomized UA
+    fray go https://target.com --json -o r.json
+
+  \033[36mKEY FLAGS\033[0m
+    -c, --category <cat>   Attack category (default: xss)
+    --deep                 Deep recon + subdomain brute-force
+    --stealth              Anti-detection mode
+    --profile <name>       Preset: quick / deep / stealth / bounty
+    -o, --output <file>    Save report
+    --json                 JSON output
+    -t, --timeout <secs>   Request timeout (default: 8)
+    -d, --delay <secs>     Delay between requests (default: 0.5)
+    --cookie <val>         Cookie header
+    --bearer <token>       Bearer token
+    --solve-challenge      Auto-solve WAF challenges (Turnstile, reCAPTCHA)
+    --sarif                SARIF 2.1.0 output for GitHub Security tab
+    --fail-on <severity>   Exit 1 if risk ≥ severity (for CI)
+""",
+    'recon': """
+  \033[1mfray recon <url>\033[0m — Reconnaissance & fingerprinting (35+ checks)
+
+  \033[36mUSAGE\033[0m
+    fray recon https://target.com             # Standard recon
+    fray recon https://target.com --deep      # Deep mode (subdomains, JS, history)
+    cat domains.txt | fray recon              # Pipe-friendly JSONL output
+
+  \033[36mKEY FLAGS\033[0m
+    --deep                 Full depth: subdomains, JS, Wayback, params
+    --js                   JavaScript endpoint extraction
+    --history              Wayback Machine URL discovery
+    --params               Parameter discovery
+    --graph                Output attack surface graph
+    --harden               Include OWASP hardening audit
+    --profile <name>       Preset: quick / deep / stealth / bounty
+    -o, --output <file>    Save results
+    --json                 JSON output
+    -t, --timeout <secs>   Request timeout (default: 8)
+    --cookie / --bearer    Authentication
+    --scope <file>         Scope file for in-scope enforcement
+""",
+    'test': """
+  \033[1mfray test <url>\033[0m — Test WAF with payloads
+
+  \033[36mUSAGE\033[0m
+    fray test https://target.com -c xss --smart    # Smart payload selection
+    fray test https://target.com -c sqli --blind   # Blind injection detection
+    cat domains.txt | fray test -c xss -m 10       # Pipe-friendly
+
+  \033[36mKEY FLAGS\033[0m
+    -c, --category <cat>   Payload category (default: xss)
+    --smart                Use recon findings to pick payloads
+    -m, --max <n>          Max payloads (default: 50)
+    --blind                Enable blind injection (time + OOB)
+    --all                  Test all categories
+    --mutate <n>           Mutate blocked payloads n times
+    --bypass               Show only bypass results
+    --stealth              Anti-detection mode
+    -p, --param <name>     Target parameter (default: q)
+    -o, --output <file>    Save results
+    --json                 JSON output
+    -t, --timeout <secs>   Request timeout (default: 8)
+    -d, --delay <secs>     Delay between requests (default: 0.5)
+""",
+    'scan': """
+  \033[1mfray scan <url>\033[0m — Auto crawl → discover → inject
+
+  \033[36mUSAGE\033[0m
+    fray scan https://target.com               # Full auto scan
+    fray scan https://target.com --bounty      # Bug bounty mode
+    fray scan https://target.com --crawl-only  # Crawl only, no injection
+
+  \033[36mKEY FLAGS\033[0m
+    --crawl-only           Crawl and discover only, no injection
+    --bounty               Bug bounty mode (careful, thorough)
+    --browser              Use Playwright headless for SPA crawling
+    --blind                Enable blind injection detection
+    --depth <n>            Max crawl depth (default: 3)
+    -m, --max <n>          Max pages (default: 50)
+    --categories <list>    Comma-separated payload categories
+    -o, --output <file>    Save results
+    --json                 JSON output
+    -t, --timeout <secs>   Request timeout (default: 8)
+    -d, --delay <secs>     Delay between requests (default: 0.2)
+""",
+    'monitor': """
+  \033[1mfray monitor <url>\033[0m — Continuous monitoring with alerts
+
+  \033[36mUSAGE\033[0m
+    fray monitor https://target.com                     # Monitor every 24h
+    fray monitor https://target.com --interval 6h       # Every 6 hours
+    fray monitor https://target.com --notify <webhook>  # Slack/Discord alerts
+
+  \033[36mKEY FLAGS\033[0m
+    --interval <dur>       Check interval (e.g. 6h, 24h, 7d; default: 24h)
+    --notify <webhook>     Slack/Discord/Teams webhook for alerts
+    --checks <list>        Comma-separated checks (default: all)
+    --baseline <file>      Compare against baseline JSON
+    -o, --output <file>    Save results
+    --json                 JSON output
+""",
+    'report': """
+  \033[1mfray report <subcommand>\033[0m — Generate reports
+
+  \033[36mSUBCOMMANDS\033[0m
+    generate      Generate HTML/Markdown report from scan results
+    company       Automated security report per company/domain
+    waf           Corporate WAF coverage report
+    posture       Industry-level security posture comparison
+    diff          Compare two recon reports, highlight changes
+    explain       Human-readable findings with impact & remediation
+
+  \033[36mEXAMPLES\033[0m
+    fray report generate -i results.json -o report.html
+    fray report company --company example.com -o report.md
+    fray report waf --json
+    fray report diff old.json new.json
+    fray report explain CVE-2024-12345
+""",
+    'intel': """
+  \033[1mfray intel <subcommand>\033[0m — Threat intelligence
+
+  \033[36mSUBCOMMANDS\033[0m
+    feed          Fetch & ingest payloads from live threat feeds
+    cve           Generate payloads from CVE descriptions
+    poc-recheck   Re-check CVEs for newly available PoC exploits
+    leak          Search leaked credentials (GitHub, HIBP)
+    osint         Offensive OSINT: whois, emails, typosquatting
+    ct            Certificate Transparency monitoring
+
+  \033[36mEXAMPLES\033[0m
+    fray intel feed --since 7d --auto-add
+    fray intel cve CVE-2024-12345 --test-target https://target.com
+    fray intel leak example.com
+    fray intel osint example.com --emails
+    fray intel ct example.com --days 30
+""",
+    'auth': """
+  \033[1mfray auth <subcommand>\033[0m — Authentication & sessions
+
+  \033[36mSUBCOMMANDS\033[0m
+    session       Manage saved auth sessions (list, delete, login)
+    solve         Solve WAF challenges (Turnstile, reCAPTCHA, hCaptcha)
+    cred          Credential stuffing test against login endpoints
+
+  \033[36mEXAMPLES\033[0m
+    fray auth session list
+    fray auth session login https://target.com --name mysite
+    fray auth solve https://target.com
+    fray auth cred https://target.com/login --pairs creds.txt
+""",
+    'export': """
+  \033[1mfray export <subcommand>\033[0m — Export to other tools
+
+  \033[36mSUBCOMMANDS\033[0m
+    nuclei        Generate Nuclei YAML templates from Fray results
+    ci            Generate GitHub Actions workflow for WAF testing
+
+  \033[36mEXAMPLES\033[0m
+    fray export nuclei results.json -o ./nuclei/
+    fray export ci --target https://staging.example.com --fail-on-bypass
+""",
+    'config': """
+  \033[1mfray config\033[0m — Manage .fray.toml configuration
+
+  \033[36mSUBCOMMANDS\033[0m
+    init          Create sample .fray.toml in current directory
+    show          Display current configuration
+    validate      Validate .fray.toml syntax
+    targets       List targets from config
+    profiles      List available profiles
+
+  \033[36mEXAMPLES\033[0m
+    fray config init
+    fray config show
+    fray config validate
+""",
+    'plugin': """
+  \033[1mfray plugin\033[0m — Plugin / extension system
+
+  \033[36mACTIONS\033[0m
+    list          List loaded plugins (default)
+    init          Create plugin boilerplate
+    install       Install plugin from file
+    hooks         List available hook points
+
+  \033[36mEXAMPLES\033[0m
+    fray plugin list
+    fray plugin init --name my-check
+    fray plugin install --source ./my_plugin.py
+    fray --plugin ./custom.py test https://target.com
+""",
+    'cache': """
+  \033[1mfray cache\033[0m — Adaptive payload cache management
+
+  \033[36mSUBCOMMANDS\033[0m
+    show          Show cache summary (default)
+    clear         Clear cache for a domain or all
+    stats         Raw cache stats as JSON
+    export        Export cache to file
+    import        Import cache from file
+
+  \033[36mEXAMPLES\033[0m
+    fray cache show
+    fray cache clear --domain example.com
+    fray cache export -o cache-backup.json
+    fray cache import cache-backup.json
+""",
+    'update': """
+  \033[1mfray update\033[0m — Update payload database
+
+  \033[36mUSAGE\033[0m
+    fray update                # Pull latest from R2 / GitHub Releases
+    fray update --json         # JSON output for scripting
+
+  \033[36mFLAGS\033[0m
+    --source <src>         Source: auto, r2, github (default: auto)
+    --json                 JSON output
+""",
+    'dashboard': """
+  \033[1mfray dashboard\033[0m — Launch local web dashboard
+
+  \033[36mUSAGE\033[0m
+    fray dashboard                      # Open on port 8337
+    fray dashboard --port 9000          # Custom port
+    fray dashboard --no-open            # Don't auto-open browser
+
+  \033[36mFLAGS\033[0m
+    --port <n>             Port (default: 8337)
+    --no-open              Don't auto-open browser
+    --json                 Print API endpoint list and exit
+""",
+    'mcp': """
+  \033[1mfray mcp\033[0m — Start MCP server for AI assistant integration
+
+  Exposes 14 tools via Model Context Protocol for Claude, ChatGPT, Cursor.
+
+  \033[36mUSAGE\033[0m
+    fray mcp
+
+  \033[36mSETUP\033[0m
+    pip install 'fray[mcp]'
+    Add to your AI client config:
+    { "mcpServers": { "fray": { "command": "python", "args": ["-m", "fray.mcp_server"] } } }
+""",
+    'ask': """
+  \033[1mfray ask <query>\033[0m — Natural language query over your data
+
+  \033[36mUSAGE\033[0m
+    fray ask "what XSS payloads bypass Cloudflare?"
+    fray ask "show me all critical findings for example.com"
+
+  \033[36mFLAGS\033[0m
+    --json                 JSON output
+""",
+    'learn': """
+  \033[1mfray learn [topic]\033[0m — Interactive CTF-style security tutorial
+
+  \033[36mUSAGE\033[0m
+    fray learn                 # Start from where you left off
+    fray learn xss             # Jump to XSS topic
+    fray learn --list          # List all topics and progress
+    fray learn --reset         # Reset progress
+
+  \033[36mFLAGS\033[0m
+    --level <n>            Jump to specific level
+    --list                 List all topics
+    --reset                Reset progress
+""",
+    'doctor': """
+  \033[1mfray doctor\033[0m — Check environment & auto-fix issues
+
+  \033[36mUSAGE\033[0m
+    fray doctor                # Check everything
+    fray doctor --fix          # Auto-fix where possible
+    fray doctor -v             # Detailed suggestions
+
+  \033[36mFLAGS\033[0m
+    --fix                  Auto-fix issues where possible
+    -v, --verbose          Show detailed fix suggestions
+""",
+    'completions': """
+  \033[1mfray completions [shell]\033[0m — Generate shell completion scripts
+
+  \033[36mUSAGE\033[0m
+    fray completions bash      # Bash completions
+    fray completions zsh       # Zsh completions
+    fray completions fish      # Fish completions
+
+  \033[36mSETUP\033[0m
+    eval "$(fray completions bash)"        # Add to .bashrc
+    eval "$(fray completions zsh)"         # Add to .zshrc
+    fray completions fish > ~/.config/fish/completions/fray.fish
+""",
+}
+
+
+def _cmd_help_topic(topic):
+    """Print deep-dive help for a single command."""
+    text = _HELP_TOPICS.get(topic)
+    if text:
+        print(text)
+    else:
+        # Fuzzy match: suggest closest command
+        from difflib import get_close_matches
+        candidates = list(_HELP_TOPICS.keys())
+        matches = get_close_matches(topic, candidates, n=3, cutoff=0.4)
+        sys.stderr.write(f"\n  \033[31m✗\033[0m  Unknown help topic: '{topic}'\n")
+        if matches:
+            sys.stderr.write(f"     Did you mean: {', '.join(matches)}?\n")
+        sys.stderr.write(f"     Available: {', '.join(sorted(candidates))}\n\n")
+        sys.exit(2)
 
 
 def _cmd_update_legacy(args):
@@ -6135,54 +6478,63 @@ def main():
             sys.stderr.write(f"  Run 'fray {ns} <subcommand> --help' for details.\n\n")
             sys.exit(0)
 
-    # ── Custom --help: grouped, clean output ──
+    # ── Smart error interception ──
+    # Catch common mistakes before argparse produces unhelpful errors.
+    _KNOWN_COMMANDS = {
+        'go', 'recon', 'test', 'scan', 'monitor', 'report', 'intel', 'auth',
+        'export', 'config', 'plugin', 'cache', 'update', 'dashboard', 'mcp',
+        'completions', 'ask', 'learn', 'doctor', 'help',
+        # hidden but functional
+        'detect', 'bypass', 'ai-bypass', 'agent', 'feed', 'sync', 'todo',
+        'harden', 'solve', 'session', 'diff', 'compare', 'export-nuclei',
+        'auto', 'smuggle', 'payloads', 'crawl', 'graph', 'stats', 'version',
+        'submit-payload', 'validate', 'bounty', 'smoke', 'company-report',
+        'posture', 'waf-report', 'proto', 'cve-payload', 'poc-recheck',
+        'wizard', 'init', 'batch', 'waf-reverse', 'race', 'ci', 'init-config',
+        'explain', 'scope', 'leak', 'osint', 'cred', 'ct', 'demo',
+    }
+    if len(sys.argv) >= 2 and sys.argv[1] not in _KNOWN_COMMANDS \
+            and not sys.argv[1].startswith('-') and not _looks_like_url(sys.argv[1]):
+        bad = sys.argv[1]
+        from difflib import get_close_matches
+        matches = get_close_matches(bad, sorted(_KNOWN_COMMANDS), n=3, cutoff=0.5)
+        sys.stderr.write(f"\n  \033[31m✗\033[0m  Unknown command: '\033[1m{bad}\033[0m'\n")
+        if matches:
+            best = matches[0]
+            sys.stderr.write(f"     Did you mean \033[36m{best}\033[0m?\n")
+            sys.stderr.write(f"     \033[2mRun:\033[0m fray {best} {' '.join(sys.argv[2:])}\n")
+        else:
+            sys.stderr.write(f"     Run \033[2mfray --help\033[0m to see available commands.\n")
+        sys.stderr.write("\n")
+        sys.exit(2)
+
+    # ── Custom --help: progressive disclosure ──
+    # fray --help  → 6 essential commands only
+    # fray help    → full grouped guide (all 20)
+    # fray help <cmd> → deep dive on one command
     if len(sys.argv) == 2 and sys.argv[1] in ('-h', '--help'):
         print(f"""Fray v{__version__} — AI-Powered WAF Security Testing Platform
 
-\033[33mQUICK START\033[0m
+\033[33mUSAGE\033[0m
   fray <url>                Full assessment (= fray go <url>)
-  fray                      Interactive guided wizard
+  fray <command> [options]  Run a specific command
 
-\033[36mCORE\033[0m
-  go <url>           \033[33m★\033[0m Full assessment: recon → smart test → report
-  recon <url>          Reconnaissance & fingerprinting (24+ checks)
+\033[36mCOMMANDS\033[0m
+  go <url>           \033[33m★\033[0m Full pipeline: recon → smart test → report
+  recon <url>          Reconnaissance & fingerprinting (35+ checks)
   test <url>           Test WAF with payloads (-c xss --smart --blind)
-  scan <url>           Auto crawl → discover → inject (--bounty)
-  monitor <url>        Continuous monitoring with alerts
-
-\033[36mDATA\033[0m
-  report <sub>         Reports (generate, company, waf, posture, diff, explain)
-  intel <sub>          Threat intel (feed, cve, poc-recheck, leak, osint, ct)
-  auth <sub>           Authentication (session, solve, cred)
-  export <sub>         Export (nuclei, ci)
-
-\033[36mMANAGE\033[0m
-  config               .fray.toml configuration
-  plugin               Plugin system
-  cache                Payload cache & stats
-  update               Update payload database
-
-\033[36mINTEGRATIONS\033[0m
-  dashboard            Web UI
-  mcp                  AI assistant MCP server
-  completions          Shell completions (bash/zsh/fish)
-
-\033[36mLEARN\033[0m
-  ask <query>          Natural language query
-  learn [topic]        Security tutorial
-  doctor [--fix]       Check environment
-  help                 Full command guide
+  scan <url>           Auto crawl → discover → inject
+  report <sub>         Reports (generate, company, waf, posture, diff)
+  config               Manage .fray.toml configuration
 
 \033[36mGLOBAL FLAGS\033[0m
-  --json               JSON output
+  --json               JSON output (all commands)
   --stealth            Anti-detection mode
   --profile <name>     Preset (quick/deep/stealth/bounty)
-  --cookie/--bearer/-H Auth headers
-  --no-hints           Suppress next-step hints
-  --theme <name>       Color theme (dark/light/hacker/minimal)
+  --cookie / --bearer  Authentication
 
-\033[2mRun 'fray <command> --help' for command-specific options.\033[0m
-\033[2mRun 'fray help' for detailed examples and workflows.\033[0m
+\033[2m14 more commands available. Run '\033[0mfray help --all\033[2m' to see everything.\033[0m
+\033[2mRun '\033[0mfray help <command>\033[2m' for detailed usage of any command.\033[0m
 \033[2mDocs: https://dalisec.io/docs  GitHub: https://github.com/dalisecurity/fray\033[0m""")
         sys.exit(0)
 
@@ -6300,7 +6652,7 @@ def main():
     p_test.add_argument("-o", "--output", default=None, help="Output results JSON file")
     p_test.add_argument("--smart", action="store_true",
                          help="Adaptive payload evolution: probe WAF, skip redundant payloads, mutate bypasses")
-    p_test.add_argument("--webhook", default=None, help="Webhook URL for notifications (Slack/Discord/Teams)")
+    p_test.add_argument("--webhook", default=None, dest="notify_legacy", help=argparse.SUPPRESS)  # deprecated alias
     p_test.add_argument("--insecure", action="store_true", help="Disable TLS certificate verification")
     p_test.add_argument("--cookie", default=None, help="Cookie header value for authenticated scanning")
     p_test.add_argument("--bearer", default=None, help="Bearer token for Authorization header")
@@ -7083,7 +7435,9 @@ def main():
     p_ci.add_argument("--target", default=None, help="Default target URL for WAF tests")
     p_ci.add_argument("--categories", default=None, help="Comma-separated payload categories (e.g. xss,sqli)")
     p_ci.add_argument("-m", "--max", type=int, default=50, help="Max payloads per run (default: 50)")
-    p_ci.add_argument("--webhook", default=None, help="Webhook URL for notifications")
+    p_ci.add_argument("--webhook", default=None, dest="notify", help=argparse.SUPPRESS)  # alias for --notify
+    p_ci.add_argument("--notify", default=None, metavar="WEBHOOK_URL",
+                      help="Slack/Discord/Teams webhook URL for notifications")
     p_ci.add_argument("--fail-on-bypass", action="store_true", help="Fail CI if any payload bypasses WAF")
     p_ci.add_argument("--no-comment", action="store_true", help="Disable PR comment with results")
     p_ci.add_argument("--minimal", action="store_true", help="Generate minimal workflow")
@@ -7215,7 +7569,8 @@ def main():
                             help="Target domain (e.g. example.com)")
     p_monitor.add_argument("--interval", default="24h",
                             help="Scan interval: 30m, 6h, 12h, 24h, 7d (default: 24h)")
-    p_monitor.add_argument("--webhook", default=None,
+    p_monitor.add_argument("--webhook", default=None, dest="notify_legacy", help=argparse.SUPPRESS)  # deprecated alias
+    p_monitor.add_argument("--notify", default=None, metavar="WEBHOOK_URL",
                             help="Slack/Discord/Teams webhook URL for alerts")
     p_monitor.add_argument("--email", default=None,
                             help="Email address for alerts (needs RESEND_API_KEY)")
@@ -7227,6 +7582,8 @@ def main():
                             help="List previous monitoring snapshots")
     p_monitor.add_argument("-t", "--timeout", type=int, default=10,
                             help="Request timeout (default: 10)")
+    p_monitor.add_argument("--json", action="store_true", help="JSON output")
+    p_monitor.add_argument("-o", "--output", default=None, help="Save results to file")
     p_monitor.set_defaults(func=cmd_monitor)
 
     # dashboard — web UI (#57)
@@ -7287,6 +7644,10 @@ def main():
     # help
     p_help = subparsers.add_parser("help",
         help="Show friendly guide to all fray commands")
+    p_help.add_argument("topic", nargs="*", default=[],
+                         help="Command to show detailed help for (e.g. 'fray help recon')")
+    p_help.add_argument("--all", action="store_true", dest="show_all",
+                         help="Show all 20 commands (same as bare 'fray help')")
     p_help.set_defaults(func=cmd_help)
 
     # ── Deprecation wrappers for old flat commands ──
@@ -7471,31 +7832,52 @@ def main():
     # Apply --profile presets (after config, before command execution)
     _apply_profile(args)
 
+    # ── Flag compatibility shims ──
+    # --webhook → --notify migration: merge legacy value into notify
+    _nl = getattr(args, 'notify_legacy', None)
+    if _nl and not getattr(args, 'notify', None):
+        args.notify = _nl
+    # Ensure webhook attr exists for backward-compat code that reads args.webhook
+    if not hasattr(args, 'webhook'):
+        args.webhook = getattr(args, 'notify', None)
+    elif getattr(args, 'notify', None) and not args.webhook:
+        args.webhook = args.notify
+
     # ── Verbosity level ──
     _verbosity = getattr(args, 'verbose', False)
     _quiet = getattr(args, 'quiet', False)
     args._verbosity = 2 if _verbosity else (0 if _quiet else 1)
 
-    # ── Execute command and map exit code from severity ──
+    # ── Execute command and map exit code ──
+    # Exit codes:  0 = clean (no findings)
+    #              1 = findings (vulnerabilities / bypasses detected)
+    #              2 = error (invalid input, network failure, etc.)
+    #            130 = interrupted (Ctrl-C)
     _exit_code = 0
     try:
         result = args.func(args)
-        # cmd functions may return a risk_score or severity hint
+        # cmd functions may return a dict with findings info or an int exit code
         if isinstance(result, dict):
+            # Any risk_score > 0 or vulnerabilities → exit 1
             rs = result.get('risk_score', 0)
-            if rs >= 60:
-                _exit_code = 3  # CRITICAL
-            elif rs >= 40:
-                _exit_code = 2  # HIGH
-            elif rs >= 20:
-                _exit_code = 1  # MEDIUM
+            has_findings = (
+                rs > 0
+                or result.get('vulnerabilities', 0) > 0
+                or result.get('bypasses', 0) > 0
+                or result.get('findings', 0) > 0
+            )
+            _exit_code = 1 if has_findings else 0
         elif isinstance(result, int):
-            _exit_code = result
+            # Normalize: any non-zero from old code → 1 (findings) or 2 (error)
+            _exit_code = min(result, 2) if result > 0 else 0
     except SystemExit as e:
-        _exit_code = e.code if isinstance(e.code, int) else 1
+        _exit_code = e.code if isinstance(e.code, int) else 2
     except KeyboardInterrupt:
         sys.stderr.write("\n  Interrupted.\n")
         _exit_code = 130
+    except Exception as e:
+        sys.stderr.write(f"\n  \033[31m✗\033[0m  {e}\n")
+        _exit_code = 2
     sys.exit(_exit_code)
 
 
