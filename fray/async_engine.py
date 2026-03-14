@@ -335,3 +335,329 @@ class AsyncEngine:
             "concurrency": self.concurrency,
             "rate_limit": self.rate_limit,
         }
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Response Diffing — False Positive Reduction
+# ══════════════════════════════════════════════════════════════════════════
+
+class ResponseBaseline:
+    """Captures a baseline response for comparison — reduces false positives.
+
+    Strategy: Send a benign request first. Compare each payload response to
+    the baseline. If the response is too similar to baseline, the WAF didn't
+    actually block it (false positive).
+    """
+
+    def __init__(self, status: int = 0, body: str = "", headers: Dict[str, str] = None,
+                 body_length: int = 0):
+        self.status = status
+        self.body = body
+        self.headers = headers or {}
+        self.body_length = body_length or len(body)
+        self._body_tokens: Optional[set] = None
+
+    @property
+    def body_tokens(self) -> set:
+        """Lazy tokenize body for similarity comparison."""
+        if self._body_tokens is None:
+            import re
+            self._body_tokens = set(re.findall(r'\w{3,}', self.body.lower()))
+        return self._body_tokens
+
+    @staticmethod
+    def capture(url: str, param: str = "q", method: str = "GET",
+                timeout: int = 10, verify_ssl: bool = True,
+                headers: Optional[Dict[str, str]] = None) -> 'ResponseBaseline':
+        """Capture a baseline by sending a benign request."""
+        engine = AsyncEngine(concurrency=1, default_timeout=timeout)
+        benign = "test12345"
+        reqs = AsyncEngine.build_requests(
+            url, param, [benign], method=method,
+            verify_ssl=verify_ssl, timeout=timeout,
+        )
+        if headers:
+            for r in reqs:
+                r.headers.update(headers)
+        results = engine.run(reqs)
+        if results and results[0].status > 0:
+            r = results[0]
+            return ResponseBaseline(
+                status=r.status, body=r.body,
+                headers=r.headers, body_length=len(r.body),
+            )
+        return ResponseBaseline()
+
+    def is_false_positive(self, resp_status: int, resp_body: str,
+                          similarity_threshold: float = 0.85) -> bool:
+        """Check if a response is a false positive (too similar to baseline).
+
+        A "blocked" response that looks identical to the baseline benign
+        response is likely a false positive — the WAF didn't actually block.
+
+        Returns True if the response is a likely false positive.
+        """
+        if self.status == 0:
+            return False  # No baseline captured
+
+        # If statuses match and body length is within 15%, check tokens
+        if resp_status == self.status:
+            len_ratio = len(resp_body) / max(self.body_length, 1)
+            if 0.85 <= len_ratio <= 1.15:
+                import re
+                resp_tokens = set(re.findall(r'\w{3,}', resp_body.lower()))
+                if not self.body_tokens and not resp_tokens:
+                    return True
+                if self.body_tokens:
+                    overlap = len(self.body_tokens & resp_tokens) / max(len(self.body_tokens), 1)
+                    if overlap >= similarity_threshold:
+                        return True
+
+        return False
+
+    def classify_block(self, resp_status: int, resp_body: str) -> str:
+        """Classify how the response differs from baseline.
+
+        Returns: 'blocked', 'different_status', 'different_body', 'same' (false positive)
+        """
+        if self.status == 0:
+            # No baseline — use status code heuristics
+            if resp_status in (403, 406, 429, 503):
+                return "blocked"
+            return "unknown"
+
+        if self.is_false_positive(resp_status, resp_body):
+            return "same"
+
+        if resp_status != self.status:
+            if resp_status in (403, 406, 429, 503):
+                return "blocked"
+            return "different_status"
+
+        # Same status but different body
+        return "different_body"
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Redirect Chain Following
+# ══════════════════════════════════════════════════════════════════════════
+
+def follow_redirects(url: str, method: str = "GET",
+                     headers: Optional[Dict[str, str]] = None,
+                     body: Optional[str] = None,
+                     max_redirects: int = 5, timeout: int = 10,
+                     verify_ssl: bool = True) -> Tuple[int, str, Dict[str, str], List[Dict]]:
+    """Follow redirect chain and return final response + chain.
+
+    WAFs sometimes respond with 302 redirects instead of 403 blocks.
+    This function follows the chain and classifies the outcome.
+
+    Returns:
+        (final_status, final_body, final_headers, chain)
+        chain = [{"status": 302, "location": "...", "url": "..."}, ...]
+    """
+    chain: List[Dict] = []
+    current_url = url
+    current_method = method
+
+    for _ in range(max_redirects):
+        parsed = urllib.parse.urlparse(current_url)
+        host = parsed.hostname or ""
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        path = parsed.path or "/"
+        if parsed.query:
+            path = f"{path}?{parsed.query}"
+
+        hdrs = dict(headers or {})
+        hdrs.setdefault("User-Agent", "Mozilla/5.0")
+        hdrs.setdefault("Host", host)
+        body_bytes = body.encode() if body and current_method == "POST" else None
+
+        try:
+            if parsed.scheme == "https":
+                ctx = ssl.create_default_context()
+                if not verify_ssl:
+                    ctx.check_hostname = False
+                    ctx.verify_mode = ssl.CERT_NONE
+                conn = http.client.HTTPSConnection(host, port, timeout=timeout, context=ctx)
+            else:
+                conn = http.client.HTTPConnection(host, port, timeout=timeout)
+
+            conn.request(current_method, path, body=body_bytes, headers=hdrs)
+            resp = conn.getresponse()
+            resp_body = resp.read(512 * 1024).decode("utf-8", errors="replace")
+            resp_headers = {k.lower(): v for k, v in resp.getheaders()}
+            status = resp.status
+            conn.close()
+
+        except Exception as e:
+            return 0, str(e), {}, chain
+
+        if status in (301, 302, 303, 307, 308):
+            location = resp_headers.get("location", "")
+            chain.append({
+                "status": status,
+                "url": current_url,
+                "location": location,
+            })
+            if not location:
+                return status, resp_body, resp_headers, chain
+            # Resolve relative redirect
+            if location.startswith("/"):
+                location = f"{parsed.scheme}://{parsed.netloc}{location}"
+            elif not location.startswith("http"):
+                location = urllib.parse.urljoin(current_url, location)
+            current_url = location
+            # 303 always becomes GET
+            if status == 303:
+                current_method = "GET"
+                body = None
+            continue
+
+        return status, resp_body, resp_headers, chain
+
+    # Max redirects exceeded
+    return 0, "max redirects exceeded", {}, chain
+
+
+def classify_redirect_block(chain: List[Dict], final_status: int,
+                            final_body: str) -> str:
+    """Classify if a redirect chain indicates a WAF block.
+
+    Returns: 'redirect_block', 'captcha_redirect', 'normal_redirect', 'no_redirect'
+    """
+    if not chain:
+        return "no_redirect"
+
+    # Check if any redirect goes to a known block/captcha page
+    _BLOCK_PATTERNS = [
+        "captcha", "challenge", "blocked", "denied", "forbidden",
+        "security", "firewall", "waf", "bot-detect",
+    ]
+    for hop in chain:
+        loc = hop.get("location", "").lower()
+        if any(p in loc for p in _BLOCK_PATTERNS):
+            return "redirect_block"
+
+    # Final page is a captcha/challenge?
+    import re
+    if re.search(r'captcha|challenge|blocked|denied|firewall', final_body, re.I):
+        return "captcha_redirect"
+
+    # If final status is still a block
+    if final_status in (403, 406, 429, 503):
+        return "redirect_block"
+
+    return "normal_redirect"
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Parallel Payload Testing — High-level API for scanner integration
+# ══════════════════════════════════════════════════════════════════════════
+
+def parallel_test_payloads(
+    url: str, param: str, payloads: List[str],
+    method: str = "GET", category: str = "xss",
+    concurrency: int = 10, rate_limit: float = 0,
+    timeout: int = 10, verify_ssl: bool = True,
+    headers: Optional[Dict[str, str]] = None,
+    baseline: Optional[ResponseBaseline] = None,
+    follow_redirect: bool = True,
+    callback: Optional[Callable] = None,
+) -> List[Dict]:
+    """Test payloads in parallel with false-positive reduction + redirect following.
+
+    This is the high-level API for integrating async testing into fray scan.
+
+    Args:
+        url: Target URL.
+        param: Parameter to inject into.
+        payloads: List of payload strings.
+        method: HTTP method.
+        category: Payload category (for result tagging).
+        concurrency: Max parallel requests.
+        rate_limit: Max requests/sec.
+        timeout: Request timeout.
+        verify_ssl: Verify SSL.
+        headers: Custom headers.
+        baseline: Optional baseline for false positive reduction.
+        follow_redirect: Follow 3xx redirects to detect redirect-based blocks.
+        callback: Optional per-result callback.
+
+    Returns:
+        List of result dicts compatible with WAFTester.test_payload output.
+    """
+    engine = AsyncEngine(
+        concurrency=concurrency,
+        rate_limit=rate_limit,
+        default_timeout=timeout,
+    )
+
+    reqs = AsyncEngine.build_requests(
+        url, param, payloads, method=method,
+        verify_ssl=verify_ssl, timeout=timeout,
+    )
+    if headers:
+        for r in reqs:
+            r.headers.update(headers)
+
+    # Capture baseline if not provided
+    if baseline is None:
+        baseline = ResponseBaseline.capture(
+            url, param=param, method=method,
+            timeout=timeout, verify_ssl=verify_ssl, headers=headers,
+        )
+
+    # Fire all requests
+    responses = engine.run(reqs, ordered=True)
+
+    results = []
+    for i, resp in enumerate(responses):
+        payload = payloads[i] if i < len(payloads) else ""
+        blocked = resp.status in (403, 406, 429, 503) or resp.error != ""
+        reflected = payload in resp.body if payload and resp.body else False
+
+        # False positive check
+        fp = False
+        if blocked and baseline:
+            fp = baseline.is_false_positive(resp.status, resp.body)
+            if fp:
+                blocked = False
+
+        # Redirect following
+        redirect_info = None
+        if follow_redirect and resp.status in (301, 302, 303, 307, 308):
+            final_status, final_body, final_headers, chain = follow_redirects(
+                resp.url, method=method, headers=headers or {},
+                timeout=timeout, verify_ssl=verify_ssl,
+            )
+            redirect_class = classify_redirect_block(chain, final_status, final_body)
+            blocked = redirect_class in ("redirect_block", "captcha_redirect")
+            reflected = payload in final_body if payload and final_body else False
+            redirect_info = {
+                "chain_length": len(chain),
+                "final_status": final_status,
+                "classification": redirect_class,
+            }
+
+        result = {
+            "payload": payload,
+            "status": resp.status,
+            "blocked": blocked,
+            "reflected": reflected,
+            "false_positive": fp,
+            "elapsed_ms": round(resp.elapsed_ms, 1),
+            "category": category,
+            "param": param,
+            "method": method,
+        }
+        if redirect_info:
+            result["redirect"] = redirect_info
+        if resp.error:
+            result["error"] = resp.error
+
+        results.append(result)
+        if callback:
+            callback(result)
+
+    return results

@@ -941,3 +941,200 @@ class TestChallengeSolverInit:
         assert s.timeout == 10
         assert s.verbose is True
         assert s.headless is False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 9. fray.async_engine — ResponseBaseline, redirect following, parallel API
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestAsyncRequest:
+    def test_import(self):
+        from fray.async_engine import AsyncRequest, AsyncResponse, AsyncEngine
+        assert AsyncRequest is not None
+
+    def test_defaults(self):
+        from fray.async_engine import AsyncRequest
+        r = AsyncRequest("https://x.com")
+        assert r.url == "https://x.com"
+        assert r.method == "GET"
+        assert r.headers == {}
+        assert r.body is None
+        assert r.timeout == 10
+        assert r.tag == ""
+
+    def test_method_uppercase(self):
+        from fray.async_engine import AsyncRequest
+        r = AsyncRequest("https://x.com", method="post")
+        assert r.method == "POST"
+
+
+class TestAsyncResponse:
+    def test_defaults(self):
+        from fray.async_engine import AsyncResponse
+        r = AsyncResponse()
+        assert r.status == 0
+        assert r.body == ""
+        assert r.error == ""
+
+    def test_to_dict(self):
+        from fray.async_engine import AsyncResponse
+        r = AsyncResponse(url="https://x.com", status=200, body="hello",
+                          elapsed_ms=42.5, tag="test_1")
+        d = r.to_dict()
+        assert d["status"] == 200
+        assert d["body_length"] == 5
+        assert d["elapsed_ms"] == 42.5
+        assert d["tag"] == "test_1"
+
+
+class TestAsyncEngine:
+    def test_init_defaults(self):
+        from fray.async_engine import AsyncEngine
+        e = AsyncEngine()
+        assert e.concurrency == 20
+        assert e.rate_limit == 0
+        assert e.max_retries == 1
+
+    def test_concurrency_clamped(self):
+        from fray.async_engine import AsyncEngine
+        e = AsyncEngine(concurrency=500)
+        assert e.concurrency == 200
+        e2 = AsyncEngine(concurrency=-5)
+        assert e2.concurrency == 1
+
+    def test_build_requests_get(self):
+        from fray.async_engine import AsyncEngine
+        reqs = AsyncEngine.build_requests(
+            "https://x.com/search", "q", ["<script>", "' OR 1=1"],
+            method="GET", timeout=5,
+        )
+        assert len(reqs) == 2
+        assert "q=%3Cscript%3E" in reqs[0].url or "q=" in reqs[0].url
+        assert reqs[0].method == "GET"
+        assert reqs[0].body is None
+        assert reqs[0].meta["payload"] == "<script>"
+        assert reqs[1].meta["index"] == 1
+
+    def test_build_requests_post(self):
+        from fray.async_engine import AsyncEngine
+        reqs = AsyncEngine.build_requests(
+            "https://x.com/login", "user", ["admin"], method="POST",
+        )
+        assert len(reqs) == 1
+        assert reqs[0].method == "POST"
+        assert reqs[0].body is not None
+        assert "Content-Type" in reqs[0].headers
+
+    def test_build_url_requests(self):
+        from fray.async_engine import AsyncEngine
+        reqs = AsyncEngine.build_url_requests(
+            ["https://a.com", "https://b.com"], cookie="sess=abc",
+        )
+        assert len(reqs) == 2
+        assert reqs[0].headers["Cookie"] == "sess=abc"
+
+    def test_stats_initial(self):
+        from fray.async_engine import AsyncEngine
+        e = AsyncEngine()
+        s = e.stats()
+        assert s["total_requests"] == 0
+        assert s["total_errors"] == 0
+
+    def test_run_empty(self):
+        from fray.async_engine import AsyncEngine
+        e = AsyncEngine()
+        results = e.run([])
+        assert results == []
+
+
+class TestResponseBaseline:
+    def test_init_defaults(self):
+        from fray.async_engine import ResponseBaseline
+        b = ResponseBaseline()
+        assert b.status == 0
+        assert b.body == ""
+        assert b.body_length == 0
+
+    def test_body_tokens(self):
+        from fray.async_engine import ResponseBaseline
+        b = ResponseBaseline(body="Hello World this is a test page")
+        tokens = b.body_tokens
+        assert "hello" in tokens
+        assert "world" in tokens
+        assert "test" in tokens
+        assert "page" in tokens
+        # Tokens cached
+        assert b.body_tokens is tokens
+
+    def test_false_positive_no_baseline(self):
+        from fray.async_engine import ResponseBaseline
+        b = ResponseBaseline()  # status=0
+        assert b.is_false_positive(403, "blocked") is False
+
+    def test_false_positive_identical(self):
+        from fray.async_engine import ResponseBaseline
+        body = "Welcome to example.com — default page with many words here"
+        b = ResponseBaseline(status=200, body=body)
+        # Same body → false positive
+        assert b.is_false_positive(200, body) is True
+
+    def test_false_positive_different_status(self):
+        from fray.async_engine import ResponseBaseline
+        body = "Welcome to example.com — default page"
+        b = ResponseBaseline(status=200, body=body)
+        # Different status → not false positive
+        assert b.is_false_positive(403, "Access denied") is False
+
+    def test_false_positive_different_body(self):
+        from fray.async_engine import ResponseBaseline
+        b = ResponseBaseline(status=200, body="Welcome to example.com page with content here")
+        # Completely different body → not false positive
+        assert b.is_false_positive(200, "Completely different response entirely new") is False
+
+    def test_classify_block_no_baseline(self):
+        from fray.async_engine import ResponseBaseline
+        b = ResponseBaseline()
+        assert b.classify_block(403, "blocked") == "blocked"
+        assert b.classify_block(200, "ok") == "unknown"
+
+    def test_classify_block_same(self):
+        from fray.async_engine import ResponseBaseline
+        body = "Welcome to the site with plenty of words to match against"
+        b = ResponseBaseline(status=200, body=body)
+        assert b.classify_block(200, body) == "same"
+
+    def test_classify_block_blocked(self):
+        from fray.async_engine import ResponseBaseline
+        b = ResponseBaseline(status=200, body="Welcome page")
+        assert b.classify_block(403, "Forbidden") == "blocked"
+
+
+class TestClassifyRedirectBlock:
+    def test_no_redirect(self):
+        from fray.async_engine import classify_redirect_block
+        assert classify_redirect_block([], 200, "ok") == "no_redirect"
+
+    def test_redirect_to_captcha(self):
+        from fray.async_engine import classify_redirect_block
+        chain = [{"status": 302, "url": "https://x.com", "location": "/captcha-challenge"}]
+        assert classify_redirect_block(chain, 200, "solve captcha") == "redirect_block"
+
+    def test_redirect_to_blocked(self):
+        from fray.async_engine import classify_redirect_block
+        chain = [{"status": 302, "url": "https://x.com", "location": "/firewall-blocked"}]
+        assert classify_redirect_block(chain, 403, "denied") == "redirect_block"
+
+    def test_captcha_in_final_body(self):
+        from fray.async_engine import classify_redirect_block
+        chain = [{"status": 302, "url": "https://x.com", "location": "/verify"}]
+        assert classify_redirect_block(chain, 200, "Please complete the captcha") == "captcha_redirect"
+
+    def test_normal_redirect(self):
+        from fray.async_engine import classify_redirect_block
+        chain = [{"status": 301, "url": "http://x.com", "location": "https://x.com"}]
+        assert classify_redirect_block(chain, 200, "Welcome") == "normal_redirect"
+
+    def test_final_403(self):
+        from fray.async_engine import classify_redirect_block
+        chain = [{"status": 302, "url": "https://x.com", "location": "/page"}]
+        assert classify_redirect_block(chain, 403, "nope") == "redirect_block"

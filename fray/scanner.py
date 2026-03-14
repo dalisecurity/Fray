@@ -91,6 +91,7 @@ class ScanResult:
     total_blocked: int = 0
     total_passed: int = 0
     total_reflected: int = 0
+    false_positives: int = 0
     duration: str = "N/A"
     auto_throttle: Optional[Dict] = None
 
@@ -803,7 +804,10 @@ def run_scan(target: str, category: str = "xss", max_payloads: int = 5,
              scope_file: Optional[str] = None,
              workers: int = 1,
              use_auto_throttle: bool = False,
-             impersonate: str = None) -> ScanResult:
+             impersonate: str = None,
+             parallel: int = 0,
+             follow_redirects: bool = False,
+             use_baseline: bool = False) -> ScanResult:
     """Full automated scan: crawl → discover params → inject payloads.
 
     Args:
@@ -917,6 +921,78 @@ def run_scan(target: str, category: str = "xss", max_payloads: int = 5,
     # Phase 3: Test each injection point
     all_results = []
     print_lock = threading.Lock()
+
+    # Parallel mode: use async engine with baseline + redirect following
+    if parallel > 0:
+        try:
+            from fray.async_engine import parallel_test_payloads, ResponseBaseline
+            _payload_strs = [p.get("payload", p) if isinstance(p, dict) else str(p)
+                             for p in test_payloads]
+
+            for idx, ip in enumerate(crawl_result.injection_points, 1):
+                if not quiet:
+                    from fray.output import console
+                    console.print(
+                        f"  [dim][{idx}/{len(crawl_result.injection_points)}][/dim] "
+                        f"[bold]{ip.method}[/bold] {ip.url} "
+                        f"[cyan]?{ip.param}=[/cyan] "
+                        f"[dim]({ip.source}) ⚡ parallel×{parallel}[/dim]"
+                    )
+
+                _baseline = None
+                if use_baseline:
+                    _baseline = ResponseBaseline.capture(
+                        ip.url, param=ip.param, method=ip.method,
+                        timeout=timeout, verify_ssl=verify_ssl,
+                        headers=custom_headers,
+                    )
+
+                results = parallel_test_payloads(
+                    url=ip.url, param=ip.param, payloads=_payload_strs,
+                    method=ip.method, category=category,
+                    concurrency=parallel, rate_limit=rate_limit,
+                    timeout=timeout, verify_ssl=verify_ssl,
+                    headers=custom_headers,
+                    baseline=_baseline,
+                    follow_redirect=follow_redirects,
+                )
+                for r in results:
+                    r["injection_point"] = ip.to_dict()
+                    if not quiet:
+                        with print_lock:
+                            from fray.output import blocked_text, passed_text
+                            badge = blocked_text() if r["blocked"] else passed_text()
+                            label = r.get("payload", "")[:50]
+                            fp_tag = " [dim](FP filtered)[/dim]" if r.get("false_positive") else ""
+                            redir_tag = " [yellow]↪ redirect[/yellow]" if r.get("redirect") else ""
+                            reflected_tag = " [bold magenta]↩ REFLECTED[/bold magenta]" if r.get("reflected") else ""
+                            console.print(f"    ", badge, f" {r['status']} │ {label}{reflected_tag}{fp_tag}{redir_tag}", highlight=False)
+                all_results.extend(results)
+
+            # Skip sequential phase
+            scan.test_results = all_results
+            scan.total_tested = len(all_results)
+            scan.total_blocked = sum(1 for r in all_results if r.get("blocked"))
+            scan.total_passed = scan.total_tested - scan.total_blocked
+            scan.total_reflected = sum(1 for r in all_results if r.get("reflected"))
+            scan.false_positives = sum(1 for r in all_results if r.get("false_positive"))
+
+            elapsed = datetime.now() - start
+            minutes = int(elapsed.total_seconds() // 60)
+            seconds = int(elapsed.total_seconds() % 60)
+            scan.duration = f"{minutes}m {seconds}s" if minutes > 0 else f"{seconds}s"
+
+            if all_results:
+                try:
+                    from fray.adaptive_cache import save_scan_results
+                    save_scan_results(all_results, domain=target)
+                except Exception:
+                    pass
+            return scan
+        except ImportError:
+            if not quiet:
+                from fray.output import console
+                console.print("  [yellow]⚠ async_engine unavailable, falling back to sequential[/yellow]")
 
     def _test_injection_point(idx: int, ip: InjectionPoint) -> List[dict]:
         """Test a single injection point with all payloads. Thread-safe."""

@@ -1874,6 +1874,9 @@ def cmd_scan(args):
         workers=getattr(args, 'workers', 1),
         use_auto_throttle=getattr(args, 'auto_throttle', False),
         impersonate=getattr(args, 'impersonate', None),
+        parallel=getattr(args, 'parallel', 0),
+        follow_redirects=getattr(args, 'follow_redirects', False),
+        use_baseline=getattr(args, 'baseline', False),
     )
 
     # Merge Crawler-discovered injection points into scan results
@@ -5166,6 +5169,27 @@ def cmd_explain(args):
             _json_print(output)
 
 
+def cmd_dashboard(args):
+    """Launch the Fray web dashboard (#57)."""
+    from fray.web_dashboard import start_dashboard
+
+    port = getattr(args, 'port', 8337)
+    no_open = getattr(args, 'no_open', False)
+
+    if getattr(args, 'json', False):
+        _json_print({
+            "url": f"http://127.0.0.1:{port}",
+            "api_endpoints": [
+                "/api/domains", "/api/stats",
+                "/api/domain/<domain>", "/api/domain/<domain>/history",
+                "/api/learned", "/api/threat-intel",
+            ],
+        })
+        return
+
+    start_dashboard(port=port, open_browser=not no_open)
+
+
 def cmd_demo(args):
     """Quick showcase: detect WAF + XSS scan on a target (great for GIFs/READMEs)."""
     import time
@@ -6454,6 +6478,12 @@ GitHub: https://github.com/dalisecurity/fray
                          help="Concurrent workers for crawl + injection (default: 1)")
     p_scan.add_argument("--auto-throttle", action="store_true", dest="auto_throttle",
                          help="Fingerprint rate limits before scanning, auto-set delay")
+    p_scan.add_argument("--parallel", type=int, default=0, metavar="N",
+                         help="Parallel payload testing: N concurrent requests per injection point (default: sequential)")
+    p_scan.add_argument("--follow-redirects", action="store_true", dest="follow_redirects",
+                         help="Follow 3xx redirects to detect redirect-based WAF blocks")
+    p_scan.add_argument("--baseline", action="store_true",
+                         help="Capture baseline response for false positive reduction")
     p_scan.add_argument("--browser", action="store_true",
                          help="Use Playwright browser for JS-heavy SPAs (requires: pip install playwright)")
     p_scan.add_argument("--burp", default=None, metavar="FILE",
@@ -6858,6 +6888,17 @@ GitHub: https://github.com/dalisecurity/fray
     p_monitor.add_argument("-t", "--timeout", type=int, default=10,
                             help="Request timeout (default: 10)")
     p_monitor.set_defaults(func=cmd_monitor)
+
+    # dashboard — web UI (#57)
+    p_dash = subparsers.add_parser("dashboard",
+        help="Launch local web dashboard — browse recon, scans, intel data in your browser")
+    p_dash.add_argument("--port", type=int, default=8337,
+                         help="Port to listen on (default: 8337)")
+    p_dash.add_argument("--no-open", action="store_true", dest="no_open",
+                         help="Don't auto-open browser")
+    p_dash.add_argument("--json", action="store_true",
+                         help="Print API endpoint list and exit")
+    p_dash.set_defaults(func=cmd_dashboard)
 
     # demo
     p_demo = subparsers.add_parser("demo",
