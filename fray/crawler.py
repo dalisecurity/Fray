@@ -114,7 +114,8 @@ class Crawler:
     def __init__(self, target: str, *, max_pages: int = 50, max_depth: int = 3,
                  timeout: int = 8, verify_ssl: bool = False,
                  delay: float = 0.2, headers: Dict[str, str] = None,
-                 impersonate: str = None, verbose: bool = False):
+                 impersonate: str = None, verbose: bool = False,
+                 browser: bool = False):
         if not target.startswith("http"):
             target = f"https://{target}"
         self.target = target
@@ -126,6 +127,7 @@ class Crawler:
         self.headers = headers or {}
         self.impersonate = impersonate
         self.verbose = verbose
+        self.browser = browser
 
         parsed = urllib.parse.urlparse(target)
         self.scheme = parsed.scheme
@@ -188,9 +190,146 @@ class Crawler:
         if ep not in self._endpoints:
             self._endpoints.append(ep)
 
+    def _browser_crawl(self):
+        """Use Playwright to crawl JS-rendered SPAs (React/Angular/Vue).
+
+        Intercepts network requests to discover API calls, extracts forms
+        from rendered DOM, and follows client-side navigation.
+        """
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            raise ImportError(
+                "Playwright required for --browser mode. "
+                "Install: pip install playwright && playwright install chromium"
+            )
+
+        _intercepted: List[Dict] = []
+
+        def _on_request(request):
+            """Capture XHR/fetch requests made by the page."""
+            rtype = request.resource_type
+            if rtype in ("xhr", "fetch"):
+                _intercepted.append({
+                    "url": request.url,
+                    "method": request.method,
+                    "post_data": request.post_data,
+                })
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            ctx = browser.new_context(
+                ignore_https_errors=not self.verify_ssl,
+                extra_http_headers=self.headers or {},
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                           "AppleWebKit/537.36 (KHTML, like Gecko) "
+                           "Chrome/125.0.0.0 Safari/537.36",
+            )
+            page = ctx.new_page()
+            page.on("request", _on_request)
+
+            visited_browser: Set[str] = set()
+            queue = [self.target]
+
+            for _ in range(min(self.max_pages, 20)):
+                if not queue:
+                    break
+                url = queue.pop(0)
+                if url in visited_browser:
+                    continue
+                visited_browser.add(url)
+
+                try:
+                    page.goto(url, wait_until="networkidle",
+                              timeout=self.timeout * 1000)
+                    page.wait_for_timeout(1500)  # Let JS settle
+                except Exception:
+                    continue
+
+                if self.verbose:
+                    print(f"  🌐 [{len(visited_browser)}] {url[:70]}")
+
+                # Extract forms from rendered DOM
+                try:
+                    forms = page.query_selector_all("form")
+                    for form in forms:
+                        action = form.get_attribute("action") or url
+                        method = (form.get_attribute("method") or "GET").upper()
+                        full_url = self._normalize_url(action, url) or url
+
+                        inputs = form.query_selector_all("input[name], select[name], textarea[name]")
+                        params = []
+                        for inp in inputs:
+                            name = inp.get_attribute("name")
+                            if name:
+                                params.append(name)
+                        if params:
+                            self._add_endpoint(CrawlEndpoint(
+                                url=full_url, method=method, params=list(dict.fromkeys(params)),
+                                source="browser_form", depth=0))
+                except Exception:
+                    pass
+
+                # Extract links from rendered DOM
+                try:
+                    links = page.query_selector_all("a[href]")
+                    for link in links:
+                        href = link.get_attribute("href")
+                        norm = self._normalize_url(href, url)
+                        if norm and norm not in visited_browser:
+                            queue.append(norm)
+                            self._extract_url_params(norm, 1)
+                except Exception:
+                    pass
+
+                if self.delay > 0:
+                    time.sleep(self.delay)
+
+            browser.close()
+
+        # Process intercepted XHR/fetch requests
+        for req in _intercepted:
+            norm = self._normalize_url(req["url"], self.target)
+            if not norm:
+                continue
+            params = []
+            # Extract POST body params
+            if req.get("post_data"):
+                try:
+                    body = json.loads(req["post_data"])
+                    if isinstance(body, dict):
+                        params = list(body.keys())[:20]
+                except (json.JSONDecodeError, ValueError):
+                    # URL-encoded form data
+                    try:
+                        params = [k for k, _ in urllib.parse.parse_qsl(req["post_data"])]
+                    except Exception:
+                        pass
+            # Extract URL query params
+            parsed = urllib.parse.urlparse(norm)
+            if parsed.query:
+                params.extend(k for k, _ in urllib.parse.parse_qsl(parsed.query))
+                norm = urllib.parse.urlunparse(parsed._replace(query="", fragment=""))
+
+            self._add_endpoint(CrawlEndpoint(
+                url=norm, method=req["method"],
+                params=list(dict.fromkeys(params)) if params else [],
+                source="browser_xhr", depth=0))
+
     def crawl(self) -> dict:
         """Execute the crawl. Returns result dict."""
         t0 = time.monotonic()
+
+        # Phase 0: Browser crawl for SPAs (if enabled)
+        if self.browser:
+            try:
+                self._browser_crawl()
+            except ImportError as e:
+                if self.verbose:
+                    print(f"  ⚠ {e}")
+            except Exception as e:
+                if self.verbose:
+                    print(f"  ⚠ Browser crawl error: {e}")
 
         # Phase 1: robots.txt + sitemap
         self._crawl_robots()

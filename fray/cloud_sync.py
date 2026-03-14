@@ -654,6 +654,152 @@ def d1_share_bypass(cfg: CloudConfig, payload: str, category: str,
     return d1_query(cfg, sql, params) is not None
 
 
+def d1_leaderboard(cfg: CloudConfig, limit: int = 20,
+                   verbose: bool = True) -> Dict:
+    """#45 — Community leaderboard from D1 data.
+
+    Queries bypass_payloads and test_results tables to build a leaderboard
+    showing top contributors, WAF bypass rates, and most-bypassed WAFs.
+
+    Returns dict with 'contributors', 'waf_stats', 'category_stats', 'total_bypasses'.
+    """
+    result = {
+        "contributors": [],
+        "waf_stats": [],
+        "category_stats": [],
+        "total_bypasses": 0,
+        "total_tests": 0,
+        "available": False,
+    }
+
+    if not d1_available(cfg):
+        return result
+
+    result["available"] = True
+
+    # Top contributors by bypass count
+    sql_contributors = """
+        SELECT reporter, COUNT(*) as bypass_count,
+               COUNT(DISTINCT waf_vendor) as wafs_bypassed,
+               COUNT(DISTINCT category) as categories
+        FROM bypass_payloads
+        GROUP BY reporter
+        ORDER BY bypass_count DESC
+        LIMIT ?
+    """
+    resp = d1_query(cfg, sql_contributors, [limit])
+    if resp and "result" in resp:
+        rows = resp["result"]
+        if isinstance(rows, list) and rows:
+            result["contributors"] = rows[0].get("results", [])
+
+    # WAF bypass stats
+    sql_waf = """
+        SELECT waf_vendor, COUNT(*) as bypass_count,
+               COUNT(DISTINCT category) as categories,
+               MAX(discovered_at) as latest
+        FROM bypass_payloads
+        WHERE waf_vendor != ''
+        GROUP BY waf_vendor
+        ORDER BY bypass_count DESC
+        LIMIT ?
+    """
+    resp = d1_query(cfg, sql_waf, [limit])
+    if resp and "result" in resp:
+        rows = resp["result"]
+        if isinstance(rows, list) and rows:
+            result["waf_stats"] = rows[0].get("results", [])
+
+    # Category stats
+    sql_cat = """
+        SELECT category, COUNT(*) as bypass_count,
+               COUNT(DISTINCT waf_vendor) as wafs
+        FROM bypass_payloads
+        GROUP BY category
+        ORDER BY bypass_count DESC
+        LIMIT ?
+    """
+    resp = d1_query(cfg, sql_cat, [limit])
+    if resp and "result" in resp:
+        rows = resp["result"]
+        if isinstance(rows, list) and rows:
+            result["category_stats"] = rows[0].get("results", [])
+
+    # Overall stats
+    sql_total = "SELECT COUNT(*) as total FROM bypass_payloads"
+    resp = d1_query(cfg, sql_total)
+    if resp and "result" in resp:
+        rows = resp["result"]
+        if isinstance(rows, list) and rows:
+            r = rows[0].get("results", [])
+            if r:
+                result["total_bypasses"] = r[0].get("total", 0)
+
+    sql_tests = "SELECT COUNT(*) as total FROM test_results"
+    resp = d1_query(cfg, sql_tests)
+    if resp and "result" in resp:
+        rows = resp["result"]
+        if isinstance(rows, list) and rows:
+            r = rows[0].get("results", [])
+            if r:
+                result["total_tests"] = r[0].get("total", 0)
+
+    # Print formatted table
+    if verbose:
+        _C = type("C", (), {"B": "\033[1m", "G": "\033[32m", "Y": "\033[33m",
+                             "BL": "\033[34m", "CY": "\033[36m", "DIM": "\033[2m",
+                             "E": "\033[0m"})
+
+        print(f"\n  {_C.B}Community Leaderboard{_C.E}")
+        print(f"  {_C.DIM}Total bypasses: {result['total_bypasses']}  |  "
+              f"Total tests: {result['total_tests']}{_C.E}\n")
+
+        # Contributors table
+        if result["contributors"]:
+            print(f"  {_C.BL}Top Contributors{_C.E}")
+            print(f"  {'Rank':<6}{'Contributor':<25}{'Bypasses':<12}{'WAFs':<10}{'Categories':<12}")
+            print(f"  {'─'*65}")
+            for i, c in enumerate(result["contributors"], 1):
+                name = c.get("reporter", "anonymous")
+                bypasses = c.get("bypass_count", 0)
+                wafs = c.get("wafs_bypassed", 0)
+                cats = c.get("categories", 0)
+                medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f" {i}"
+                print(f"  {medal:<6}{name:<25}{bypasses:<12}{wafs:<10}{cats:<12}")
+            print()
+
+        # WAF bypass stats table
+        if result["waf_stats"]:
+            print(f"  {_C.BL}Most Bypassed WAFs{_C.E}")
+            print(f"  {'WAF':<25}{'Bypasses':<12}{'Categories':<12}{'Latest':<20}")
+            print(f"  {'─'*65}")
+            for w in result["waf_stats"]:
+                vendor = w.get("waf_vendor", "unknown")
+                bypasses = w.get("bypass_count", 0)
+                cats = w.get("categories", 0)
+                latest = (w.get("latest", "")[:10]) or "?"
+                print(f"  {vendor:<25}{bypasses:<12}{cats:<12}{latest:<20}")
+            print()
+
+        # Category stats
+        if result["category_stats"]:
+            print(f"  {_C.BL}Bypass Categories{_C.E}")
+            print(f"  {'Category':<20}{'Bypasses':<12}{'WAFs':<10}")
+            print(f"  {'─'*42}")
+            for c in result["category_stats"]:
+                cat = c.get("category", "?")
+                bypasses = c.get("bypass_count", 0)
+                wafs = c.get("wafs", 0)
+                print(f"  {cat:<20}{bypasses:<12}{wafs:<10}")
+            print()
+
+        if not result["contributors"] and not result["waf_stats"]:
+            print(f"  {_C.DIM}No community data yet. Share your findings:{_C.E}")
+            print(f"  {_C.DIM}  fray sync --configure  (enable pattern sharing){_C.E}")
+
+    return result
+
+
 def d1_get_community_bypasses(cfg: CloudConfig, waf_vendor: str = "",
                               category: str = "", limit: int = 50) -> List[Dict]:
     """Fetch community-shared bypass payloads from D1."""

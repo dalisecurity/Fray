@@ -1570,6 +1570,10 @@ def cmd_crawl(args):
         print(f"  Target: {target}")
         print(f"  Max pages: {args.max_pages} | Depth: {args.depth}\n")
 
+    _use_browser = getattr(args, 'browser', False)
+    if _use_browser and not json_mode:
+        print(f"  Browser mode: Playwright headless (SPA support)\n")
+
     with Crawler(
         target,
         max_pages=args.max_pages,
@@ -1580,6 +1584,7 @@ def cmd_crawl(args):
         headers=custom_headers,
         impersonate=getattr(args, 'impersonate', None),
         verbose=verbose,
+        browser=_use_browser,
     ) as crawler:
         result = crawler.crawl()
 
@@ -1689,6 +1694,7 @@ def cmd_scan(args):
         scope_file=getattr(args, 'scope', None),
         workers=getattr(args, 'workers', 1),
         use_auto_throttle=getattr(args, 'auto_throttle', False),
+        impersonate=getattr(args, 'impersonate', None),
     )
 
     # Merge Crawler-discovered injection points into scan results
@@ -2825,27 +2831,36 @@ def cmd_smuggle(args):
         sys.exit(1)
 
 
-def cmd_diff(args):
-    """Compare two scan results and surface regressions."""
-    from fray.diff import run_diff, print_diff
-    from dataclasses import asdict
+def cmd_compare(args):
+    """A/B bypass testing: raw vs impersonated TLS fingerprint."""
+    from fray.compare import run_compare, print_compare
 
-    diff = run_diff(args.before, args.after)
+    custom_headers = build_auth_headers(args)
+    json_mode = getattr(args, 'json', False)
+    verbose = getattr(args, 'verbose', False)
 
-    if getattr(args, 'json', False):
-        _json_print(asdict(diff))
+    if not json_mode:
+        print(f"\n  ⚔  Fray Compare — A/B TLS Fingerprint Analysis")
+        print(f"  Target: {args.target}")
+        print(f"  Testing {args.max} payloads × 2 (raw + impersonated)\n")
+
+    result = run_compare(
+        target=args.target,
+        category=getattr(args, 'category', 'xss'),
+        max_payloads=args.max,
+        param=getattr(args, 'param', 'q'),
+        timeout=getattr(args, 'timeout', 8),
+        delay=getattr(args, 'delay', 0.3),
+        verify_ssl=not getattr(args, 'insecure', False),
+        impersonate=getattr(args, 'impersonate', 'chrome'),
+        custom_headers=custom_headers,
+        verbose=verbose,
+    )
+
+    if json_mode:
+        _json_print(result.to_dict())
     else:
-        print_diff(diff)
-
-    if getattr(args, 'output', None):
-        _validate_output_path(args.output)
-        with open(args.output, "w", encoding="utf-8") as f:
-            json.dump(asdict(diff), f, indent=2, ensure_ascii=False)
-        print(f"\n  Diff saved to {args.output}")
-
-    # Exit code: 1 if regressions found (useful for CI)
-    if diff.verdict == "REGRESSED":
-        sys.exit(1)
+        print_compare(result)
 
 
 def cmd_bypass(args):
@@ -3196,6 +3211,171 @@ def cmd_agent(args):
             pass
 
 
+def _enrich_existing_payloads(json_mode: bool = False) -> None:
+    """Backfill existing threat_intel payloads with real PoCs from GitHub/ExploitDB.
+
+    Scans ~/.fray/threat_intel*.json and staged payloads for CVE entries that
+    only have template-generated payloads, then enriches them with real PoC code
+    extracted from GitHub repos, ExploitDB, Nuclei templates, and Metasploit.
+    """
+    import re as _re
+    from pathlib import Path as _P
+
+    fray_dir = _P.home() / ".fray"
+    cve_pattern = _re.compile(r'CVE-\d{4}-\d{4,}', _re.IGNORECASE)
+
+    # Collect all threat intel JSON files
+    ti_files = sorted(fray_dir.glob("threat_intel*.json"))
+    staged = fray_dir / "staged_payloads.json"
+    if staged.exists():
+        ti_files.append(staged)
+
+    if not ti_files:
+        if not json_mode:
+            print("\n  No threat intel files found in ~/.fray/")
+            print("  Run: fray feed --auto-add  (to ingest payloads first)")
+        return
+
+    if not json_mode:
+        print(f"\n  \033[1mPoC Enrichment Pipeline\033[0m")
+        print(f"  Scanning {len(ti_files)} threat intel files for CVEs...\n")
+
+    # Extract unique CVEs that only have template/comment payloads
+    cves_to_enrich: dict = {}  # cve_id -> file_path
+    total_payloads = 0
+
+    for tf in ti_files:
+        try:
+            data = json.loads(tf.read_text(encoding="utf-8"))
+            entries = data if isinstance(data, list) else data.get("payloads", [])
+            for entry in entries:
+                total_payloads += 1
+                payload_str = entry.get("payload", "")
+                cve = entry.get("cve", "")
+                if not cve:
+                    m = cve_pattern.search(payload_str + " " + entry.get("description", ""))
+                    if m:
+                        cve = m.group(0).upper()
+
+                if not cve:
+                    continue
+
+                # Check if this is a template/placeholder (starts with # or is very short)
+                is_template = (payload_str.startswith("#") or
+                               payload_str.startswith("<!--") or
+                               len(payload_str) < 10 or
+                               "template:" in payload_str.lower())
+
+                has_poc_tag = "poc" in entry.get("tags", []) or "poc" in entry.get("source", "").lower()
+
+                if is_template and not has_poc_tag:
+                    cves_to_enrich[cve] = str(tf)
+        except (json.JSONDecodeError, OSError):
+            continue
+
+    if not cves_to_enrich:
+        if not json_mode:
+            print(f"  Scanned {total_payloads} payloads — all already enriched or no CVEs found.")
+        elif json_mode:
+            _json_print({"enriched": 0, "total_scanned": total_payloads})
+        return
+
+    if not json_mode:
+        print(f"  Found {len(cves_to_enrich)} CVEs with template-only payloads (of {total_payloads} total)")
+        print(f"  Searching GitHub, ExploitDB, Nuclei, Metasploit, vulhub...\n")
+
+    try:
+        from fray.poc_extractor import extract_poc_payloads
+    except ImportError:
+        if not json_mode:
+            print("  \033[31mError: poc_extractor not available\033[0m")
+        return
+
+    enriched = 0
+    new_payloads = []
+    errors = 0
+
+    for i, (cve_id, source_file) in enumerate(cves_to_enrich.items(), 1):
+        if not json_mode:
+            print(f"  [{i}/{len(cves_to_enrich)}] {cve_id}...", end="", flush=True)
+
+        try:
+            poc_result = extract_poc_payloads(
+                cve_id=cve_id, max_sources=5, timeout=12, delay=0.5,
+            )
+            extracted = [ep.get("payload", "")[:500] for ep in poc_result.extracted_payloads
+                         if ep.get("payload") and len(ep.get("payload", "")) >= 5
+                         and not ep.get("payload", "").startswith("#")]
+
+            if extracted:
+                enriched += 1
+                for poc_str in extracted:
+                    new_payloads.append({
+                        "payload": poc_str,
+                        "cve": cve_id,
+                        "source": f"PoC enrichment ({poc_result.sources_found} sources)",
+                        "tags": ["poc", "enriched", "threat-intel"],
+                        "added_at": __import__("datetime").datetime.now(
+                            __import__("datetime").timezone.utc).isoformat(),
+                    })
+                if not json_mode:
+                    print(f" \033[32m{len(extracted)} PoCs\033[0m"
+                          f" ({poc_result.sources_checked} sources checked,"
+                          f" {poc_result.sources_found} found)")
+            else:
+                if not json_mode:
+                    print(f" \033[90mno PoC found\033[0m")
+        except Exception as e:
+            errors += 1
+            if not json_mode:
+                print(f" \033[33merror: {e}\033[0m")
+
+    # Save enriched payloads
+    if new_payloads:
+        enrich_file = fray_dir / "enriched_pocs.json"
+        existing = []
+        if enrich_file.exists():
+            try:
+                existing = json.loads(enrich_file.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                existing = []
+
+        # Deduplicate by payload hash
+        import hashlib
+        seen = {hashlib.sha256(p["payload"].encode()).hexdigest()[:16] for p in existing}
+        added = 0
+        for p in new_payloads:
+            h = hashlib.sha256(p["payload"].encode()).hexdigest()[:16]
+            if h not in seen:
+                existing.append(p)
+                seen.add(h)
+                added += 1
+
+        enrich_file.write_text(
+            json.dumps(existing, indent=2, ensure_ascii=False), encoding="utf-8")
+
+        if not json_mode:
+            print(f"\n  \033[1mEnrichment complete\033[0m")
+            print(f"  CVEs enriched:  {enriched}/{len(cves_to_enrich)}")
+            print(f"  New PoC payloads: {added} (total: {len(existing)})")
+            print(f"  Saved to: {enrich_file}")
+            if errors:
+                print(f"  Errors: {errors}")
+            print(f"\n  To add enriched payloads to your database:")
+            print(f"  fray feed --auto-add  (will include enriched PoCs)")
+    else:
+        if not json_mode:
+            print(f"\n  No new PoCs found for {len(cves_to_enrich)} CVEs.")
+
+    if json_mode:
+        _json_print({
+            "cves_scanned": len(cves_to_enrich),
+            "cves_enriched": enriched,
+            "new_payloads": len(new_payloads),
+            "errors": errors,
+        })
+
+
 def cmd_feed(args):
     """Threat intelligence feed — auto-discover & ingest new attack vectors"""
     from fray.threat_intel import run_feed, _SOURCES
@@ -3229,6 +3409,11 @@ def cmd_feed(args):
             for key, src in _SOURCES.items():
                 print(f"    {key:12s}  {src['label']}")
             print(f"\n  Use: fray feed --sources nvd,cisa,github")
+        return
+
+    # Enrich existing payloads with real PoCs from GitHub/ExploitDB
+    if getattr(args, 'enrich', False):
+        _enrich_existing_payloads(json_mode)
         return
 
     payloads, stats = run_feed(
@@ -3354,6 +3539,17 @@ def cmd_sync(args):
 
         save_config(cfg)
         print(f"\n  Config saved to ~/.fray/cloud.json")
+        return
+
+    # Handle --leaderboard
+    if getattr(args, 'leaderboard', False):
+        cfg = load_config()
+        from fray.cloud_sync import d1_leaderboard
+        data = d1_leaderboard(cfg, verbose=not json_mode)
+        if json_mode:
+            _json_print(data, default=str)
+        elif not data.get('available'):
+            print(f"\n  D1 not configured. Run: fray sync --configure")
         return
 
     # Handle --status
@@ -3781,9 +3977,19 @@ def cmd_go(args):
         impersonate=getattr(args, 'impersonate', None),
     )
 
+    # CI mode: --fail-on implies --ci
+    ci_mode = getattr(args, 'ci', False) or getattr(args, 'fail_on', None) is not None
+    if ci_mode:
+        json_mode = True
+        pipeline.quiet = True
+
     summary = pipeline.run()
 
-    if json_mode:
+    # SARIF output
+    if getattr(args, 'sarif', False):
+        _sarif = _summary_to_sarif(summary)
+        _json_print(_sarif)
+    elif json_mode:
         _json_print(summary)
 
     # Save JSON output if requested
@@ -3794,6 +4000,84 @@ def cmd_go(args):
             json.dump(summary, f, indent=2, ensure_ascii=False)
         if not json_mode:
             print(f"  Pipeline results saved to {output_file}")
+
+    # CI exit code
+    if ci_mode:
+        fail_on = getattr(args, 'fail_on', None)
+        _severity_rank = {"critical": 4, "high": 3, "medium": 2, "low": 1}
+        _threshold = _severity_rank.get(fail_on, 0) if fail_on else 1
+        # Check risk level from recon phase
+        _risk_level = ""
+        for phase in summary.get("phases", []):
+            if phase.get("name") == "recon":
+                _risk_level = phase.get("risk_level", "").lower()
+                break
+        _level_rank = _severity_rank.get(_risk_level, 0)
+        # Also check if any vulnerabilities found
+        _has_vulns = any(p.get("vulnerable", 0) > 0 for p in summary.get("phases", []))
+        if _level_rank >= _threshold or _has_vulns:
+            sys.exit(1)
+
+
+def _summary_to_sarif(summary: dict) -> dict:
+    """Convert pipeline summary to SARIF 2.1.0 format for GitHub/GitLab Security tab."""
+    rules = []
+    results = []
+    _rule_ids = set()
+
+    for phase in summary.get("phases", []):
+        if phase.get("name") == "recon":
+            risk = phase.get("risk_score", 0)
+            risk_level = phase.get("risk_level", "info").lower()
+            if risk > 0:
+                rid = "fray/risk-score"
+                if rid not in _rule_ids:
+                    rules.append({
+                        "id": rid,
+                        "shortDescription": {"text": f"Risk Score: {risk}/100"},
+                        "defaultConfiguration": {"level": "warning" if risk < 60 else "error"},
+                    })
+                    _rule_ids.add(rid)
+                results.append({
+                    "ruleId": rid,
+                    "level": "warning" if risk < 60 else "error",
+                    "message": {"text": f"Attack surface risk score: {risk}/100 ({risk_level})"},
+                    "locations": [{"physicalLocation": {"artifactLocation": {"uri": summary.get("target", "")}}}],
+                })
+
+        if phase.get("name") == "test":
+            for mod in phase.get("results", []):
+                if mod.get("vulnerable"):
+                    mod_name = mod.get("module", "unknown")
+                    rid = f"fray/{mod_name}"
+                    if rid not in _rule_ids:
+                        rules.append({
+                            "id": rid,
+                            "shortDescription": {"text": f"Vulnerability: {mod_name}"},
+                            "defaultConfiguration": {"level": "error"},
+                        })
+                        _rule_ids.add(rid)
+                    results.append({
+                        "ruleId": rid,
+                        "level": "error",
+                        "message": {"text": f"{mod_name}: {mod.get('findings', 0)} finding(s)"},
+                        "locations": [{"physicalLocation": {"artifactLocation": {"uri": summary.get("target", "")}}}],
+                    })
+
+    return {
+        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {
+                "driver": {
+                    "name": "Fray",
+                    "informationUri": "https://github.com/dalisecurity/Fray",
+                    "rules": rules,
+                }
+            },
+            "results": results,
+        }],
+    }
 
 
 def cmd_auto(args):
@@ -5514,6 +5798,8 @@ GitHub: https://github.com/dalisecurity/fray
                         help="Pre-populate adaptive cache with threat intel payloads (#46)")
     p_feed.add_argument("--no-poc", action="store_true", dest="no_poc",
                         help="Skip PoC extraction (PoC extraction is on by default)")
+    p_feed.add_argument("--enrich", action="store_true",
+                        help="Backfill existing staged/ingested payloads with real PoCs from GitHub, ExploitDB, Nuclei, and Metasploit")
     p_feed.add_argument("--json", action="store_true", help="Output as JSON")
     p_feed.add_argument("-o", "--output", default=None, help="Save results to file")
     p_feed.add_argument("--notify", default=None, metavar="WEBHOOK_URL",
@@ -5545,6 +5831,8 @@ GitHub: https://github.com/dalisecurity/fray
                         help="Interactive setup of R2/D1/GitHub credentials")
     p_sync.add_argument("--status", action="store_true",
                         help="Show cloud sync configuration status")
+    p_sync.add_argument("--leaderboard", action="store_true",
+                        help="Show community bypass leaderboard from D1 data")
     p_sync.add_argument("--json", action="store_true", help="Output as JSON")
     p_sync.set_defaults(func=cmd_sync)
 
@@ -5610,6 +5898,13 @@ GitHub: https://github.com/dalisecurity/fray
                        help="Load a saved session from ~/.fray/sessions/NAME.json")
     p_go.add_argument("--save-session", dest="save_session", default=None, metavar="NAME",
                        help="Save session cookies/tokens after pipeline")
+    p_go.add_argument("--ci", action="store_true",
+                       help="CI/CD mode: minimal output, JSON to stdout, non-zero exit on findings")
+    p_go.add_argument("--fail-on", dest="fail_on", default=None,
+                       choices=["critical", "high", "medium", "low"],
+                       help="Exit code 1 if risk level >= this severity (implies --ci)")
+    p_go.add_argument("--sarif", action="store_true",
+                       help="Output SARIF 2.1.0 for GitHub/GitLab Security tab")
     p_go.set_defaults(func=cmd_go)
 
     # diff — compare two recon reports
@@ -5619,6 +5914,25 @@ GitHub: https://github.com/dalisecurity/fray
     p_diff.add_argument("new_report", help="Path to newer recon JSON report")
     p_diff.add_argument("--json", action="store_true", help="Output as JSON")
     p_diff.set_defaults(func=cmd_diff)
+
+    # compare — A/B TLS fingerprint analysis
+    p_compare = subparsers.add_parser("compare",
+        help="A/B bypass testing: compare raw vs impersonated TLS to classify WAF blocks")
+    p_compare.add_argument("target", help="Target URL")
+    p_compare.add_argument("-c", "--category", default="xss", help="Payload category (default: xss)")
+    p_compare.add_argument("-m", "--max", type=int, default=20, help="Max payloads (each tested twice)")
+    p_compare.add_argument("-p", "--param", default="q", help="Query parameter (default: q)")
+    p_compare.add_argument("-t", "--timeout", type=int, default=8, help="Request timeout")
+    p_compare.add_argument("-d", "--delay", type=float, default=0.3, help="Delay between requests")
+    p_compare.add_argument("--insecure", action="store_true", help="Skip SSL verification")
+    p_compare.add_argument("--impersonate", default="chrome", metavar="BROWSER",
+                            help="Browser to impersonate (default: chrome)")
+    p_compare.add_argument("--cookie", default=None, help="Cookie header")
+    p_compare.add_argument("--bearer", default=None, help="Bearer token")
+    p_compare.add_argument("-H", "--header", action="append", help="Custom header")
+    p_compare.add_argument("--json", action="store_true", help="Output as JSON")
+    p_compare.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+    p_compare.set_defaults(func=cmd_compare)
 
     # export-nuclei — generate Nuclei templates from bypass results
     p_nuclei = subparsers.add_parser("export-nuclei",
@@ -5692,6 +6006,8 @@ GitHub: https://github.com/dalisecurity/fray
                           help="Max crawl depth (default: 3)")
     p_crawl.add_argument("-t", "--timeout", type=int, default=8, help="Request timeout")
     p_crawl.add_argument("-d", "--delay", type=float, default=0.2, help="Delay between requests")
+    p_crawl.add_argument("--browser", action="store_true",
+                          help="Use Playwright headless browser for JS-rendered SPA crawling (React/Angular/Vue)")
     p_crawl.add_argument("--insecure", action="store_true", help="Skip SSL verification")
     p_crawl.add_argument("--impersonate", default=None, metavar="BROWSER",
                           help="TLS fingerprint spoofing (chrome, firefox, safari, random)")

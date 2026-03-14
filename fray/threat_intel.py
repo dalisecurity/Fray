@@ -890,22 +890,57 @@ def fetch_exploitdb(since_days: int = 7, category_filter: str = "",
         cat = classify_category(full)
 
         web_cats = {"xss", "sqli", "ssrf", "ssti", "command_injection",
-                    "xxe", "path_traversal", "crlf_injection"}
+                    "xxe", "path_traversal", "crlf_injection", "http2",
+                    "http_smuggling", "auth_bypass", "deserialization"}
         if cat not in web_cats:
             continue
         if category_filter and cat != category_filter:
             continue
+
+        # Extract CVE ID if present in title/description
+        cve_match = re.search(r'CVE-\d{4}-\d{4,}', full, re.IGNORECASE)
+        cve_id = cve_match.group(0).upper() if cve_match else ""
+
+        # Extract real PoC payloads from GitHub/ExploitDB/Nuclei/Metasploit
+        extra_poc = []
+        if enrich_poc and cve_id:
+            try:
+                from fray.poc_extractor import extract_poc_payloads
+                poc_result = extract_poc_payloads(
+                    cve_id=cve_id, max_sources=3, timeout=12, delay=0.5,
+                )
+                for ep in poc_result.extracted_payloads:
+                    extra_poc.append(ep.get("payload", "")[:500])
+                if verbose and extra_poc:
+                    print(f"    {_C.G}PoC: {cve_id} — {len(extra_poc)} real payloads extracted{_C.E}")
+            except Exception:
+                pass
+
+        # Add PoC-extracted payloads as ThreatPayload entries
+        for poc_str in extra_poc:
+            if poc_str and len(poc_str) >= 5 and not poc_str.startswith("#"):
+                results.append(ThreatPayload(
+                    payload=poc_str,
+                    category=cat,
+                    subcategory="poc_extract",
+                    description=f"ExploitDB PoC: {title[:100]}",
+                    cve=cve_id,
+                    source="ExploitDB + PoC",
+                    reference=link,
+                    tags=["exploitdb", "poc", "threat-intel"],
+                ))
 
         # Extract payload-like strings from description
         text_payloads = extract_payloads_from_text(desc, cat, "ExploitDB")
         for tp in text_payloads:
             tp.description = title[:120]
             tp.reference = link
+            tp.cve = cve_id
             tp.tags = ["exploitdb", "threat-intel"]
             results.append(tp)
 
-        # If no payloads extracted, generate from templates
-        if not text_payloads:
+        # If no payloads extracted from PoC or text, generate from templates
+        if not text_payloads and not extra_poc:
             templates = _CVE_PAYLOAD_TEMPLATES.get(cat, [])[:2]
             for tpl in templates:
                 results.append(ThreatPayload(
@@ -913,6 +948,7 @@ def fetch_exploitdb(since_days: int = 7, category_filter: str = "",
                     category=cat,
                     subcategory=tpl.get("sub", ""),
                     description=f"ExploitDB: {title[:120]}",
+                    cve=cve_id,
                     source="ExploitDB",
                     reference=link,
                     tags=["exploitdb", "threat-intel"],
@@ -997,6 +1033,7 @@ def fetch_rss_feeds(since_days: int = 7, verbose: bool = True) -> List[ThreatPay
 # ── 6. Nuclei Templates (new additions) ──────────────────────────────────────
 
 def fetch_nuclei_templates(since_days: int = 7,
+                           enrich_poc: bool = True,
                            verbose: bool = True) -> List[ThreatPayload]:
     """Fetch recently added Nuclei templates from projectdiscovery/nuclei-templates."""
     token = os.environ.get("GITHUB_TOKEN", "")
@@ -1022,24 +1059,60 @@ def fetch_nuclei_templates(since_days: int = 7,
 
     results = []
     cve_pattern = re.compile(r'CVE-\d{4}-\d{4,}', re.IGNORECASE)
+    seen_cves: set = set()
 
     for commit in data[:20]:
         msg = commit.get("commit", {}).get("message", "")
         cves = cve_pattern.findall(msg)
         for cve_id in cves:
+            cve_id = cve_id.upper()
+            if cve_id in seen_cves:
+                continue
+            seen_cves.add(cve_id)
+
             cat = classify_category(msg)
             if cat == "other":
-                cat = "xss"  # Default for Nuclei templates
-            results.append(ThreatPayload(
-                payload=f"# Nuclei template: {cve_id}",
-                category=cat,
-                subcategory="nuclei_template",
-                description=f"Nuclei: {msg[:120]}",
-                cve=cve_id.upper(),
-                source="Nuclei Templates (projectdiscovery)",
-                reference=commit.get("html_url", ""),
-                tags=["nuclei", "threat-intel"],
-            ))
+                cat = "xss"
+
+            # Extract real PoC payloads from GitHub/ExploitDB/Nuclei repos
+            extra_poc = []
+            if enrich_poc:
+                try:
+                    from fray.poc_extractor import extract_poc_payloads
+                    poc_result = extract_poc_payloads(
+                        cve_id=cve_id, max_sources=3, timeout=12, delay=0.5,
+                    )
+                    for ep in poc_result.extracted_payloads:
+                        extra_poc.append(ep.get("payload", "")[:500])
+                    if verbose and extra_poc:
+                        print(f"    {_C.G}PoC: {cve_id} — {len(extra_poc)} real payloads extracted{_C.E}")
+                except Exception:
+                    pass
+
+            if extra_poc:
+                for poc_str in extra_poc:
+                    if poc_str and len(poc_str) >= 5 and not poc_str.startswith("#"):
+                        results.append(ThreatPayload(
+                            payload=poc_str,
+                            category=cat,
+                            subcategory="nuclei_poc",
+                            description=f"Nuclei+PoC: {msg[:100]}",
+                            cve=cve_id,
+                            source="Nuclei Templates + PoC",
+                            reference=commit.get("html_url", ""),
+                            tags=["nuclei", "poc", "threat-intel"],
+                        ))
+            else:
+                results.append(ThreatPayload(
+                    payload=f"# Nuclei template: {cve_id}",
+                    category=cat,
+                    subcategory="nuclei_template",
+                    description=f"Nuclei: {msg[:120]}",
+                    cve=cve_id,
+                    source="Nuclei Templates (projectdiscovery)",
+                    reference=commit.get("html_url", ""),
+                    tags=["nuclei", "threat-intel"],
+                ))
 
     return results
 

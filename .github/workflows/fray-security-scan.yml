@@ -1,0 +1,91 @@
+# Fray Security Scan — GitHub Actions Workflow
+# Runs fray go on every push/PR and uploads SARIF to GitHub Security tab.
+#
+# Usage:
+#   1. Copy this file to your repo's .github/workflows/
+#   2. Set FRAY_TARGET secret to your target URL
+#   3. (Optional) Set FRAY_FAIL_ON to control exit threshold (critical/high/medium/low)
+#
+# The workflow:
+#   - Installs Fray from PyPI
+#   - Runs fray go --ci --sarif against your target
+#   - Uploads SARIF results to GitHub Code Scanning
+#   - Fails the build if findings exceed --fail-on threshold
+
+name: Fray Security Scan
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    # Weekly scan every Monday at 06:00 UTC
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  security-events: write
+  contents: read
+
+jobs:
+  fray-scan:
+    name: Fray Security Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Fray
+        run: |
+          pip install fray
+          # Optional: install browser support for SPA crawling
+          # pip install 'fray[browser]' && playwright install chromium
+
+      - name: Run Fray Security Scan
+        env:
+          FRAY_TARGET: ${{ secrets.FRAY_TARGET }}
+          FRAY_FAIL_ON: ${{ vars.FRAY_FAIL_ON || 'high' }}
+        run: |
+          fray go "$FRAY_TARGET" \
+            --ci \
+            --fail-on "$FRAY_FAIL_ON" \
+            --sarif \
+            --stealth \
+            -o fray-results.json \
+            > fray-results.sarif 2>/dev/null || true
+
+      - name: Upload SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: fray-results.sarif
+          category: fray-security
+
+      - name: Upload Results Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fray-results
+          path: |
+            fray-results.json
+            fray-results.sarif
+            *_report.html
+
+      - name: Check Threshold
+        env:
+          FRAY_TARGET: ${{ secrets.FRAY_TARGET }}
+          FRAY_FAIL_ON: ${{ vars.FRAY_FAIL_ON || 'high' }}
+        run: |
+          fray go "$FRAY_TARGET" \
+            --ci \
+            --fail-on "$FRAY_FAIL_ON" \
+            --json \
+            > /dev/null 2>&1

@@ -1,6 +1,6 @@
 # Fray Full Roadmap — 226 Items Across 28 Layers
 
-**Status:** 136 done · 90 pending  
+**Status:** 137 done · 89 pending  
 **Last updated:** 2026-03-14
 
 ---
@@ -76,7 +76,7 @@
 | 42 | Cache invalidation on WAF config change | MEDIUM | done |
 | 43 | Cache size limits + eviction policy | LOW | done |
 | 44 | Cache export/import for offline use | LOW | done |
-| 45 | Community leaderboard from D1 data | MEDIUM | pending |
+| 45 | Community leaderboard from D1 data | MEDIUM | done |
 | 46 | Cache warming from threat intel feed | LOW | done |
 
 ## L8 — DNS Recon Phase 2 (5 items)
@@ -355,7 +355,7 @@
 | L4 New Attack Classes | 10 | 10 | 0 |
 | L5 Supply Chain | 3 | 3 | 0 |
 | L6 OSINT | 6 | 6 | 0 |
-| L7 Cache + D1 Sync | 8 | 7 | 1 |
+| L7 Cache + D1 Sync | 8 | 8 | 0 |
 | L8 DNS Recon Phase 2 | 5 | 5 | 0 |
 | L9 Bot Detection | 5 | 5 | 0 |
 | L10 Dashboard / Web UI | 13 | 0 | 13 |
@@ -377,4 +377,4 @@
 | L26 CF Workers AI Gateway | 7 | 0 | 7 |
 | L27 Architecture + Quality | 5 | 5 | 0 |
 | L28 New CLI + Infra | 4 | 0 | 4 |
-| **TOTAL** | **226** | **136** | **90** |
+| **TOTAL** | **226** | **137** | **89** |

@@ -414,6 +414,19 @@ def build(rd: Dict[str, Any]) -> str:
         rb.append(f'<li>Route {n_waf_bypass} WAF-bypass subdomain(s) through CDN</li>')
     remed_html = f'<div style="margin-bottom:16px;font-size:0.95em;line-height:1.6;"><strong>Recommended improvements:</strong><ol style="margin:8px 0 0 20px;line-height:2;">{"".join(rb)}</ol></div>' if rb else ''
 
+    # Auto WAF rules from bypass findings
+    _waf_rules_html = ''
+    _bypass_findings = [f for f in findings if f.get('type') in ('waf_bypass', 'bypass') or not f.get('blocked', True)]
+    if _bypass_findings:
+        try:
+            from fray.waf_rules import generate_rules, rules_to_html
+            _waf_v = str(waf_vendor) if waf_vendor and waf_vendor != '—' else 'generic'
+            _rules_data = generate_rules(_bypass_findings, waf_vendor=_waf_v)
+            if _rules_data.get('count', 0) > 0:
+                _waf_rules_html = rules_to_html(_rules_data)
+        except Exception:
+            pass
+
     if risk_score >= 60: risk_msg = '<span style="color:var(--red);font-weight:700;">The attack surface has critical exposures requiring immediate action.</span>'
     elif risk_score >= 40: risk_msg = '<span style="color:var(--orange);font-weight:700;">The attack surface has notable exposures that should be addressed promptly.</span>'
     elif risk_score >= 20: risk_msg = '<span style="color:var(--yellow);font-weight:700;">The attack surface has moderate exposures.</span>'
@@ -423,7 +436,7 @@ def build(rd: Dict[str, Any]) -> str:
 <div class="sec" id="exec">
   <h2>Executive Summary</h2>
   <p style="font-size:1.02em;line-height:1.8;margin-bottom:16px;">{"<br>".join(sp)}</p>
-  {vuln_html}{remed_html}
+  {vuln_html}{remed_html}{_waf_rules_html}
   <p style="font-size:1em;line-height:1.8;margin-top:8px;">{risk_msg}</p>
 </div>''')
 

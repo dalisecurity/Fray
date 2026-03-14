@@ -789,7 +789,11 @@ class GuidedPipeline:
         # ── Phase 1: Recon ─────────────────────────────────────────────
         if not self.quiet:
             out.write(phase_header(1, "Attack Surface Intelligence"))
+        if _dash:
+            _dash.set_phase(1, "Recon", total=50)
         self.recon_result = self._run_recon()
+        if _dash:
+            _dash.update_progress(done=50)
 
         if not self.recon_result:
             out.write(f"  {S.error}\u2716 Recon failed — cannot continue.{S.reset}\n")
@@ -837,6 +841,9 @@ class GuidedPipeline:
         # ── Phase 2: Smart Testing ─────────────────────────────────────
         if not self.quiet:
             out.write(phase_header(2, "Smart Vulnerability Testing"))
+        if _dash:
+            _n_modules = len(vuln_types[:5]) + len(_smart_cats if '_smart_cats' in dir() else [])
+            _dash.set_phase(2, "Testing", total=max(_n_modules, 5))
 
         # Build interactive menu to determine what to test
         menu = ReconInteractive(self.target, self.recon_result)
@@ -958,6 +965,15 @@ class GuidedPipeline:
         total_findings = sum(r.get("findings", 0) for r in module_results)
         total_requests = sum(r.get("requests", 0) for r in module_results)
 
+        # Feed dashboard with test results
+        if _dash:
+            _dash.update_progress(done=_dash._total)
+            _dash.update_stat("requests", total_requests)
+            _dash.update_stat("bypasses", total_vulns)
+            for _mr in module_results:
+                if _mr.get("vulnerable"):
+                    _dash.add_finding(f"{_mr.get('module', '?')}: vulnerable", "high")
+
         if not self.quiet and module_results:
             out.write(f"\n  {S.success}✔{S.reset} {S.bold}{S.white}Testing complete{S.reset}\n")
             vuln_c = S.error if total_vulns > 0 else S.success
@@ -1011,6 +1027,12 @@ class GuidedPipeline:
             "name": "report",
             "path": self.report_path,
         })
+
+        # Finish dashboard
+        if _dash:
+            _dash.set_phase(3, "Report", total=1)
+            _dash.update_progress(done=1)
+            _dash.finish()
 
         # ── Final Summary ──────────────────────────────────────────────
         elapsed = time.monotonic() - t0

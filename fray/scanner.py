@@ -802,7 +802,8 @@ def run_scan(target: str, category: str = "xss", max_payloads: int = 5,
              rate_limit: float = 0.0,
              scope_file: Optional[str] = None,
              workers: int = 1,
-             use_auto_throttle: bool = False) -> ScanResult:
+             use_auto_throttle: bool = False,
+             impersonate: str = None) -> ScanResult:
     """Full automated scan: crawl → discover params → inject payloads.
 
     Args:
@@ -891,6 +892,15 @@ def run_scan(target: str, category: str = "xss", max_payloads: int = 5,
     except Exception:
         pass  # Never break scans due to cache errors
 
+    # Cluster payloads by technique family — test representative first, skip family if blocked
+    _payload_clusters = {}
+    try:
+        from fray.evolve import cluster_payloads as _cp
+        _raw = [p.get("payload", p) if isinstance(p, dict) else str(p) for p in payloads]
+        _payload_clusters = _cp(_raw)
+    except Exception:
+        pass
+
     # Limit payloads per injection point
     test_payloads = payloads[:max_payloads]
 
@@ -920,6 +930,7 @@ def run_scan(target: str, category: str = "xss", max_payloads: int = 5,
             jitter=jitter,
             stealth=stealth,
             rate_limit=rate_limit,
+            impersonate=impersonate,
         )
         if not quiet:
             with print_lock:
@@ -931,12 +942,26 @@ def run_scan(target: str, category: str = "xss", max_payloads: int = 5,
                     f"[dim]({ip.source})[/dim]"
                 )
 
+        _blocked_families = set()
         for payload_data in test_payloads:
             payload = payload_data.get("payload", payload_data) if isinstance(payload_data, dict) else str(payload_data)
+
+            # Skip if this payload's technique family was already blocked
+            if _payload_clusters:
+                _fam = _payload_clusters.get(payload, "")
+                if _fam and _fam in _blocked_families:
+                    continue
+
             result = tester.test_payload(payload, method=ip.method, param=ip.param)
             result["injection_point"] = ip.to_dict()
             result["category"] = category
             results.append(result)
+
+            # Track blocked families
+            if result.get("blocked") and _payload_clusters:
+                _fam = _payload_clusters.get(payload, "")
+                if _fam:
+                    _blocked_families.add(_fam)
 
             if not quiet:
                 with print_lock:
