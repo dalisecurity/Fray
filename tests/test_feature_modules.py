@@ -777,3 +777,167 @@ class TestWafRules:
         from fray.waf_rules import rules_to_html
         html = rules_to_html({"rules": [], "count": 0, "vendor": "x", "category": "xss"})
         assert html == ""
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 8. fray.challenge_solver
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestChallengeType:
+    def test_import(self):
+        from fray.challenge_solver import (ChallengeType, SolveResult, ChallengeSolver,
+                                            detect_challenge, solve_challenge,
+                                            extract_cf_clearance, _STEALTH_JS)
+        assert ChallengeType.CF_JS == "cloudflare_js"
+        assert ChallengeType.CF_TURNSTILE == "cloudflare_turnstile"
+        assert ChallengeType.RECAPTCHA_V2 == "recaptcha_v2"
+        assert ChallengeType.HCAPTCHA == "hcaptcha"
+        assert ChallengeType.NONE == "none"
+
+    def test_all_types_distinct(self):
+        from fray.challenge_solver import ChallengeType
+        types = [ChallengeType.NONE, ChallengeType.CF_JS, ChallengeType.CF_TURNSTILE,
+                 ChallengeType.RECAPTCHA_V2, ChallengeType.RECAPTCHA_V3,
+                 ChallengeType.HCAPTCHA, ChallengeType.DATADOME,
+                 ChallengeType.AKAMAI, ChallengeType.UNKNOWN]
+        assert len(set(types)) == len(types)
+
+
+class TestSolveResult:
+    def test_defaults(self):
+        from fray.challenge_solver import SolveResult
+        r = SolveResult()
+        assert r.success is False
+        assert r.challenge_type == "none"
+        assert r.cookies == {}
+        assert r.headers == {}
+        assert r.token == ""
+        assert r.user_agent == ""
+        assert r.elapsed_s == 0.0
+        assert r.error == ""
+
+    def test_to_dict(self):
+        from fray.challenge_solver import SolveResult
+        r = SolveResult(
+            success=True,
+            challenge_type="cloudflare_js",
+            cookies={"cf_clearance": "abc123"},
+            token="tok" * 30,
+            user_agent="UA",
+            elapsed_s=3.5,
+        )
+        d = r.to_dict()
+        assert d["success"] is True
+        assert d["challenge_type"] == "cloudflare_js"
+        assert d["cookies"] == {"cf_clearance": "abc123"}
+        assert d["token"].endswith("...")  # Long token truncated
+        assert d["elapsed_s"] == 3.5
+
+    def test_to_dict_short_token(self):
+        from fray.challenge_solver import SolveResult
+        r = SolveResult(token="short")
+        d = r.to_dict()
+        assert d["token"] == "short"  # Not truncated
+
+
+class TestDetectChallenge:
+    def test_no_challenge(self):
+        from fray.challenge_solver import detect_challenge, ChallengeType
+        assert detect_challenge("", {}, 200) == ChallengeType.NONE
+        assert detect_challenge("<html>Hello</html>", {}, 200) == ChallengeType.NONE
+
+    def test_cf_js_body(self):
+        from fray.challenge_solver import detect_challenge, ChallengeType
+        body = '<html><body>Just a moment...</body></html>'
+        assert detect_challenge(body, {}, 503) == ChallengeType.CF_JS
+
+    def test_cf_js_checking(self):
+        from fray.challenge_solver import detect_challenge, ChallengeType
+        body = '<div>Checking if the site connection is secure</div>'
+        assert detect_challenge(body, {}, 503) == ChallengeType.CF_JS
+
+    def test_cf_js_header(self):
+        from fray.challenge_solver import detect_challenge, ChallengeType
+        assert detect_challenge("", {"server": "cloudflare"}, 503) == ChallengeType.CF_JS
+
+    def test_cf_turnstile(self):
+        from fray.challenge_solver import detect_challenge, ChallengeType
+        body = '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js"></script>'
+        assert detect_challenge(body, {}, 200) == ChallengeType.CF_TURNSTILE
+
+    def test_cf_turnstile_widget(self):
+        from fray.challenge_solver import detect_challenge, ChallengeType
+        body = '<div class="cf-turnstile" data-sitekey="abc"></div>'
+        assert detect_challenge(body, {}, 200) == ChallengeType.CF_TURNSTILE
+
+    def test_recaptcha_v2(self):
+        from fray.challenge_solver import detect_challenge, ChallengeType
+        body = '<script src="https://www.google.com/recaptcha/api.js"></script><div class="g-recaptcha"></div>'
+        assert detect_challenge(body, {}, 200) == ChallengeType.RECAPTCHA_V2
+
+    def test_recaptcha_v3(self):
+        from fray.challenge_solver import detect_challenge, ChallengeType
+        body = '<script src="https://www.google.com/recaptcha/api.js?render=sitekey123"></script>'
+        assert detect_challenge(body, {}, 200) == ChallengeType.RECAPTCHA_V3
+
+    def test_hcaptcha(self):
+        from fray.challenge_solver import detect_challenge, ChallengeType
+        body = '<script src="https://hcaptcha.com/1/api.js"></script>'
+        assert detect_challenge(body, {}, 200) == ChallengeType.HCAPTCHA
+
+    def test_datadome(self):
+        from fray.challenge_solver import detect_challenge, ChallengeType
+        body = '<script src="https://datadome.co/captcha/v2"></script>'
+        assert detect_challenge(body, {}, 403) == ChallengeType.DATADOME
+
+    def test_datadome_header(self):
+        from fray.challenge_solver import detect_challenge, ChallengeType
+        assert detect_challenge("blocked", {"x-datadome": "1"}, 403) == ChallengeType.DATADOME
+
+    def test_akamai(self):
+        from fray.challenge_solver import detect_challenge, ChallengeType
+        body = '<script>var _abck = "abc";</script>'
+        assert detect_challenge(body, {}, 403) == ChallengeType.AKAMAI
+
+    def test_unknown_403_captcha(self):
+        from fray.challenge_solver import detect_challenge, ChallengeType
+        body = '<div>Please complete the captcha to continue</div>'
+        assert detect_challenge(body, {}, 403) == ChallengeType.UNKNOWN
+
+
+class TestStealthJS:
+    def test_stealth_js_content(self):
+        from fray.challenge_solver import _STEALTH_JS
+        assert "webdriver" in _STEALTH_JS
+        assert "plugins" in _STEALTH_JS
+        assert "Chrome PDF" in _STEALTH_JS
+        assert "languages" in _STEALTH_JS
+        assert "WebGL" in _STEALTH_JS
+        assert "connection" in _STEALTH_JS
+
+    def test_stealth_ua(self):
+        from fray.challenge_solver import _STEALTH_UA
+        assert "Chrome" in _STEALTH_UA
+        assert "Mozilla" in _STEALTH_UA
+
+    def test_stealth_viewport(self):
+        from fray.challenge_solver import _STEALTH_VIEWPORT
+        assert _STEALTH_VIEWPORT["width"] == 1920
+        assert _STEALTH_VIEWPORT["height"] == 1080
+
+
+class TestChallengeSolverInit:
+    def test_defaults(self):
+        from fray.challenge_solver import ChallengeSolver
+        s = ChallengeSolver("https://example.com")
+        assert s.target == "https://example.com"
+        assert s.timeout == 30
+        assert s.verbose is False
+        assert s.headless is True
+
+    def test_custom_params(self):
+        from fray.challenge_solver import ChallengeSolver
+        s = ChallengeSolver("https://t.com", timeout=10, verbose=True, headless=False)
+        assert s.timeout == 10
+        assert s.verbose is True
+        assert s.headless is False

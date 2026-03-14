@@ -1097,8 +1097,70 @@ def cmd_test(args):
     if _from_crawl:
         _crawl_data = json.loads(Path(_from_crawl).read_text(encoding='utf-8'))
         _endpoints = _crawl_data.get('endpoints', [])
-        _eps_with_params = [e for e in _endpoints if e.get('params')]
-        if not _eps_with_params:
+        # Also accept top-level 'forms', 'links', 'params' keys
+        _forms = _crawl_data.get('forms', [])
+        _headers_found = _crawl_data.get('injectable_headers', [])
+        _cookies_found = _crawl_data.get('cookies', [])
+
+        # Build injection targets: (url, param, method, context)
+        _targets = []
+
+        # 1. Endpoints with params → url_param injection
+        for e in _endpoints:
+            for p in (e.get('params') or []):
+                _targets.append({
+                    'url': e['url'], 'param': p,
+                    'method': e.get('method', 'GET'),
+                    'context': 'url_param',
+                    'source': e.get('source', 'crawl'),
+                })
+
+        # 2. Forms → auto-detect context from method + enctype
+        for f in _forms:
+            _f_method = (f.get('method') or 'GET').upper()
+            _f_action = f.get('action') or f.get('url') or args.target
+            _f_enctype = (f.get('enctype') or '').lower()
+            _f_params = f.get('params') or f.get('inputs') or f.get('fields') or []
+            for p in _f_params:
+                _pname = p if isinstance(p, str) else p.get('name', '')
+                if not _pname:
+                    continue
+                if _f_method == 'POST':
+                    if 'json' in _f_enctype:
+                        ctx = 'json_body'
+                    elif 'multipart' in _f_enctype:
+                        ctx = 'url_param'  # multipart handled by content_type override
+                    else:
+                        ctx = 'url_param'  # form-urlencoded POST still uses param injection
+                else:
+                    ctx = 'url_param'
+                _targets.append({
+                    'url': _f_action, 'param': _pname,
+                    'method': _f_method, 'context': ctx,
+                    'source': 'form',
+                })
+
+        # 3. Injectable headers → header context
+        for h in _headers_found:
+            _hname = h if isinstance(h, str) else h.get('name', '')
+            if _hname:
+                _targets.append({
+                    'url': args.target, 'param': _hname,
+                    'method': 'GET', 'context': 'header',
+                    'source': 'header',
+                })
+
+        # 4. Cookies → cookie context
+        for c in _cookies_found:
+            _cname = c if isinstance(c, str) else c.get('name', '')
+            if _cname:
+                _targets.append({
+                    'url': args.target, 'param': _cname,
+                    'method': 'GET', 'context': 'cookie',
+                    'source': 'cookie',
+                })
+
+        if not _targets:
             print(f"  No injectable params found in {_from_crawl}")
             sys.exit(0)
 
@@ -1112,19 +1174,101 @@ def cmd_test(args):
             print(f"  No payloads for category '{_cat}'")
             sys.exit(1)
 
-        _max = args.max if hasattr(args, 'max') else 10
+        _max = args.max if hasattr(args, 'max') and args.max else 10
         _payloads_subset = all_payloads[:_max]
-        _total_eps = sum(len(e['params']) for e in _eps_with_params)
-        print(f"\n  ⚔  Testing {_total_eps} param(s) across {len(_eps_with_params)} endpoint(s)")
-        print(f"  Payloads: {len(_payloads_subset)} ({_cat}) | From: {_from_crawl}\n")
 
+        # Context summary
+        _ctx_counts = {}
+        for t in _targets:
+            _ctx_counts[t['context']] = _ctx_counts.get(t['context'], 0) + 1
+        _ctx_str = ", ".join(f"{v} {k}" for k, v in sorted(_ctx_counts.items(), key=lambda x: -x[1]))
+        _total_reqs = len(_targets) * len(_payloads_subset)
+
+        json_mode = getattr(args, 'json', False)
+        if not json_mode:
+            print(f"\n  \033[1m⚔  Context-Aware Injection (#174)\033[0m")
+            print(f"  Targets:   {len(_targets)} injection points ({_ctx_str})")
+            print(f"  Payloads:  {len(_payloads_subset)} ({_cat})")
+            print(f"  Requests:  {_total_reqs} total")
+            print(f"  Source:    {_from_crawl}\n")
+
+        _concurrency = getattr(args, 'concurrency', 1) or 1
         _all_results = []
-        for _ep in _eps_with_params:
-            for _param in _ep['params']:
-                _orig_target = tester.target
-                _orig_host = tester.host
-                # Re-target tester to this endpoint
-                _parsed = urllib.parse.urlparse(_ep['url'])
+
+        if _concurrency > 1:
+            # Async parallel testing across all injection targets
+            import asyncio
+            try:
+                import aiohttp
+
+                async def _crawl_async_batch():
+                    connector = aiohttp.TCPConnector(
+                        limit=_concurrency, enable_cleanup_closed=True,
+                        ssl=None if tester.verify_ssl else False)
+                    timeout_cfg = aiohttp.ClientTimeout(total=tester.timeout)
+                    sem = asyncio.Semaphore(_concurrency)
+                    results = []
+
+                    async with aiohttp.ClientSession(connector=connector, timeout=timeout_cfg) as session:
+                        async def _test_one(tgt, pl_data):
+                            async with sem:
+                                _ps = pl_data.get('payload', pl_data) if isinstance(pl_data, dict) else pl_data
+                                # Temporarily re-point tester to this endpoint
+                                _parsed = urllib.parse.urlparse(tgt['url'])
+                                _orig = (tester.host, tester.path, tester.query, tester.use_ssl, tester.port)
+                                tester.host = _parsed.hostname or tester.host
+                                tester.path = _parsed.path or '/'
+                                tester.query = _parsed.query or ''
+                                tester.use_ssl = _parsed.scheme == 'https'
+                                tester.port = _parsed.port or (443 if tester.use_ssl else 80)
+
+                                if tester.delay > 0:
+                                    await asyncio.sleep(tester.delay / max(1, _concurrency))
+
+                                r = await tester.async_test_payload(
+                                    session, _ps, method=tgt['method'],
+                                    param=tgt['param'],
+                                    injection_context=tgt['context'])
+                                r['endpoint'] = tgt['url']
+                                r['param'] = tgt['param']
+                                r['injection_context'] = tgt['context']
+                                r['source'] = tgt.get('source', '')
+                                r['category'] = pl_data.get('category', _cat) if isinstance(pl_data, dict) else _cat
+
+                                # Restore
+                                tester.host, tester.path, tester.query, tester.use_ssl, tester.port = _orig
+                                return r
+
+                        tasks = []
+                        for _tgt in _targets:
+                            for _pl in _payloads_subset:
+                                tasks.append(_test_one(_tgt, _pl))
+                        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                    # Clean exceptions
+                    clean = []
+                    for r in results:
+                        if isinstance(r, Exception):
+                            clean.append({"status": 0, "error": str(r), "blocked": True,
+                                          "bypass_confidence": 0, "elapsed_ms": 0})
+                        else:
+                            clean.append(r)
+                    return clean
+
+                if not json_mode:
+                    print(f"  \033[36m⚡ Async mode: {_concurrency} workers\033[0m\n")
+                _all_results = asyncio.run(_crawl_async_batch())
+            except ImportError:
+                if not json_mode:
+                    sys.stderr.write("  \033[33maiohttp not installed — falling back to sequential\033[0m\n")
+                _concurrency = 1  # Fall through to sequential below
+
+        if _concurrency <= 1:
+            # Sequential testing
+            _done = 0
+            for _tgt in _targets:
+                _parsed = urllib.parse.urlparse(_tgt['url'])
+                _orig = (tester.host, tester.path, tester.query, tester.use_ssl, tester.port)
                 tester.host = _parsed.hostname or tester.host
                 tester.path = _parsed.path or '/'
                 tester.query = _parsed.query or ''
@@ -1133,25 +1277,53 @@ def cmd_test(args):
 
                 for _pl in _payloads_subset:
                     _ps = _pl.get('payload', _pl) if isinstance(_pl, dict) else _pl
-                    r = tester.test_payload(_ps, param=_param, method=_ep.get('method', 'GET'))
-                    r['endpoint'] = _ep['url']
-                    r['source'] = _ep.get('source', '')
+                    r = tester.test_payload(
+                        _ps, param=_tgt['param'], method=_tgt['method'],
+                        injection_context=_tgt['context'])
+                    r['endpoint'] = _tgt['url']
+                    r['param'] = _tgt['param']
+                    r['injection_context'] = _tgt['context']
+                    r['source'] = _tgt.get('source', '')
                     _all_results.append(r)
+                    _done += 1
+                    if not json_mode and _done % 10 == 0:
+                        sys.stderr.write(f"\r  [{_done}/{_total_reqs}]")
+                        sys.stderr.flush()
+                    tester._stealth_delay()
 
-                # Restore original
-                tester.host = _orig_host
+                tester.host, tester.path, tester.query, tester.use_ssl, tester.port = _orig
+
+            if not json_mode:
+                sys.stderr.write(f"\r  [{_total_reqs}/{_total_reqs}]\n")
 
         _bypasses = [r for r in _all_results if not r.get('blocked')]
-        print(f"\n  ✔ Tested {len(_all_results)} requests")
-        print(f"  Bypasses: {len(_bypasses)}")
-        if _bypasses:
-            for _b in _bypasses[:10]:
-                print(f"    {Colors.GREEN}BYPASS{Colors.END} {_b.get('endpoint', '')[:50]} "
-                      f"param={_b.get('param', '')} payload={_b.get('payload', '')[:40]}")
 
-        if getattr(args, 'json', False):
+        if not json_mode:
+            print(f"\n  \033[1m✔ Tested {len(_all_results)} requests across {len(_targets)} injection points\033[0m")
+            print(f"  Bypasses: {len(_bypasses)}")
+            if _bypasses:
+                # Group by context
+                _by_ctx = {}
+                for _b in _bypasses:
+                    ctx = _b.get('injection_context', 'url_param')
+                    _by_ctx.setdefault(ctx, []).append(_b)
+                for ctx, items in _by_ctx.items():
+                    print(f"\n  \033[34m[{ctx}]\033[0m {len(items)} bypass(es):")
+                    for _b in items[:5]:
+                        conf = _b.get('bypass_confidence', 0)
+                        print(f"    \033[32mBYPASS\033[0m {_b.get('endpoint', '')[:45]} "
+                              f"param={_b.get('param', '')} conf={conf}% "
+                              f"payload={_b.get('payload', '')[:35]}")
+                    if len(items) > 5:
+                        print(f"    ... and {len(items) - 5} more")
+
+        if json_mode:
             _json_print({"target": args.target, "from_crawl": _from_crawl,
-                         "results": _all_results, "bypasses": len(_bypasses)})
+                         "injection_points": len(_targets),
+                         "contexts": _ctx_counts,
+                         "total_requests": len(_all_results),
+                         "bypasses": len(_bypasses),
+                         "results": _all_results})
         sys.exit(0)
 
     if args.category:
@@ -1295,9 +1467,16 @@ def cmd_test(args):
             _waf_vendor = _detect_vendor(_extract_domain(args.target))
         except Exception:
             pass
-        results = tester.test_payloads(all_payloads, max_payloads=args.max,
-                                       quiet=json_mode, waf_vendor=_waf_vendor,
-                                       resume=getattr(args, 'resume', False))
+        _concurrency = getattr(args, 'concurrency', 1) or 1
+        if _concurrency > 1:
+            results = tester.test_payloads_async(
+                all_payloads, max_payloads=args.max,
+                concurrency=_concurrency, quiet=json_mode,
+                waf_vendor=_waf_vendor)
+        else:
+            results = tester.test_payloads(all_payloads, max_payloads=args.max,
+                                           quiet=json_mode, waf_vendor=_waf_vendor,
+                                           resume=getattr(args, 'resume', False))
 
     # --mutate: auto-mutate blocked payloads and re-test
     mutate_n = getattr(args, 'mutate', 0)
@@ -2828,6 +3007,68 @@ def cmd_smuggle(args):
 
     # Exit code: 1 if vulnerable (CI integration)
     if report.vulnerable:
+        sys.exit(1)
+
+
+def cmd_solve(args):
+    """Solve WAF challenges and extract cookies for reuse."""
+    from fray.challenge_solver import ChallengeSolver, ChallengeType
+
+    json_mode = getattr(args, 'json', False)
+    verbose = getattr(args, 'verbose', False)
+    headless = not getattr(args, 'no_headless', False)
+
+    if not json_mode:
+        print(f"\n  ⚔  Fray Challenge Solver")
+        print(f"  Target: {args.target}")
+        if getattr(args, 'challenge_type', None):
+            print(f"  Type: {args.challenge_type} (forced)")
+        else:
+            print(f"  Type: auto-detect")
+        print(f"  Headless: {headless}\n")
+
+    solver = ChallengeSolver(
+        args.target,
+        timeout=getattr(args, 'timeout', 30),
+        verbose=verbose,
+        headless=headless,
+    )
+    result = solver.solve(challenge_type=getattr(args, 'challenge_type', None))
+
+    if json_mode:
+        _json_print(result.to_dict())
+    else:
+        if result.success:
+            print(f"  ✔ Challenge solved: {result.challenge_type}")
+            print(f"  Cookies: {len(result.cookies)}")
+            for k, v in list(result.cookies.items())[:8]:
+                print(f"    {k}={v[:40]}{'...' if len(v) > 40 else ''}")
+            if result.token:
+                print(f"  Token: {result.token[:50]}...")
+            print(f"  Duration: {result.elapsed_s:.1f}s")
+        else:
+            print(f"  ✘ Challenge not solved: {result.challenge_type}")
+            if result.error:
+                print(f"  Error: {result.error}")
+        print()
+
+    # Save session if requested
+    session_name = getattr(args, 'save_session', None)
+    if session_name and result.success:
+        session_dir = os.path.expanduser("~/.fray/sessions")
+        os.makedirs(session_dir, exist_ok=True)
+        session_path = os.path.join(session_dir, f"{session_name}.json")
+        with open(session_path, 'w') as f:
+            json.dump({
+                "cookies": result.cookies,
+                "user_agent": result.user_agent,
+                "challenge_type": result.challenge_type,
+            }, f, indent=2)
+        if not json_mode:
+            print(f"  Session saved: {session_path}")
+            print(f"  Reuse: fray test {args.target} --load-session {session_name}")
+
+    if not result.success:
         sys.exit(1)
 
 
@@ -5225,6 +5466,132 @@ def cmd_cred(args):
         send_generic_notification(notify_url, "cred", target, summary)
 
 
+def cmd_ct(args):
+    """Certificate Transparency monitoring (#128)."""
+    from fray.recon.dns import check_ct_monitor
+
+    target = args.target
+    if not target:
+        print("  Error: No target specified.")
+        print("  Usage: fray ct example.com")
+        print("         fray ct example.com --days 7 --json")
+        sys.exit(1)
+
+    # Strip protocol
+    if "://" in target:
+        from urllib.parse import urlparse as _up
+        target = _up(target).hostname or target
+
+    days = getattr(args, 'days', 30)
+    json_mode = getattr(args, 'json', False)
+    save_baseline = getattr(args, 'save', False)
+    baseline_path = Path.home() / ".fray" / "ct_baselines" / f"{target}.json"
+
+    # Load previous baseline if it exists
+    baseline = None
+    if baseline_path.exists():
+        try:
+            baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+            if not json_mode:
+                prev_date = baseline.get("_saved_at", "unknown")
+                print(f"  Loaded baseline from {prev_date}")
+        except Exception:
+            pass
+
+    if not json_mode:
+        print(f"\n  \033[1m🔍 Certificate Transparency Monitor\033[0m")
+        print(f"  Domain:   {target}")
+        print(f"  Lookback: {days} days")
+        print(f"  Sources:  crt.sh, Certspotter\n")
+
+    result = check_ct_monitor(target, days=days,
+                              timeout=getattr(args, 'timeout', 15),
+                              baseline=baseline)
+
+    if result.get("error"):
+        if json_mode:
+            _json_print(result)
+        else:
+            print(f"  \033[31mError: {result['error']}\033[0m")
+        sys.exit(1)
+
+    if json_mode:
+        _json_print(result)
+    else:
+        # Sources
+        for src, count in result.get("sources", {}).items():
+            status_str = f"\033[32m{count} entries\033[0m" if isinstance(count, int) else f"\033[33m{count}\033[0m"
+            print(f"  {src}: {status_str}")
+
+        # Summary
+        print(f"\n  \033[1mCertificates ({days}d)\033[0m")
+        print(f"  Total:       {result['total_recent']}")
+        print(f"  Subdomains:  {len(result['new_subdomains'])}")
+        print(f"  Wildcards:   {len(result['wildcard_certs'])}")
+
+        # Issuers
+        issuers = result.get("issuers", {})
+        if issuers:
+            print(f"\n  \033[1mIssuers\033[0m")
+            for iss, count in sorted(issuers.items(), key=lambda x: -x[1])[:10]:
+                print(f"    {count:>4}  {iss}")
+
+        # Subdomains
+        subs = result.get("new_subdomains", [])
+        if subs:
+            print(f"\n  \033[1mSubdomains Found\033[0m ({len(subs)})")
+            for s in subs[:20]:
+                print(f"    {s['name']:<50} {s['not_before']}  {s.get('issuer', '')}")
+            if len(subs) > 20:
+                print(f"    ... and {len(subs) - 20} more")
+
+        # Wildcards
+        wcs = result.get("wildcard_certs", [])
+        if wcs:
+            print(f"\n  \033[1mWildcard Certificates\033[0m ({len(wcs)})")
+            for w in wcs[:10]:
+                print(f"    {w['name']:<50} {w['not_before']}  {w.get('issuer', '')}")
+
+        # Alerts
+        alerts = result.get("alerts", [])
+        if alerts:
+            _sev_colors = {"critical": "31;1", "high": "31", "medium": "33", "low": "34"}
+            print(f"\n  \033[1m⚠  Alerts\033[0m ({len(alerts)})")
+            for a in alerts:
+                sev = a.get("severity", "low")
+                color = _sev_colors.get(sev, "0")
+                print(f"    \033[{color}m[{sev.upper():>8}]\033[0m {a['message']}")
+        else:
+            print(f"\n  \033[32m✔ No alerts\033[0m")
+
+        # Diff vs baseline
+        diff = result.get("diff")
+        if diff:
+            print(f"\n  \033[1mΔ Changes vs Baseline\033[0m")
+            print(f"  Cert delta:    {diff['delta']:+d} ({diff['prev_total']} → {diff['curr_total']})")
+            if diff.get("new_names"):
+                print(f"  New names:     {len(diff['new_names'])}")
+                for n in diff["new_names"][:10]:
+                    print(f"    \033[32m+ {n}\033[0m")
+            if diff.get("removed_names"):
+                print(f"  Removed names: {len(diff['removed_names'])}")
+                for n in diff["removed_names"][:10]:
+                    print(f"    \033[31m- {n}\033[0m")
+            if diff.get("new_issuers"):
+                print(f"  New issuers:   {', '.join(diff['new_issuers'])}")
+
+    # Save baseline
+    if save_baseline or getattr(args, 'save', False):
+        from datetime import datetime
+        baseline_path.parent.mkdir(parents=True, exist_ok=True)
+        save_data = dict(result)
+        save_data["_saved_at"] = datetime.utcnow().isoformat()
+        baseline_path.write_text(json.dumps(save_data, indent=2, default=str),
+                                 encoding="utf-8")
+        if not json_mode:
+            print(f"\n  Baseline saved to {baseline_path}")
+
+
 def cmd_monitor(args):
     """Continuous monitoring with diff and alerting."""
     from fray.monitor import run_monitor, list_snapshots
@@ -5657,6 +6024,8 @@ GitHub: https://github.com/dalisecurity/fray
                          help="Load endpoints from fray crawl JSON output and test all discovered params")
     p_test.add_argument("--resume", action="store_true",
                          help="Resume an interrupted scan from checkpoint (~/.fray/checkpoints/)")
+    p_test.add_argument("--concurrency", type=int, default=1, metavar="N",
+                         help="Parallel workers for async payload testing (requires aiohttp). Default: 1 (sequential). Try 5-20 for speed.")
     p_test.add_argument("--solve-challenge", action="store_true", dest="solve_challenge",
                          help="Auto-solve JS challenges (Cloudflare Turnstile, Akamai) via Playwright before testing (requires: pip install 'fray[browser]')")
     p_test.add_argument("-q", "--quiet", action="store_true",
@@ -5905,7 +6274,25 @@ GitHub: https://github.com/dalisecurity/fray
                        help="Exit code 1 if risk level >= this severity (implies --ci)")
     p_go.add_argument("--sarif", action="store_true",
                        help="Output SARIF 2.1.0 for GitHub/GitLab Security tab")
+    p_go.add_argument("--solve-challenge", action="store_true", dest="solve_challenge",
+                       help="Auto-solve WAF challenges (Cloudflare Turnstile/JS, reCAPTCHA, hCaptcha)")
     p_go.set_defaults(func=cmd_go)
+
+    # solve — standalone challenge solver
+    p_solve = subparsers.add_parser("solve",
+        help="Solve WAF challenges (Cloudflare Turnstile/JS, reCAPTCHA, hCaptcha) and extract cookies")
+    p_solve.add_argument("target", help="Target URL with challenge")
+    p_solve.add_argument("-t", "--timeout", type=int, default=30, help="Solver timeout (default: 30)")
+    p_solve.add_argument("--type", default=None, dest="challenge_type",
+                          choices=["cloudflare_js", "cloudflare_turnstile", "recaptcha_v2", "hcaptcha"],
+                          help="Force challenge type (default: auto-detect)")
+    p_solve.add_argument("--no-headless", action="store_true", dest="no_headless",
+                          help="Show browser window (for manual captcha solving)")
+    p_solve.add_argument("--json", action="store_true", help="Output as JSON")
+    p_solve.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+    p_solve.add_argument("--save-session", dest="save_session", default=None, metavar="NAME",
+                          help="Save solved cookies to ~/.fray/sessions/NAME.json")
+    p_solve.set_defaults(func=cmd_solve)
 
     # diff — compare two recon reports
     p_diff = subparsers.add_parser("diff",
@@ -6435,6 +6822,21 @@ GitHub: https://github.com/dalisecurity/fray
     p_cred.add_argument("--notify", default=None, metavar="WEBHOOK_URL",
                          help="Send Slack/Discord/Teams notification on completion")
     p_cred.set_defaults(func=cmd_cred)
+
+    # ct — Certificate Transparency monitoring (#128)
+    p_ct = subparsers.add_parser("ct",
+        help="Certificate Transparency monitoring — discover certs, subdomains, alert on suspicious patterns")
+    p_ct.add_argument("target", nargs="?", default=None,
+                       help="Target domain (e.g. example.com)")
+    p_ct.add_argument("--days", type=int, default=30,
+                       help="Look-back window in days (default: 30)")
+    p_ct.add_argument("-t", "--timeout", type=int, default=15,
+                       help="HTTP timeout per CT source (default: 15)")
+    p_ct.add_argument("--json", action="store_true",
+                       help="Output JSON to stdout")
+    p_ct.add_argument("--save", action="store_true",
+                       help="Save result as baseline for future diffing (~/.fray/ct_baselines/)")
+    p_ct.set_defaults(func=cmd_ct)
 
     # monitor
     p_monitor = subparsers.add_parser("monitor",

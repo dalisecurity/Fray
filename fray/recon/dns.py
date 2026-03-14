@@ -558,35 +558,61 @@ def check_subdomains_crt(host: str, timeout: int = 10) -> Dict[str, Any]:
 
 
 def check_ct_monitor(host: str, days: int = 30,
-                     timeout: int = 10) -> Dict[str, Any]:
-    """Monitor Certificate Transparency logs for recently issued certificates (#75).
+                     timeout: int = 10,
+                     baseline: Optional[Dict] = None) -> Dict[str, Any]:
+    """Monitor Certificate Transparency logs for recently issued certificates (#128).
 
-    Queries crt.sh for certificates issued within the last N days,
-    flags new/unexpected subdomains and wildcard certs.
+    Queries multiple CT sources (crt.sh, Certspotter), detects suspicious
+    patterns (shadow certs, unexpected issuers, short-lived, pre-certs),
+    and diffs against a baseline to find new certificates.
 
     Args:
         host: Domain to monitor.
         days: Look-back window in days (default 30).
-        timeout: HTTP timeout for crt.sh query.
+        timeout: HTTP timeout per source.
+        baseline: Previous CT monitor result for diffing (optional).
 
     Returns:
-        Dict with 'recent_certs', 'new_subdomains', 'wildcard_certs', 'issuers'.
+        Dict with 'recent_certs', 'new_subdomains', 'wildcard_certs',
+        'issuers', 'alerts', 'diff' (vs baseline), 'sources'.
     """
     import json as _json
+    import re as _re
     from datetime import datetime, timedelta
 
     result: Dict[str, Any] = {
+        "domain": host,
+        "days": days,
         "recent_certs": [],
         "total_recent": 0,
         "new_subdomains": [],
         "wildcard_certs": [],
         "issuers": {},
+        "alerts": [],
+        "sources": {},
+        "diff": None,
         "error": None,
     }
 
     search_domain = host.lstrip("www.") if host.startswith("www.") else host
     cutoff = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
+    now_str = datetime.utcnow().strftime("%Y-%m-%d")
 
+    # Known legitimate issuers (common CAs)
+    _KNOWN_CAS = {
+        "let's encrypt", "r3", "r10", "r11", "e5", "e6",
+        "digicert", "geotrust", "rapidssl", "thawte",
+        "sectigo", "comodo", "usertrust",
+        "google trust services", "gts ca",
+        "amazon", "starfield",
+        "cloudflare", "ssl.com",
+        "globalsign", "entrust", "godaddy",
+        "microsoft", "baltimore", "zerossl",
+    }
+
+    all_entries: List[Dict] = []
+
+    # ── Source 1: crt.sh ──────────────────────────────────────────────────
     try:
         from fray.recon.http import _follow_redirect
         status, body = _follow_redirect(
@@ -594,59 +620,232 @@ def check_ct_monitor(host: str, days: int = 30,
             f"/?q=%25.{search_domain}&output=json",
             timeout=timeout,
         )
-        if status != 200 or not body:
-            result["error"] = f"crt.sh returned {status}"
-            return result
-
-        entries = _json.loads(body.decode("utf-8", errors="replace"))
+        if status == 200 and body:
+            entries = _json.loads(body.decode("utf-8", errors="replace"))
+            if isinstance(entries, list):
+                all_entries.extend(entries)
+                result["sources"]["crt.sh"] = len(entries)
+        else:
+            result["sources"]["crt.sh"] = f"error:{status}"
     except Exception as e:
-        result["error"] = str(e)
+        result["sources"]["crt.sh"] = f"error:{e}"
+
+    # ── Source 2: Certspotter (SSLMate) ───────────────────────────────────
+    try:
+        conn = http.client.HTTPSConnection("api.certspotter.com", timeout=timeout)
+        conn.request("GET", f"/v1/issuances?domain={search_domain}&include_subdomains=true&expand=dns_names&expand=issuer",
+                     headers={"User-Agent": f"Fray/{__version__}"})
+        resp = conn.getresponse()
+        if resp.status == 200:
+            cs_body = resp.read().decode("utf-8", errors="replace")
+            cs_entries = _json.loads(cs_body)
+            if isinstance(cs_entries, list):
+                # Normalize Certspotter format → crt.sh-like
+                for cs in cs_entries:
+                    dns_names = cs.get("dns_names", [])
+                    issuer_info = cs.get("issuer", {})
+                    issuer_name = issuer_info.get("name", "") if isinstance(issuer_info, dict) else str(issuer_info)
+                    not_before = cs.get("not_before", "")[:10]
+                    not_after = cs.get("not_after", "")[:10]
+                    all_entries.append({
+                        "id": cs.get("id", ""),
+                        "not_before": not_before,
+                        "not_after": not_after,
+                        "name_value": "\n".join(dns_names),
+                        "issuer_name": issuer_name,
+                        "_source": "certspotter",
+                    })
+                result["sources"]["certspotter"] = len(cs_entries)
+        else:
+            result["sources"]["certspotter"] = f"error:{resp.status}"
+        conn.close()
+    except Exception as e:
+        result["sources"]["certspotter"] = f"error:{e}"
+
+    if not all_entries:
+        result["error"] = "No CT data from any source"
         return result
 
+    # ── Process & deduplicate ─────────────────────────────────────────────
     seen_names: set = set()
     seen_ids: set = set()
+    seen_fingerprints: set = set()  # (name_set, not_before) for cross-source dedup
 
-    for entry in entries:
-        cert_id = entry.get("id")
-        if cert_id in seen_ids:
+    for entry in all_entries:
+        cert_id = str(entry.get("id", ""))
+        if cert_id and cert_id in seen_ids:
             continue
-        seen_ids.add(cert_id)
+        if cert_id:
+            seen_ids.add(cert_id)
 
-        not_before = entry.get("not_before", "")
-        if not_before < cutoff:
+        not_before = (entry.get("not_before") or "")[:10]
+        not_after = (entry.get("not_after") or "")[:10]
+        if not_before and not_before < cutoff:
             continue
 
         name_value = entry.get("name_value", "")
         issuer = entry.get("issuer_name", "")
-        names = [n.strip().lower() for n in name_value.split("\n") if n.strip()]
+        names = sorted(set(n.strip().lower() for n in name_value.split("\n") if n.strip()))
+
+        # Cross-source dedup by (names, date)
+        fp = (tuple(names[:5]), not_before)
+        if fp in seen_fingerprints:
+            continue
+        seen_fingerprints.add(fp)
 
         cert_info = {
             "id": cert_id,
             "not_before": not_before,
-            "not_after": entry.get("not_after", ""),
+            "not_after": not_after,
             "names": names[:10],
             "issuer": issuer,
         }
         result["recent_certs"].append(cert_info)
 
         # Track issuers
-        issuer_short = issuer.split(",")[0] if issuer else "Unknown"
+        issuer_short = issuer.split(",")[0].strip() if issuer else "Unknown"
         result["issuers"][issuer_short] = result["issuers"].get(issuer_short, 0) + 1
 
+        # ── Suspicious pattern detection ──────────────────────────────────
+
+        issuer_lower = issuer.lower()
+
+        # 1. Unexpected/unknown issuer
+        if issuer and not any(ca in issuer_lower for ca in _KNOWN_CAS):
+            result["alerts"].append({
+                "severity": "medium",
+                "type": "unexpected_issuer",
+                "message": f"Certificate from uncommon CA: {issuer_short}",
+                "names": names[:3],
+                "not_before": not_before,
+            })
+
+        # 2. Short-lived certificate (< 7 days) — potential phishing/staging
+        if not_before and not_after:
+            try:
+                nb = datetime.strptime(not_before, "%Y-%m-%d")
+                na = datetime.strptime(not_after, "%Y-%m-%d")
+                lifetime_days = (na - nb).days
+                if 0 < lifetime_days < 7:
+                    result["alerts"].append({
+                        "severity": "high",
+                        "type": "short_lived_cert",
+                        "message": f"Short-lived cert ({lifetime_days}d): possible staging/phishing",
+                        "names": names[:3],
+                        "not_before": not_before,
+                        "lifetime_days": lifetime_days,
+                    })
+                # 3. Already expired
+                if not_after < now_str:
+                    result["alerts"].append({
+                        "severity": "low",
+                        "type": "expired_cert",
+                        "message": f"Recently expired cert (expired {not_after})",
+                        "names": names[:3],
+                        "not_after": not_after,
+                    })
+            except ValueError:
+                pass
+
+        # 4. Shadow subdomain — subdomain not in the org's known pattern
         for name in names:
             if name.startswith("*."):
                 if name not in seen_names:
-                    result["wildcard_certs"].append({"name": name, "not_before": not_before})
+                    result["wildcard_certs"].append({"name": name, "not_before": not_before, "issuer": issuer_short})
                     seen_names.add(name)
             elif name.endswith(f".{search_domain}") and name not in seen_names:
-                result["new_subdomains"].append({"name": name, "not_before": not_before})
+                result["new_subdomains"].append({"name": name, "not_before": not_before, "issuer": issuer_short})
                 seen_names.add(name)
 
+                # 5. Suspicious subdomain names (login, account, secure, verify — phishing patterns)
+                sub_part = name.replace(f".{search_domain}", "")
+                _phishing_patterns = (
+                    "login", "signin", "sign-in", "account", "secure",
+                    "verify", "confirm", "update", "banking", "support",
+                    "helpdesk", "billing", "invoice", "password", "reset",
+                )
+                if any(pp in sub_part for pp in _phishing_patterns):
+                    result["alerts"].append({
+                        "severity": "high",
+                        "type": "phishing_subdomain",
+                        "message": f"Potential phishing subdomain: {name}",
+                        "not_before": not_before,
+                        "issuer": issuer_short,
+                    })
+
+    # 6. Excessive wildcard certs (>3 from different issuers → shadow infra)
+    if len(result["wildcard_certs"]) > 3:
+        wc_issuers = set(w.get("issuer", "") for w in result["wildcard_certs"])
+        if len(wc_issuers) > 1:
+            result["alerts"].append({
+                "severity": "medium",
+                "type": "excessive_wildcards",
+                "message": f"{len(result['wildcard_certs'])} wildcard certs from {len(wc_issuers)} issuers",
+            })
+
+    # 7. Certificate volume spike — if way more certs than expected
+    if len(result["recent_certs"]) > 50:
+        result["alerts"].append({
+            "severity": "medium",
+            "type": "cert_volume_spike",
+            "message": f"{len(result['recent_certs'])} certificates in {days} days — unusually high",
+        })
+
     result["total_recent"] = len(result["recent_certs"])
+
+    # ── Baseline diff (#128) ──────────────────────────────────────────────
+    if baseline:
+        prev_names = set()
+        for cert in baseline.get("recent_certs", []):
+            for n in cert.get("names", []):
+                prev_names.add(n.lower())
+
+        curr_names = set()
+        for cert in result["recent_certs"]:
+            for n in cert.get("names", []):
+                curr_names.add(n.lower())
+
+        new_names = sorted(curr_names - prev_names)
+        removed_names = sorted(prev_names - curr_names)
+
+        prev_issuers = set(baseline.get("issuers", {}).keys())
+        curr_issuers = set(result["issuers"].keys())
+        new_issuers = sorted(curr_issuers - prev_issuers)
+
+        result["diff"] = {
+            "new_names": new_names[:50],
+            "removed_names": removed_names[:50],
+            "new_issuers": new_issuers,
+            "prev_total": baseline.get("total_recent", 0),
+            "curr_total": result["total_recent"],
+            "delta": result["total_recent"] - baseline.get("total_recent", 0),
+        }
+
+        # Alert on new issuers
+        for ni in new_issuers:
+            result["alerts"].append({
+                "severity": "medium",
+                "type": "new_issuer",
+                "message": f"New certificate issuer detected: {ni}",
+            })
+
+        # Alert on large delta
+        if result["diff"]["delta"] > 10:
+            result["alerts"].append({
+                "severity": "high",
+                "type": "cert_spike_vs_baseline",
+                "message": f"{result['diff']['delta']} more certs than previous scan",
+            })
+
+    # Sort alerts by severity
+    _sev_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    result["alerts"].sort(key=lambda a: _sev_order.get(a.get("severity", "low"), 9))
+
     # Cap output size
     result["recent_certs"] = result["recent_certs"][:50]
     result["new_subdomains"] = result["new_subdomains"][:100]
     result["wildcard_certs"] = result["wildcard_certs"][:20]
+    result["alerts"] = result["alerts"][:30]
 
     return result
 

@@ -168,44 +168,65 @@ class WAFTester:
             self._try_solve_challenge(target)
     
     def _try_solve_challenge(self, target_url: str) -> None:
-        """Attempt to solve JS challenges (Cloudflare, Akamai, etc.) via Playwright.
+        """Attempt to solve WAF challenges via stealth Playwright.
 
+        Supports Cloudflare JS/Turnstile, reCAPTCHA v2, hCaptcha, DataDome.
         Populates self._challenge_cookies with session cookies (e.g. cf_clearance)
-        that bypass JS challenges on subsequent raw-socket requests.
+        that bypass challenges on subsequent raw-socket requests.
         """
+        # Try new ChallengeSolver first (full captcha suite)
+        try:
+            from fray.challenge_solver import ChallengeSolver
+            if self.verbose:
+                sys.stderr.write(f"  {Colors.CYAN}Solving challenges for {self.host}...{Colors.END}\n")
+
+            solver = ChallengeSolver(target_url, timeout=25, verbose=self.verbose)
+            result = solver.solve()
+
+            if result.success and result.cookies:
+                self._challenge_cookies = result.cookies
+                ctype = result.challenge_type
+                n_cookies = len(self._challenge_cookies)
+                if self.verbose:
+                    sys.stderr.write(f"  {Colors.GREEN}Challenge solved ({ctype}): "
+                                     f"{n_cookies} cookies acquired{Colors.END}\n")
+                if result.user_agent:
+                    self._challenge_ua = result.user_agent
+                return
+            elif result.challenge_type == "none":
+                if self.verbose:
+                    sys.stderr.write(f"  {Colors.DIM}No challenge detected{Colors.END}\n")
+                return
+            else:
+                if self.verbose:
+                    err = result.error or "timeout"
+                    sys.stderr.write(f"  {Colors.YELLOW}Challenge not solved: {err}{Colors.END}\n")
+        except ImportError:
+            pass
+        except Exception:
+            pass
+
+        # Fallback to legacy HeadlessEngine
         try:
             from fray.headless import HeadlessEngine
             engine = HeadlessEngine(headless=True, timeout=30000)
             if not engine._use_playwright:
                 if self.verbose:
-                    sys.stderr.write(f"  {Colors.YELLOW}JS challenge solver: Playwright not installed"
+                    sys.stderr.write(f"  {Colors.YELLOW}Challenge solver: Playwright not installed"
                                      f" (pip install 'fray[browser]'){Colors.END}\n")
                 return
-
-            if self.verbose:
-                sys.stderr.write(f"  {Colors.CYAN}Solving JS challenge for {self.host}...{Colors.END}\n")
 
             result = engine.solve_js_challenge(target_url, max_wait=20)
             engine.close()
 
             if result.get("solved") and result.get("cookies"):
                 self._challenge_cookies = result["cookies"]
-                ctype = result.get("challenge_type", "unknown")
-                n_cookies = len(self._challenge_cookies)
                 if self.verbose:
-                    sys.stderr.write(f"  {Colors.GREEN}Challenge solved ({ctype}): "
-                                     f"{n_cookies} cookies acquired{Colors.END}\n")
-            elif result.get("challenge_type") == "none":
-                if self.verbose:
-                    sys.stderr.write(f"  {Colors.DIM}No JS challenge detected{Colors.END}\n")
-            else:
-                err = result.get("error", "timeout")
-                if self.verbose:
-                    sys.stderr.write(f"  {Colors.YELLOW}JS challenge not solved: "
-                                     f"{err}{Colors.END}\n")
+                    ctype = result.get("challenge_type", "unknown")
+                    sys.stderr.write(f"  {Colors.GREEN}Challenge solved ({ctype}){Colors.END}\n")
         except ImportError:
             if self.verbose:
-                sys.stderr.write(f"  {Colors.YELLOW}JS challenge solver unavailable "
+                sys.stderr.write(f"  {Colors.YELLOW}Challenge solver unavailable "
                                  f"(pip install 'fray[browser]'){Colors.END}\n")
         except Exception as e:
             if self.verbose:
@@ -1396,6 +1417,325 @@ class WAFTester:
                         "description": r.get('description', ''),
                         "severity": 'high' if r.get('bypass_confidence', 0) >= 75 else 'medium',
                     })
+        except Exception:
+            pass
+
+        return results
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  ASYNC / PARALLEL TESTING (#170)
+    # ══════════════════════════════════════════════════════════════════════════
+
+    async def _async_request(self, session, method: str, url: str,
+                             headers: Dict = None, data: str = None) -> tuple:
+        """Send a single HTTP request via aiohttp and return (status, body, headers, elapsed_ms)."""
+        import aiohttp
+
+        kwargs: Dict = {"headers": headers or {}, "ssl": None if self.verify_ssl else False,
+                        "timeout": aiohttp.ClientTimeout(total=self.timeout),
+                        "allow_redirects": False}
+        if data:
+            kwargs["data"] = data
+
+        t0 = time.monotonic()
+        try:
+            async with session.request(method, url, **kwargs) as resp:
+                body = await resp.text(errors="replace")
+                elapsed_ms = (time.monotonic() - t0) * 1000
+                resp_headers = {k.lower(): v for k, v in resp.headers.items()}
+                return resp.status, body, resp_headers, elapsed_ms
+        except Exception:
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            return 0, "", {}, elapsed_ms
+
+    async def async_test_payload(self, session, payload: str,
+                                 method: str = "GET", param: str = "input",
+                                 content_type: str = None,
+                                 injection_context: str = "url_param") -> Dict:
+        """Async version of test_payload — tests a single payload via aiohttp.
+
+        Supports the same injection contexts as the sync version:
+        url_param, header, cookie, json_body, xml_body, path.
+        Follows redirects up to max_redirects hops.
+        """
+        import aiohttp
+
+        if injection_context == "json_body":
+            content_type = "application/json"
+            method = "POST"
+        elif injection_context == "xml_body":
+            content_type = "text/xml"
+            method = "POST"
+        if content_type:
+            method = "POST"
+
+        enc = urllib.parse.quote(payload, safe="")
+        scheme = "https" if self.use_ssl else "http"
+        port_s = "" if (self.use_ssl and self.port == 443) or (not self.use_ssl and self.port == 80) else f":{self.port}"
+        base_url = f"{scheme}://{self.host}{port_s}"
+
+        # Build request URL and headers/body based on injection context
+        ua = random.choice(_BROWSER_USER_AGENTS)
+        lang = random.choice(_BROWSER_ACCEPT_LANGS)
+        req_headers = {
+            "User-Agent": ua,
+            "Accept": _BROWSER_ACCEPT,
+            "Accept-Language": lang,
+            "Accept-Encoding": _BROWSER_ACCEPT_ENCODING,
+        }
+        req_headers.update(_SEC_FETCH_HEADERS)
+        if self._challenge_cookies:
+            req_headers["Cookie"] = "; ".join(f"{k}={v}" for k, v in self._challenge_cookies.items())
+        req_headers.update(self.custom_headers)
+
+        req_data = None
+        if injection_context == "header":
+            safe_val = payload.replace("\r", "").replace("\n", "")
+            req_headers["X-Custom-Input"] = safe_val
+            req_headers["X-Search"] = safe_val
+            qs = f"?{self.query}" if self.query else ""
+            url = f"{base_url}{self.path}{qs}"
+        elif injection_context == "cookie":
+            existing = req_headers.get("Cookie", "")
+            sep = "; " if existing else ""
+            req_headers["Cookie"] = f"{existing}{sep}{param}={enc}"
+            qs = f"?{self.query}" if self.query else ""
+            url = f"{base_url}{self.path}{qs}"
+        elif injection_context == "path":
+            url = f"{base_url}{self.path}/{enc}"
+        elif method == "GET":
+            qs = f"{self.query}&{param}={enc}" if self.query else f"{param}={enc}"
+            url = f"{base_url}{self.path}?{qs}"
+        else:
+            ct, body = self._build_post_body(payload, param, enc, content_type)
+            req_headers["Content-Type"] = ct
+            req_data = body
+            url = f"{base_url}{self.path}"
+
+        # Follow redirects
+        current_url = url
+        redirect_chain = []
+        status = 0
+        resp_body = ""
+        resp_headers = {}
+        elapsed_ms = 0
+
+        for hop in range(self.max_redirects + 1):
+            try:
+                status, full_body, resp_headers, elapsed_ms = await self._async_request(
+                    session, method if hop == 0 else "GET", current_url,
+                    headers=req_headers if hop == 0 else {
+                        "User-Agent": ua, "Accept": _BROWSER_ACCEPT,
+                    },
+                    data=req_data if hop == 0 else None)
+
+                if status in (301, 302, 303, 307, 308) and "location" in resp_headers:
+                    location = resp_headers["location"]
+                    redirect_chain.append({"url": current_url, "status": status, "location": location})
+                    if location.startswith("/"):
+                        parsed_base = urllib.parse.urlparse(current_url)
+                        current_url = f"{parsed_base.scheme}://{parsed_base.netloc}{location}"
+                    elif location.startswith("http"):
+                        current_url = location
+                    else:
+                        break
+                    continue
+                resp_body = full_body
+                break
+            except Exception as e:
+                return {
+                    "payload": payload, "status": 0, "error": str(e),
+                    "blocked": True, "bypass_confidence": 0,
+                    "fp_score": 0, "fp_reasons": [], "confidence_label": "error",
+                    "elapsed_ms": 0, "redirects": hop,
+                    "redirect_chain": redirect_chain,
+                    "timestamp": datetime.now().isoformat(),
+                }
+
+        # Block detection (reuse sync logic patterns)
+        blocked = status in (403, 406, 429, 500, 501, 503)
+
+        # WAF body signature detection (same as sync)
+        if not blocked and resp_body:
+            resp_lower = resp_body.lower()
+            _block_sigs = (
+                "attention required", "cf-error-details", "cf-challenge-platform",
+                "cf-turnstile", "just a moment", "checking your browser",
+                "access denied", "web application firewall", "request blocked",
+                "mod_security", "modsecurity", "the requested url was rejected",
+                "incident id", "captcha", "recaptcha", "hcaptcha",
+                "please verify you are human", "bot detection",
+                "suspicious activity", "security violation",
+                "request has been blocked", "your request has been denied",
+            )
+            if any(sig in resp_lower for sig in _block_sigs):
+                blocked = True
+
+        # Redirect-path block detection
+        redirect_blocked = False
+        if redirect_chain and not blocked:
+            final_path = urllib.parse.urlparse(current_url).path.lower()
+            _WAF_BLOCK_PATHS = (
+                "/block", "/blocked", "/captcha", "/challenge",
+                "/access-denied", "/error", "/forbidden",
+                "/cdn-cgi/challenge", "/waf-block", "/security-check",
+            )
+            if any(bp in final_path for bp in _WAF_BLOCK_PATHS):
+                blocked = True
+                redirect_blocked = True
+
+        # Reflection check
+        reflected = False
+        reflection_context = ""
+        if not blocked and resp_body:
+            if payload in resp_body:
+                reflected = True
+                idx = resp_body.index(payload)
+                reflection_context = resp_body[max(0, idx - 40):idx + len(payload) + 40]
+            elif urllib.parse.unquote(payload) in resp_body:
+                reflected = True
+                decoded = urllib.parse.unquote(payload)
+                idx = resp_body.index(decoded)
+                reflection_context = resp_body[max(0, idx - 40):idx + len(decoded) + 40]
+
+        # Bypass confidence
+        baseline = self._measure_baseline(param)
+        confidence = self._compute_bypass_confidence(
+            blocked, reflected, status, len(resp_body), elapsed_ms, baseline)
+        fp_info = self._compute_fp_score(
+            blocked, reflected, status, resp_body, elapsed_ms, baseline)
+
+        return {
+            "payload": payload,
+            "status": status,
+            "blocked": blocked,
+            "redirect_blocked": redirect_blocked,
+            "redirects": len(redirect_chain),
+            "redirect_chain": redirect_chain,
+            "reflected": reflected,
+            "reflection_context": reflection_context[:200],
+            "response_length": len(resp_body),
+            "elapsed_ms": round(elapsed_ms, 1),
+            "bypass_confidence": confidence,
+            "fp_score": fp_info["fp_score"],
+            "fp_reasons": fp_info["fp_reasons"],
+            "confidence_label": fp_info["confidence_label"],
+            "timestamp": datetime.now().isoformat(),
+        }
+
+    async def _async_test_batch(self, payloads: List[Dict], method: str = "GET",
+                                param: str = "input", concurrency: int = 10,
+                                quiet: bool = False,
+                                callback=None) -> List[Dict]:
+        """Run payloads concurrently with a semaphore-bounded worker pool."""
+        import asyncio
+        import aiohttp
+
+        sem = asyncio.Semaphore(concurrency)
+        results: List[Dict] = []
+
+        connector = aiohttp.TCPConnector(
+            limit=concurrency,
+            ssl=None if self.verify_ssl else False,
+            enable_cleanup_closed=True,
+        )
+        timeout = aiohttp.ClientTimeout(total=self.timeout)
+
+        async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+            async def _worker(idx: int, payload_data: Dict):
+                async with sem:
+                    payload = payload_data.get("payload", payload_data) if isinstance(payload_data, dict) else payload_data
+                    desc = payload_data.get("description", "") if isinstance(payload_data, dict) else ""
+                    category = payload_data.get("category", "unknown") if isinstance(payload_data, dict) else "unknown"
+
+                    # Rate-limit aware delay
+                    if self.delay > 0:
+                        jitter_val = random.uniform(0, self.jitter) if self.jitter > 0 else 0
+                        await asyncio.sleep(self.delay / max(1, concurrency) + jitter_val)
+
+                    result = await self.async_test_payload(session, payload, method, param)
+                    result["category"] = category
+                    result["description"] = desc
+                    if callback:
+                        callback(idx, result)
+                    return result
+
+            tasks = [_worker(i, p) for i, p in enumerate(payloads)]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Convert exceptions to error dicts
+        clean = []
+        for i, r in enumerate(results):
+            if isinstance(r, Exception):
+                clean.append({
+                    "payload": payloads[i].get("payload", "") if isinstance(payloads[i], dict) else str(payloads[i]),
+                    "status": 0, "error": str(r), "blocked": True,
+                    "bypass_confidence": 0, "elapsed_ms": 0,
+                    "timestamp": datetime.now().isoformat(),
+                })
+            else:
+                clean.append(r)
+        return clean
+
+    def test_payloads_async(self, payloads: List[Dict], method: str = "GET",
+                            param: str = "input", max_payloads: Optional[int] = None,
+                            concurrency: int = 10, quiet: bool = False,
+                            smart_sort: bool = True, waf_vendor: str = "",
+                            callback=None) -> List[Dict]:
+        """Sync wrapper for async parallel testing.
+
+        Drops into asyncio.run() — safe to call from sync code.
+        Falls back to sequential test_payloads() if aiohttp is unavailable.
+        """
+        try:
+            import aiohttp  # noqa: F401
+            import asyncio
+        except ImportError:
+            if not quiet:
+                sys.stderr.write("  \033[33maiohttp not installed — falling back to sequential\033[0m\n")
+            return self.test_payloads(payloads, method, param, max_payloads,
+                                      quiet=quiet, smart_sort=smart_sort,
+                                      waf_vendor=waf_vendor)
+
+        # Smart sort
+        if smart_sort:
+            try:
+                from fray.adaptive_cache import smart_sort_payloads
+                payloads = smart_sort_payloads(payloads, domain=self.target,
+                                               waf_vendor=waf_vendor)
+            except Exception:
+                pass
+
+        total = min(len(payloads), max_payloads) if max_payloads else len(payloads)
+        subset = payloads[:total]
+
+        # Proactive rate limit detection
+        if not quiet and total >= 10:
+            self.probe_rate_limit()
+
+        if not quiet:
+            sys.stderr.write(f"  \033[36m⚡ Async mode: {concurrency} concurrent workers, "
+                             f"{total} payloads\033[0m\n")
+
+        self.start_time = datetime.now()
+
+        # Run async batch
+        results = asyncio.run(self._async_test_batch(
+            subset, method, param, concurrency, quiet, callback))
+
+        # Response diffing
+        try:
+            from fray.differ import ResponseDiffer
+            _confirmed, _noise = ResponseDiffer().filter_noise(results, fp_threshold=60)
+            for r in _noise:
+                r["filtered"] = "noise"
+        except Exception:
+            pass
+
+        # Persist to adaptive cache
+        try:
+            from fray.adaptive_cache import save_scan_results
+            save_scan_results(results, domain=self.target, waf_vendor=waf_vendor)
         except Exception:
             pass
 

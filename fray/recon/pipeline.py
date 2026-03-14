@@ -450,6 +450,11 @@ def run_recon(url: str, timeout: int = 8,
         t_subs    = asyncio.create_task(_run(
             lambda: check_subdomains_crt(host, timeout=timeout),
             "Subdomains (CT logs)"))
+        # CT monitoring (#128) — parallel with subdomain enum
+        from fray.recon.dns import check_ct_monitor
+        t_ct_monitor = asyncio.create_task(_run(
+            lambda: check_ct_monitor(host, days=30, timeout=timeout),
+            "CT monitoring"))
         t_favicon = asyncio.create_task(_run(
             lambda: check_favicon(host, port=port, use_ssl=use_ssl, timeout=timeout),
             "Favicon fingerprint"))
