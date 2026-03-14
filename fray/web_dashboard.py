@@ -439,11 +439,11 @@ _SPA_HTML = r"""<!DOCTYPE html>
   --bg2: #111114;
   --bg3: #18181c;
   --bg-elevated: #1c1c22;
-  --border: rgba(255,255,255,.06);
-  --border-strong: rgba(255,255,255,.10);
+  --border: rgba(255,255,255,.08);
+  --border-strong: rgba(255,255,255,.14);
   --text: #ededf0;
-  --text2: #71717a;
-  --text3: #52525b;
+  --text2: #a1a1aa;
+  --text3: #7e7e8c;
   --brand: #7c3aed;
   --brand2: #a78bfa;
   --brand-glow: rgba(124,58,237,.12);
@@ -474,27 +474,27 @@ a:hover { color:var(--brand2); }
 
 /* Sidebar */
 .logo { padding:0 20px 28px; font-size:17px; font-weight:700; color:var(--brand2); display:flex; align-items:baseline; gap:8px; letter-spacing:-.02em; }
-.logo span { color:var(--text2); font-size:13px; font-weight:400; letter-spacing:-.01em; }
-.nav-desc { font-size:10px; color:var(--text3); padding:0 16px 2px; margin-top:-4px; line-height:1.35; }
-.nav-section { padding:16px 20px 6px; font-size:10px; text-transform:uppercase; letter-spacing:.1em; color:var(--text3); font-weight:500; }
-.nav-item { display:flex; align-items:center; gap:10px; padding:8px 16px; margin:1px 8px; border-radius:8px; cursor:pointer; color:var(--text2); transition:all .15s ease; font-size:13px; font-weight:400; }
-.nav-item:hover { background:rgba(255,255,255,.04); color:var(--text); }
-.nav-item.active { background:var(--brand-glow); color:var(--brand2); font-weight:500; box-shadow:inset 0 0 0 1px rgba(124,58,237,.15); }
+.logo span { color:var(--text); font-size:13px; font-weight:400; letter-spacing:-.01em; opacity:.6; }
+.nav-desc { font-size:10px; color:var(--text2); padding:0 16px 2px; margin-top:-4px; line-height:1.35; }
+.nav-section { padding:16px 20px 6px; font-size:10px; text-transform:uppercase; letter-spacing:.1em; color:var(--text2); font-weight:500; }
+.nav-item { display:flex; align-items:center; gap:10px; padding:8px 16px; margin:1px 8px; border-radius:8px; cursor:pointer; color:var(--text); transition:all .15s ease; font-size:13px; font-weight:400; opacity:.7; }
+.nav-item:hover { background:rgba(255,255,255,.06); color:var(--text); opacity:1; }
+.nav-item.active { background:var(--brand-glow); color:var(--brand2); font-weight:500; box-shadow:inset 0 0 0 1px rgba(124,58,237,.15); opacity:1; }
 .sidebar-footer { margin-top:auto; padding:16px 20px; border-top:1px solid var(--border); }
-.sidebar-footer-text { font-size:10px; color:var(--text3); letter-spacing:.02em; }
+.sidebar-footer-text { font-size:10px; color:var(--text2); letter-spacing:.02em; }
 
 /* Cards */
 .cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:14px; margin-bottom:28px; }
 .card { background:linear-gradient(135deg, var(--bg2) 0%, var(--bg3) 100%); border:1px solid var(--border); border-radius:var(--radius); padding:18px 20px; box-shadow:var(--shadow-sm); transition:border-color .2s, box-shadow .2s; }
 .card:hover { border-color:var(--border-strong); box-shadow:var(--shadow-md); }
-.card-label { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--text3); margin-bottom:6px; font-weight:500; }
+.card-label { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--text2); margin-bottom:6px; font-weight:500; }
 .card-value { font-size:26px; font-weight:700; letter-spacing:-.03em; line-height:1.2; }
-.card-sub { font-size:11px; color:var(--text3); margin-top:4px; }
+.card-sub { font-size:11px; color:var(--text2); margin-top:4px; }
 
 /* Table */
 .table-wrap { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; margin-bottom:28px; box-shadow:var(--shadow-sm); }
 table { width:100%; border-collapse:collapse; }
-th { text-align:left; padding:11px 16px; font-size:10.5px; text-transform:uppercase; letter-spacing:.08em; color:var(--text3); background:var(--bg3); border-bottom:1px solid var(--border); font-weight:600; }
+th { text-align:left; padding:11px 16px; font-size:10.5px; text-transform:uppercase; letter-spacing:.08em; color:var(--text2); background:var(--bg3); border-bottom:1px solid var(--border); font-weight:600; }
 td { padding:10px 16px; border-bottom:1px solid var(--border); font-size:13px; color:var(--text); }
 tr:last-child td { border-bottom:none; }
 tr:hover td { background:rgba(255,255,255,.015); }
@@ -513,7 +513,7 @@ tr:hover td { background:rgba(255,255,255,.015); }
 
 /* Section headers */
 .section-title { font-size:17px; font-weight:600; margin-bottom:18px; display:flex; align-items:center; gap:8px; letter-spacing:-.01em; }
-.section-title .count { font-size:12px; color:var(--text3); font-weight:400; }
+.section-title .count { font-size:12px; color:var(--text2); font-weight:400; }
 
 /* Detail view */
 .detail-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:28px; }
@@ -533,11 +533,11 @@ tr:hover td { background:rgba(255,255,255,.015); }
 .tag-lang { background:rgba(244,63,94,.08); color:#fda4af; border-color:rgba(244,63,94,.15); }
 
 /* Breadcrumb */
-.breadcrumb { font-size:12px; color:var(--text3); margin-bottom:18px; }
+.breadcrumb { font-size:12px; color:var(--text2); margin-bottom:18px; }
 .breadcrumb a { color:var(--accent); }
 
 /* Loading */
-.loading { text-align:center; padding:48px; color:var(--text3); font-size:13px; }
+.loading { text-align:center; padding:48px; color:var(--text2); font-size:13px; }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width:5px; }
@@ -1151,18 +1151,44 @@ async function renderIntel() {
     <div class="card"><div class="card-label">Sources</div><div class="card-value" style="font-size:14px">${fetchEntries.length ? fetchEntries[0][0].split(',').length : 0}</div><div class="card-sub">NVD, CISA, GitHub, ExploitDB, RSS, Nuclei</div></div>
   </div>`;
 
-  // CVE list
+  // CVE list — grouped by year
   if (seenCves.length) {
-    html += `<div class="section-title">Tracked CVEs <span class="count">(${seenCves.length})</span></div>`;
-    html += `<div class="detail-section"><div style="display:flex;flex-wrap:wrap;gap:6px">`;
-    for (const cve of seenCves.slice(0, 80)) {
-      const year = cve.split('-')[1] || '';
-      const isRecent = parseInt(year) >= 2025;
-      const cls = isRecent ? 'tag tag-lang' : 'tag';
-      html += `<span class="${cls}" style="font-family:var(--mono);font-size:11px">${cve}</span>`;
+    // Classify
+    const byYear = {};
+    let ghsaCount = 0;
+    for (const cve of seenCves) {
+      if (cve.startsWith('GHSA')) { ghsaCount++; continue; }
+      const year = cve.split('-')[1] || 'Unknown';
+      if (!byYear[year]) byYear[year] = [];
+      byYear[year].push(cve);
     }
-    if (seenCves.length > 80) html += `<span class="tag">+${seenCves.length - 80} more</span>`;
-    html += `</div></div>`;
+    const ghsas = seenCves.filter(c => c.startsWith('GHSA'));
+    const sortedYears = Object.keys(byYear).sort((a,b) => parseInt(b) - parseInt(a));
+
+    html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div class="section-title" style="margin-bottom:0">Tracked CVEs <span class="count">(${seenCves.length})</span></div>
+      <button class="btn" onclick="navigator.clipboard.writeText('${seenCves.join('\\n')}');showToast('${seenCves.length} CVE IDs copied')">&#128203; Copy All</button>
+    </div>`;
+
+    html += `<div class="table-wrap"><table>
+      <thead><tr><th>Year</th><th>Count</th><th>CVE IDs</th></tr></thead><tbody>`;
+    for (const year of sortedYears) {
+      const cves = byYear[year];
+      const yearColor = parseInt(year) >= 2026 ? 'var(--critical)' : parseInt(year) >= 2025 ? 'var(--high)' : 'var(--text2)';
+      html += `<tr>
+        <td style="font-weight:600;color:${yearColor};white-space:nowrap">${year}</td>
+        <td style="font-weight:600">${cves.length}</td>
+        <td style="font-family:var(--mono);font-size:11.5px;line-height:1.8">${cves.map(c => `<span class="tag" style="font-family:var(--mono)">${c}</span>`).join(' ')}</td>
+      </tr>`;
+    }
+    if (ghsas.length) {
+      html += `<tr>
+        <td style="font-weight:600;color:var(--accent);white-space:nowrap">GitHub</td>
+        <td style="font-weight:600">${ghsas.length}</td>
+        <td style="font-family:var(--mono);font-size:11.5px;line-height:1.8">${ghsas.map(c => `<span class="tag tag-cms" style="font-family:var(--mono)">${c}</span>`).join(' ')}</td>
+      </tr>`;
+    }
+    html += `</tbody></table></div>`;
   }
 
   // Pipeline stats
@@ -1270,18 +1296,23 @@ async function renderExecutive() {
 
   html += `<div class="detail-grid">`;
 
-  // Critical Findings
+  // Critical Findings — proper table
   const cf = s.critical_findings || [];
   if (cf.length) {
-    html += `<div class="detail-section"><h3>Critical & High Findings (${cf.length})</h3>`;
+    html += `<div class="section-title">Critical &amp; High Findings <span class="count">(${cf.length})</span></div>`;
+    html += `<div class="table-wrap"><table>
+      <thead><tr><th>Severity</th><th>Finding</th><th>Category</th><th>Domain</th></tr></thead><tbody>`;
     for (const f of cf.slice(0, 20)) {
       const sev = (f.severity||'info').toLowerCase();
-      html += `<div class="kv">
-        <span class="kv-key">${riskBadge(sev)} ${(f.finding||f.title||'').slice(0,70)}</span>
-        <span class="kv-val"><a href="#" onclick="event.preventDefault();navigate('detail','${f.domain}')" style="font-size:11px">${f.domain}</a></span>
-      </div>`;
+      const catCls = f.category === 'infra' ? 'tag-infra' : f.category === 'config' ? 'tag-cdn' : f.category === 'app' ? 'tag-frontend' : f.category === 'data' ? 'tag-lang' : '';
+      html += `<tr>
+        <td>${riskBadge(sev)}</td>
+        <td style="font-size:12.5px;max-width:400px">${(f.finding||f.title||'')}</td>
+        <td><span class="tag ${catCls}">${f.category||'other'}</span></td>
+        <td><a href="#" onclick="event.preventDefault();navigate('detail','${f.domain}')">${f.domain}</a></td>
+      </tr>`;
     }
-    html += `</div>`;
+    html += `</tbody></table></div>`;
   }
 
   // Finding Categories
@@ -1337,22 +1368,25 @@ async function renderExecutive() {
     html += `</tbody></table></div>`;
   }
 
-  // Remediation Plan
+  // Remediation Plan — with detail steps
   const rem = s.top_remediation || [];
   if (rem.length) {
     html += `<div class="section-title">Remediation Plan <span class="count">(${rem.length} actions)</span></div>`;
-    html += `<div class="table-wrap"><table>
-      <thead><tr><th>Priority</th><th>Action</th><th>Why</th><th>Timeline</th><th>Affected</th></tr></thead><tbody>`;
     for (const r of rem) {
-      html += `<tr>
-        <td>${riskBadge(r.severity)}</td>
-        <td style="font-weight:500">${r.action}</td>
-        <td style="font-size:12px;color:var(--text2)">${(r.why||'').slice(0,80)}</td>
-        <td><span class="tag">${r.timeline||'TBD'}</span></td>
-        <td style="font-size:11px">${r.count} domain${r.count>1?'s':''}</td>
-      </tr>`;
+      const tlColor = r.timeline === 'Immediate' ? 'var(--critical)' : r.timeline === 'Short-term' ? 'var(--high)' : 'var(--medium)';
+      const domainList = (r.domains||[]).slice(0, 5);
+      html += `<div style="background:linear-gradient(135deg, var(--bg2) 0%, var(--bg3) 100%);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;margin-bottom:12px;box-shadow:var(--shadow-sm)">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          ${riskBadge(r.severity)}
+          <span style="font-weight:600;font-size:14px">${r.action}</span>
+          <span class="tag" style="color:${tlColor};border-color:${tlColor}">${r.timeline||'TBD'}</span>
+          <span style="font-size:12px;color:var(--text2);margin-left:auto">${r.count} domain${r.count>1?'s':''}</span>
+        </div>
+        <div style="font-size:12.5px;color:var(--text2);margin-bottom:8px"><strong style="color:var(--text)">Why:</strong> ${r.why||''}</div>
+        <div style="font-size:12.5px;color:var(--text);margin-bottom:8px"><strong>How:</strong> ${r.how||'Consult vendor documentation for implementation details.'}</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap">${domainList.map(d => `<a href="#" onclick="event.preventDefault();navigate('detail','${d}')" class="tag tag-infra" style="cursor:pointer">${d}</a>`).join('')}${(r.domains||[]).length > 5 ? `<span class="tag">+${r.domains.length - 5} more</span>` : ''}</div>
+      </div>`;
     }
-    html += `</tbody></table></div>`;
   }
 
   $('#content').innerHTML = html;
@@ -1402,7 +1436,7 @@ function updateToolbar() {
   }[_currentPage] || 'Dashboard';
 
   tb.innerHTML = `
-    <div style="font-size:11px;color:var(--text2)">&#9876; Fray / ${pageTitle}</div>
+    <div style="font-size:12px;color:var(--text)">&#9876; Fray <span style="color:var(--text2)">/</span> ${pageTitle}</div>
     <div class="toolbar-actions">
       <button class="btn" onclick="copyShareLink()" title="Copy shareable link">
         &#128279; Share Link
