@@ -287,6 +287,8 @@ def generate_bash() -> str:
     ]
 
     for cmd in sorted(_COMMON_FLAGS.keys()):
+        if cmd in _NAMESPACE_SUBS:
+            continue  # handled below with subcommand-aware logic
         flags = " ".join(_COMMON_FLAGS[cmd] + _GLOBAL_FLAGS)
         lines.append(f'        {cmd})')
         lines.append(f'            COMPREPLY=($(compgen -W "{flags}" -- "$cur"))')
@@ -352,6 +354,8 @@ def generate_zsh() -> str:
     ]
 
     for cmd in sorted(_COMMON_FLAGS.keys()):
+        if cmd in _NAMESPACE_SUBS:
+            continue  # handled below with subcommand-aware logic
         flags = _COMMON_FLAGS[cmd]
         lines.append(f'                {cmd})')
         lines.append('                    _arguments \\')
@@ -360,6 +364,22 @@ def generate_zsh() -> str:
             lines.append(f"                        '{flag}'{sep}")
         if cmd in _TARGET_COMMANDS:
             lines.append("                        ':target:_urls'")
+        lines.append('                    ;;')
+
+    # Namespace subcommand completions (fray report <tab>, fray intel <tab>, etc.)
+    for ns, subs in sorted(_NAMESPACE_SUBS.items()):
+        lines.append(f'                {ns})')
+        lines.append('                    if (( CURRENT == 2 )); then')
+        subs_str = " ".join(f"'{s}'" for s in subs)
+        lines.append(f'                        _values "subcommand" {subs_str}')
+        lines.append('                    else')
+        ns_flags = _COMMON_FLAGS.get(ns, [])
+        if ns_flags:
+            lines.append('                        _arguments \\')
+            for i, flag in enumerate(ns_flags):
+                sep = " \\" if i < len(ns_flags) - 1 else ""
+                lines.append(f"                            '{flag}'{sep}")
+        lines.append('                    fi')
         lines.append('                    ;;')
 
     lines += [

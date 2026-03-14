@@ -1831,6 +1831,18 @@ def cmd_scan(args):
     custom_headers = build_auth_headers(args)
     json_mode = getattr(args, 'json', False)
 
+    # ── Educational header for standalone scan ──
+    if not json_mode and not getattr(args, 'quiet', False):
+        _cat = getattr(args, 'category', None) or 'xss'
+        sys.stderr.write(f"\n  \033[1m🔎 Scan: auto crawl → discover → inject ({_cat})\033[0m\n")
+        sys.stderr.write(f"  \033[2mCrawling pages, mining parameters, then testing each with payloads...\033[0m\n")
+        if getattr(args, 'browser', False):
+            sys.stderr.write(f"  \033[2m🌐 Browser mode: rendering JS to find dynamic endpoints\033[0m\n")
+        if getattr(args, 'stealth', False):
+            sys.stderr.write(f"  \033[2m🥷 Stealth mode: randomized timing, anti-detection enabled\033[0m\n")
+        sys.stderr.write("\n")
+        sys.stderr.flush()
+
     # Fray Crawler pre-crawl: discover forms, JS API routes, GraphQL before scanner
     _crawl_endpoints = []
     try:
@@ -3259,6 +3271,7 @@ def cmd_config(args):
                              get_targets, get_profile, load_config, find_config)
 
     action = getattr(args, 'config_action', None)
+    json_mode = getattr(args, 'json', False)
 
     if action == "init":
         from pathlib import Path
@@ -3266,24 +3279,44 @@ def cmd_config(args):
         force = getattr(args, 'force', False)
         try:
             created = init_config(path=path, force=force)
-            print(f"✔ Created {created}")
-            print(f"  Edit it to set your defaults, then run: fray config validate")
+            if json_mode:
+                print(json.dumps({"action": "init", "path": str(created), "status": "created"}))
+            else:
+                print(f"✔ Created {created}")
+                print(f"  Edit it to set your defaults, then run: fray config validate")
         except FileExistsError as e:
-            print(f"✖ {e}")
+            if json_mode:
+                print(json.dumps({"action": "init", "status": "error", "error": str(e)}))
+            else:
+                print(f"✖ {e}")
             sys.exit(1)
 
     elif action == "show":
-        print(show_config())
+        if json_mode:
+            config = load_config()
+            config_path = find_config()
+            print(json.dumps({"action": "show", "path": str(config_path) if config_path else None,
+                              "config": config or {}}, indent=2))
+        else:
+            print(show_config())
 
     elif action == "validate":
         config = load_config()
         if not config:
             config_path = find_config()
             if not config_path:
-                print("✖ No .fray.toml found. Run: fray config init")
+                if json_mode:
+                    print(json.dumps({"action": "validate", "valid": False,
+                                      "error": "No .fray.toml found"}))
+                else:
+                    print("✖ No .fray.toml found. Run: fray config init")
                 sys.exit(1)
         warnings = validate_config(config)
-        if warnings:
+        if json_mode:
+            config_path = find_config()
+            print(json.dumps({"action": "validate", "path": str(config_path) if config_path else None,
+                              "valid": len(warnings) == 0, "warnings": warnings}))
+        elif warnings:
             print(f"⚠ {len(warnings)} warning(s):")
             for w in warnings:
                 print(f"  • {w}")
@@ -3295,7 +3328,9 @@ def cmd_config(args):
     elif action == "targets":
         config = load_config()
         targets = get_targets(config)
-        if targets:
+        if json_mode:
+            print(json.dumps({"action": "targets", "targets": targets or []}))
+        elif targets:
             print(f"Targets ({len(targets)}):")
             for t in targets:
                 print(f"  • {t}")
@@ -3305,7 +3340,9 @@ def cmd_config(args):
     elif action == "profiles":
         config = load_config()
         profiles = config.get("profiles", {})
-        if profiles and isinstance(profiles, dict):
+        if json_mode:
+            print(json.dumps({"action": "profiles", "profiles": profiles if isinstance(profiles, dict) else {}}))
+        elif profiles and isinstance(profiles, dict):
             print(f"Profiles ({len(profiles)}):")
             for name, settings in profiles.items():
                 keys = ", ".join(f"{k}={v}" for k, v in settings.items())
@@ -3315,10 +3352,13 @@ def cmd_config(args):
             print("No profiles defined. Add to .fray.toml:\n  [profiles.stealth]\n  stealth = true\n  delay = 1.0")
 
     else:
-        # No subcommand — show help
+        # No subcommand — show overview
         config = load_config()
         config_path = find_config()
-        if config_path:
+        if json_mode:
+            print(json.dumps({"action": "overview", "path": str(config_path) if config_path else None,
+                              "config": config or {}}, indent=2))
+        elif config_path:
             print(f"Config: {config_path}")
             print(show_config(config))
         else:
@@ -6366,19 +6406,34 @@ def cmd_cache(args):
     )
 
     sub = getattr(args, "cache_cmd", None) or "show"
+    json_mode = getattr(args, "json", False)
 
     if sub == "show":
         domain = getattr(args, "domain", "") or ""
-        print()
-        print("  Fray Adaptive Cache")
-        print("  -------------------")
-        print_cache_summary(domain)
-        print()
+        if json_mode:
+            cache = load_cache()
+            if domain:
+                stats = get_domain_stats(domain)
+                print(json.dumps({"action": "show", "domain": domain,
+                                  "stats": stats or {}}, indent=2))
+            else:
+                domains = list((cache or {}).keys())
+                print(json.dumps({"action": "show", "domains": domains,
+                                  "count": len(domains)}, indent=2))
+        else:
+            print()
+            print("  Fray Adaptive Cache")
+            print("  -------------------")
+            print_cache_summary(domain)
+            print()
 
     elif sub == "clear":
         domain = getattr(args, "domain", "") or ""
         removed = clear_domain_cache(domain)
-        if removed:
+        if json_mode:
+            print(json.dumps({"action": "clear", "domain": domain or "*",
+                              "removed": removed}))
+        elif removed:
             target = domain if domain else "all domains"
             print(f"  Cache cleared for {target} ({removed} entr{'y' if removed == 1 else 'ies'} removed).")
         else:
@@ -6389,37 +6444,54 @@ def cmd_cache(args):
         if not domain:
             cache = load_cache()
             if not cache:
-                print("  No cache data yet.")
+                if json_mode:
+                    print(json.dumps({"action": "stats", "data": {}}))
+                else:
+                    print("  No cache data yet.")
                 return
-            import json as _json
-            print(_json.dumps(cache, indent=2))
+            print(json.dumps(cache, indent=2))
         else:
             stats = get_domain_stats(domain)
             if not stats:
-                print(f"  No cache data for {domain}")
+                if json_mode:
+                    print(json.dumps({"action": "stats", "domain": domain, "data": {}}))
+                else:
+                    print(f"  No cache data for {domain}")
             else:
-                import json as _json
-                print(_json.dumps(stats, indent=2))
+                print(json.dumps(stats, indent=2))
 
     elif sub == "export":
         output = getattr(args, "output", "") or "fray-cache-export.json"
         domain = getattr(args, "domain", "") or ""
         result = export_cache(output, domain=domain)
-        print(f"  Exported {result['domains']} domain(s) to {result['path']}")
+        if json_mode:
+            print(json.dumps({"action": "export", **result}))
+        else:
+            print(f"  Exported {result['domains']} domain(s) to {result['path']}")
 
     elif sub == "import":
         input_path = getattr(args, "file", "")
         if not input_path:
-            print("  Error: specify a file to import.  Usage: fray cache import <file>")
+            if json_mode:
+                print(json.dumps({"action": "import", "status": "error",
+                                  "error": "No file specified"}))
+            else:
+                print("  Error: specify a file to import.  Usage: fray cache import <file>")
             return
         merge = not getattr(args, "replace", False)
         result = import_cache(input_path, merge=merge)
-        mode = "merged" if result["merged"] else "replaced"
-        print(f"  Imported {result['imported_domains']} domain(s) ({mode}). Total: {result['total_domains']} domain(s).")
+        if json_mode:
+            print(json.dumps({"action": "import", **result}))
+        else:
+            mode = "merged" if result["merged"] else "replaced"
+            print(f"  Imported {result['imported_domains']} domain(s) ({mode}). Total: {result['total_domains']} domain(s).")
 
     else:
-        print(f"  Unknown cache subcommand: {sub}")
-        print("  Usage: fray cache [show|clear|stats|export|import] [domain]")
+        if json_mode:
+            print(json.dumps({"action": "error", "error": f"Unknown subcommand: {sub}"}))
+        else:
+            print(f"  Unknown cache subcommand: {sub}")
+            print("  Usage: fray cache [show|clear|stats|export|import] [domain]")
 
 
 def cmd_init_config(args):
@@ -7062,6 +7134,7 @@ def main():
     p_config_validate = p_config_sub.add_parser("validate", help="Validate .fray.toml")
     p_config_targets = p_config_sub.add_parser("targets", help="List targets from config")
     p_config_profiles = p_config_sub.add_parser("profiles", help="List available profiles")
+    p_config.add_argument("--json", action="store_true", help="JSON output")
     p_config.set_defaults(func=cmd_config)
 
     # diff — compare two recon reports
@@ -7699,6 +7772,7 @@ def main():
     p_cache_import.add_argument("--replace", action="store_true",
                                  help="Replace existing cache instead of merging")
 
+    p_cache.add_argument("--json", action="store_true", help="JSON output")
     p_cache.set_defaults(func=cmd_cache, cache_cmd="show")
 
     # completions
