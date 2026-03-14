@@ -10,7 +10,7 @@ Usage:
     fray test <url> --blind      Blind injection detection (time-based + OOB DNS)
     fray test <url> --auth-profile ~/.fray/auth/mysite.json   Authenticated scan
     fray test <url> --smart      Adaptive payload evolution (fewer requests, more impact)
-    fray test <url> --webhook <url>  Notify on completion
+    fray test <url> --notify <url>   Notify on completion
     fray report                 Generate HTML report
     fray payloads               List available payload categories
     fray stats                  Show payload database statistics
@@ -2109,7 +2109,38 @@ def cmd_stats(args):
 
 def cmd_version(args):
     """Show version"""
-    print(f"Fray v{__version__}")
+    json_mode = getattr(args, 'json', False)
+    check = getattr(args, 'check', False)
+
+    result = {"version": __version__, "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"}
+
+    if check:
+        try:
+            import urllib.request
+            url = "https://pypi.org/pypi/fray/json"
+            req = urllib.request.Request(url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = __import__('json').loads(resp.read())
+                latest = data.get("info", {}).get("version", "unknown")
+                result["latest"] = latest
+                result["up_to_date"] = (__version__ == latest)
+        except Exception:
+            result["latest"] = "unknown"
+            result["up_to_date"] = None
+
+    if json_mode:
+        print(json.dumps(result))
+    else:
+        print(f"Fray v{__version__}")
+        if check:
+            latest = result.get("latest", "unknown")
+            if result.get("up_to_date"):
+                print(f"  \033[32m✔ Up to date\033[0m")
+            elif latest != "unknown":
+                print(f"  \033[33m⚠ Update available: v{latest}\033[0m")
+                print(f"  pip install --upgrade fray")
+            else:
+                print(f"  \033[2mCould not check PyPI\033[0m")
 
 
 def cmd_completions(args):
@@ -3074,6 +3105,13 @@ def cmd_smuggle(args):
         print("Error: target URL required. Usage: fray smuggle <url>")
         sys.exit(1)
 
+    # ── Educational header ──
+    if not getattr(args, 'json', False):
+        sys.stderr.write(f"\n  \033[1m🔀 Smuggle: HTTP request smuggling detection\033[0m\n")
+        sys.stderr.write(f"  \033[2mTesting CL.TE, TE.CL, and TE.TE desync variants...\033[0m\n")
+        sys.stderr.write(f"  \033[2mThis exploits discrepancies between front-end and back-end HTTP parsers.\033[0m\n\n")
+        sys.stderr.flush()
+
     report = run_smuggling_detection(
         target=args.target,
         timeout=args.timeout,
@@ -3432,6 +3470,20 @@ def cmd_bypass(args):
 
     # Build tester
     custom_headers = build_auth_headers(args)
+    json_mode = getattr(args, 'json', False)
+
+    # ── Educational header ──
+    if not json_mode and not getattr(args, 'quiet', False):
+        _waf = getattr(args, 'waf', None)
+        _waf_label = f" against {_waf}" if _waf else ""
+        _cat = getattr(args, 'category', 'xss') or 'xss'
+        sys.stderr.write(f"\n  \033[1m🛡  Bypass: evasion-optimized WAF testing ({_cat}){_waf_label}\033[0m\n")
+        sys.stderr.write(f"  \033[2mScoring payloads on evasion success rate, building a bypass scorecard...\033[0m\n")
+        if getattr(args, 'stealth', False):
+            sys.stderr.write(f"  \033[2m🥷 Stealth mode: anti-detection timing + TLS rotation\033[0m\n")
+        sys.stderr.write("\n")
+        sys.stderr.flush()
+
     tester = WAFTester(
         target=args.target,
         timeout=getattr(args, 'timeout', 8),
@@ -3657,6 +3709,20 @@ def cmd_agent(args):
             sys.exit(1)
 
     custom_headers = build_auth_headers(args)
+    json_mode = getattr(args, 'json', False)
+
+    # ── Educational header ──
+    if not json_mode and not getattr(args, 'quiet', False):
+        _cat = getattr(args, 'category', 'xss') or 'xss'
+        _rounds = getattr(args, 'rounds', 5)
+        sys.stderr.write(f"\n  \033[1m🤖 Agent: self-improving payload loop ({_cat}, {_rounds} rounds)\033[0m\n")
+        sys.stderr.write(f"  \033[2mProbe WAF → test payloads → analyze blocks → mutate → retry...\033[0m\n")
+        sys.stderr.write(f"  \033[2mLearns from each round: blocked payloads are never re-sent.\033[0m\n")
+        if getattr(args, 'ai', False):
+            sys.stderr.write(f"  \033[2m🧠 AI mode: LLM-guided mutation for novel bypass generation\033[0m\n")
+        sys.stderr.write("\n")
+        sys.stderr.flush()
+
     tester = WAFTester(
         target=args.target,
         timeout=getattr(args, 'timeout', 8),
@@ -5920,7 +5986,7 @@ def cmd_monitor(args):
     if not target:
         print("  Error: No target specified.")
         print("  Usage: fray monitor example.com")
-        print("         fray monitor example.com --interval 12h --webhook https://hooks.slack.com/...")
+        print("         fray monitor example.com --interval 12h --notify https://hooks.slack.com/...")
         sys.exit(1)
 
     if getattr(args, 'list', False):
@@ -6945,7 +7011,7 @@ def main():
     p_agent.add_argument("--jitter", type=float, default=0.0, help="Random delay variance")
     p_agent.add_argument("--scope", default=None, help="Scope file")
     p_agent.add_argument("--notify", default=None, metavar="WEBHOOK_URL",
-                         help="Send webhook notification on completion")
+                         help="Notify on completion (Slack/Discord/Teams URL)")
     p_agent.set_defaults(func=cmd_agent)
 
     # feed (threat intelligence)
@@ -6981,7 +7047,7 @@ def main():
     p_feed.add_argument("--json", action="store_true", help="Output as JSON")
     p_feed.add_argument("-o", "--output", default=None, help="Save results to file")
     p_feed.add_argument("--notify", default=None, metavar="WEBHOOK_URL",
-                        help="Send webhook notification on completion")
+                        help="Notify on completion (Slack/Discord/Teams URL)")
     p_feed.set_defaults(func=cmd_feed)
 
     # update (pull latest payload DB)
@@ -7366,6 +7432,8 @@ def main():
 
     # version
     p_version = subparsers.add_parser("version", help=argparse.SUPPRESS)
+    p_version.add_argument("--json", action="store_true", help="Output as JSON")
+    p_version.add_argument("--check", action="store_true", help="Check for newer version on PyPI")
     p_version.set_defaults(func=cmd_version)
 
     # doctor
