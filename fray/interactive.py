@@ -1104,13 +1104,9 @@ class GuidedPipeline:
             if not self.quiet:
                 report_abs = os.path.abspath(self.report_path)
                 out.write(f"  {S.success}\u2714{S.reset} {S.white}HTML report:{S.reset} {S.target}{self.report_path}{S.reset}\n")
-                # Auto-open in default browser
-                try:
-                    import webbrowser
-                    webbrowser.open(f"file://{report_abs}")
-                    out.write(f"  {S.dim}Opened in browser{S.reset}\n")
-                except Exception:
-                    out.write(f"  {S.dim}Open: file://{report_abs}{S.reset}\n")
+                out.write(f"  {S.success}\u2714{S.reset} {S.white}Dashboard updated{S.reset} {S.dim}— run{S.reset} {S.target}fray dashboard{S.reset} {S.dim}to view live{S.reset}\n")
+                out.write(f"\n  {S.dim}Open report:    open {self.report_path}{S.reset}\n")
+                out.write(f"  {S.dim}Open dashboard: fray dashboard{S.reset}\n")
         except Exception as e:
             if not self.quiet:
                 out.write(f"  {S.warning}\u26a0{S.reset} Report generation failed: {e}\n")

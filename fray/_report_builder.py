@@ -1683,6 +1683,16 @@ def build(rd: Dict[str, Any]) -> str:
   <table><tr><th>#</th><th>Action</th><th>Severity</th><th>Why</th><th>How</th><th>Timeline</th></tr>{rr}</table>
 </div>''')
 
+    # Dashboard link
+    parts.append(f'''
+<div style="background:linear-gradient(135deg,#1e1b4b 0%,#312e81 100%);border:1px solid #4338ca;border-radius:10px;padding:16px 24px;margin:24px auto;max-width:700px;display:flex;align-items:center;justify-content:space-between;gap:16px">
+  <div>
+    <div style="font-size:14px;font-weight:600;color:#e0e7ff">&#9876; Fray Live Dashboard</div>
+    <div style="font-size:12px;color:#a5b4fc;margin-top:4px">View live data, re-scan findings, track changes over time</div>
+  </div>
+  <div style="font-size:12px;color:#c7d2fe;font-family:monospace;background:rgba(0,0,0,.2);padding:8px 14px;border-radius:6px;white-space:nowrap">fray dashboard</div>
+</div>''')
+
     # Footer
     parts.append(f'''
 <div class="foot">

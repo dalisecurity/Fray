@@ -16,8 +16,11 @@ import json
 import os
 import re
 import socketserver
+import subprocess
+import sys
 import threading
 import time
+import uuid
 import webbrowser
 from datetime import datetime
 from pathlib import Path
@@ -26,6 +29,7 @@ from urllib.parse import parse_qs, urlparse
 
 FRAY_DIR = Path.home() / ".fray"
 RECON_DIR = FRAY_DIR / "recon"
+_DASHBOARD_PORT = 8337  # updated by start_dashboard()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -80,6 +84,7 @@ def list_domains() -> List[Dict]:
         vectors = _as.get("attack_vectors", _as.get("vectors", []))
         findings = _as.get("findings", [])
 
+        grade = risk_grade(risk_score)
         domains[domain] = {
             "domain": domain,
             "target": data.get("target", ""),
@@ -87,12 +92,14 @@ def list_domains() -> List[Dict]:
             "scan_count": scan_count,
             "risk_score": risk_score,
             "risk_level": risk_level,
+            "grade": grade,
             "subdomains": sub_count + sub_active_count,
             "tls_version": tls_version,
             "header_score": header_score,
             "technologies": techs[:8],
             "vectors": len(vectors),
             "findings": len(findings),
+            "waf": (data.get("attack_surface", {}) or {}).get("waf_vendor", "") or "",
         }
 
     # Sort by risk score desc
@@ -107,25 +114,236 @@ def get_domain_detail(domain: str) -> Optional[Dict]:
     return None
 
 
+def risk_grade(score: int) -> str:
+    """Convert risk score 0-100 to letter grade A-F (lower risk = better grade)."""
+    if score <= 10: return "A"
+    if score <= 25: return "B"
+    if score <= 45: return "C"
+    if score <= 65: return "D"
+    return "F"
+
+
+def _extract_scan_summary(data: Dict) -> Dict:
+    """Extract a comparable summary from a recon scan result."""
+    attack = data.get("attack_surface", {}) or {}
+    findings = attack.get("findings", [])
+    vectors = attack.get("attack_vectors", attack.get("vectors", []))
+    waf = attack.get("waf_vendor", "") or ""
+    subs = data.get("subdomains", {}) or {}
+    sub_count = len(subs.get("subdomains", [])) if isinstance(subs, dict) else 0
+    subs_active = data.get("subdomains_active", {}) or {}
+    sub_active = len(subs_active.get("subdomains", [])) if isinstance(subs_active, dict) else 0
+    fp = data.get("fingerprint", {}) or {}
+    techs = list((fp.get("technologies", {}) if isinstance(fp, dict) else {}).keys())
+    risk = attack.get("risk_score", 0) if isinstance(attack, dict) else 0
+    return {
+        "risk_score": risk,
+        "risk_level": attack.get("risk_level", "unknown"),
+        "grade": risk_grade(risk),
+        "findings": [{"finding": f.get("finding", f.get("title", "")), "severity": f.get("severity", "info"), "category": f.get("category", ""), "risk_score": f.get("risk_score", 0)} for f in findings],
+        "finding_count": len(findings),
+        "vector_count": len(vectors),
+        "waf": waf,
+        "subdomains": sub_count + sub_active,
+        "technologies": techs,
+        "tech_count": len(techs),
+    }
+
+
 def get_domain_history(domain: str) -> List[Dict]:
-    """Get scan history for a domain."""
+    """Get scan history for a domain with rich summary per scan."""
     history = []
     for f in sorted(RECON_DIR.glob(f"{domain}_2*.json")):
         data = _safe_json(f)
         if not data:
             continue
-        attack = data.get("attack_surface", {})
-        risk = attack.get("risk_score", 0) if isinstance(attack, dict) else 0
-        subs = data.get("subdomains", {})
-        sub_count = len(subs.get("subdomains", [])) if isinstance(subs, dict) else 0
-
-        history.append({
-            "file": f.name,
-            "timestamp": data.get("timestamp", ""),
-            "risk_score": risk,
-            "subdomains": sub_count,
-        })
+        summary = _extract_scan_summary(data)
+        summary["file"] = f.name
+        summary["timestamp"] = data.get("timestamp", "")
+        history.append(summary)
     return history
+
+
+def get_scan_delta(domain: str) -> Dict:
+    """Compare latest scan vs previous scan for a domain. Returns delta object."""
+    history_files = sorted(RECON_DIR.glob(f"{domain}_2*.json"))
+    latest_file = RECON_DIR / f"{domain}_latest.json"
+    if not latest_file.exists():
+        return {"error": "No scans found"}
+
+    latest_data = _safe_json(latest_file)
+    if not latest_data:
+        return {"error": "Cannot read latest scan"}
+
+    current = _extract_scan_summary(latest_data)
+    current["timestamp"] = latest_data.get("timestamp", "")
+
+    # Find previous scan (last history file before latest)
+    if not history_files:
+        return {"current": current, "previous": None, "deltas": []}
+
+    prev_data = _safe_json(history_files[-1])
+    if not prev_data:
+        return {"current": current, "previous": None, "deltas": []}
+
+    previous = _extract_scan_summary(prev_data)
+    previous["timestamp"] = prev_data.get("timestamp", "")
+
+    # Compute deltas
+    deltas = []
+    # New findings
+    prev_findings = {f["finding"] for f in previous["findings"]}
+    curr_findings = {f["finding"] for f in current["findings"]}
+    for f in current["findings"]:
+        if f["finding"] not in prev_findings:
+            deltas.append({"type": "new", "category": "finding", "detail": f["finding"], "severity": f["severity"]})
+    # Resolved findings
+    for f in previous["findings"]:
+        if f["finding"] not in curr_findings:
+            deltas.append({"type": "fixed", "category": "finding", "detail": f["finding"], "severity": f["severity"]})
+    # WAF change
+    if current["waf"] != previous["waf"]:
+        deltas.append({"type": "changed", "category": "waf", "detail": f"WAF changed: {previous['waf'] or 'None'} → {current['waf'] or 'None'}"})
+    else:
+        deltas.append({"type": "same", "category": "waf", "detail": f"WAF still {current['waf'] or 'None'}"})
+    # Subdomain delta
+    sub_diff = current["subdomains"] - previous["subdomains"]
+    if sub_diff > 0:
+        deltas.append({"type": "new", "category": "subdomains", "detail": f"{sub_diff} new subdomain(s) discovered"})
+    elif sub_diff < 0:
+        deltas.append({"type": "changed", "category": "subdomains", "detail": f"{abs(sub_diff)} subdomain(s) no longer resolving"})
+    # Risk change
+    risk_diff = current["risk_score"] - previous["risk_score"]
+    if risk_diff > 0:
+        deltas.append({"type": "new", "category": "risk", "detail": f"Risk score increased {previous['risk_score']} → {current['risk_score']}"})
+    elif risk_diff < 0:
+        deltas.append({"type": "fixed", "category": "risk", "detail": f"Risk score decreased {previous['risk_score']} → {current['risk_score']}"})
+    # Tech changes
+    new_techs = set(current["technologies"]) - set(previous["technologies"])
+    if new_techs:
+        deltas.append({"type": "new", "category": "tech", "detail": f"New tech: {', '.join(list(new_techs)[:5])}"})
+
+    return {
+        "domain": domain,
+        "current": current,
+        "previous": previous,
+        "deltas": deltas,
+        "risk_delta": risk_diff,
+        "finding_delta": current["finding_count"] - previous["finding_count"],
+    }
+
+
+def get_global_delta() -> Dict:
+    """Compute overview-level deltas across all domains."""
+    domains = list_domains()
+    total_findings = sum(d.get("findings", 0) for d in domains)
+    total_vectors = sum(d.get("vectors", 0) for d in domains)
+
+    # Compare with previous scans to get deltas
+    new_findings = 0
+    resolved_findings = 0
+    domains_with_delta = []
+    for d in domains:
+        delta = get_scan_delta(d["domain"])
+        if delta.get("previous"):
+            fd = delta.get("finding_delta", 0)
+            if fd > 0: new_findings += fd
+            if fd < 0: resolved_findings += abs(fd)
+            if delta.get("deltas"):
+                domains_with_delta.append({
+                    "domain": d["domain"],
+                    "risk_delta": delta.get("risk_delta", 0),
+                    "finding_delta": fd,
+                    "deltas": delta["deltas"][:5],
+                })
+
+    return {
+        "total_findings": total_findings,
+        "new_findings": new_findings,
+        "resolved_findings": resolved_findings,
+        "domains_with_changes": sorted(domains_with_delta, key=lambda x: -abs(x.get("risk_delta", 0)))[:10],
+    }
+
+
+def get_all_findings_triage() -> List[Dict]:
+    """Get all findings across domains, sorted by severity for triage queue."""
+    if not RECON_DIR.exists():
+        return []
+    findings = []
+    _sev_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+    for f in RECON_DIR.glob("*_latest.json"):
+        data = _safe_json(f)
+        if not data:
+            continue
+        domain = f.name.replace("_latest.json", "")
+        attack = data.get("attack_surface", {}) or {}
+        waf = attack.get("waf_vendor", "") or ""
+        for fn in attack.get("findings", []):
+            findings.append({
+                "domain": domain,
+                "finding": fn.get("finding", fn.get("title", "")),
+                "severity": fn.get("severity", "info"),
+                "category": fn.get("category", "other"),
+                "risk_score": fn.get("risk_score", 0),
+                "waf": waf,
+            })
+    return sorted(findings, key=lambda f: (_sev_rank.get(f["severity"].lower(), 9), -f["risk_score"]))[:500]
+
+
+def get_payload_analytics() -> Dict:
+    """Get payload hit/miss analytics from learned patterns."""
+    learned = _safe_json(FRAY_DIR / "learned_patterns.json") or {}
+    vendors = {}
+    for vendor, data in learned.items():
+        if not isinstance(data, dict):
+            continue
+        total_runs = data.get("total_runs", 0)
+        total_blocked = data.get("total_blocked", 0)
+        successes = data.get("successful_payloads", [])
+        blocked_hashes = data.get("blocked_hashes", [])
+        eff_strats = data.get("effective_strategies", {})
+        fail_strats = data.get("failed_strategies", {})
+        bypass_rate = round(len(successes) / max(total_blocked + len(successes), 1) * 100, 1)
+        vendors[vendor] = {
+            "total_runs": total_runs,
+            "total_blocked": total_blocked,
+            "total_bypassed": len(successes),
+            "bypass_rate": bypass_rate,
+            "blocked_hashes": len(blocked_hashes),
+            "top_effective": sorted(eff_strats.items(), key=lambda x: -x[1])[:5],
+            "top_failed": sorted(((k, v) for k, v in fail_strats.items() if isinstance(v, (int, float))), key=lambda x: -x[1])[:5],
+        }
+    return vendors
+
+
+def list_command_results(subdir: str) -> List[Dict]:
+    """List latest results from ~/.fray/<subdir>/ (tests, scans, agents)."""
+    results_dir = FRAY_DIR / subdir
+    if not results_dir.exists():
+        return []
+    results = []
+    for f in results_dir.glob("*_latest.json"):
+        data = _safe_json(f)
+        if not data:
+            continue
+        domain = f.name.replace("_latest.json", "")
+        summary = data.get("summary", {})
+        results.append({
+            "domain": domain,
+            "target": data.get("target", domain),
+            "timestamp": data.get("timestamp", ""),
+            "command": data.get("command", subdir.rstrip("s")),
+            "duration": data.get("duration", ""),
+            "total": summary.get("total", summary.get("total_tested", data.get("total_requests", 0))),
+            "blocked": summary.get("blocked", 0),
+            "passed": summary.get("passed", data.get("bypasses", 0)),
+            "block_rate": summary.get("block_rate", ""),
+            "bypass_rate": data.get("bypass_rate", ""),
+            "rounds": data.get("rounds", 0),
+            "techniques": data.get("techniques", []),
+        })
+    results.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+    return results
 
 
 def get_global_stats() -> Dict:
@@ -363,8 +581,14 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         pass
 
     def _cors(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        # Lock to same-origin only — never wildcard.
+        # Prevents malicious websites from reading scan data via cross-origin fetch.
+        origin = self.headers.get("Origin", "")
+        if origin in (f"http://127.0.0.1:{_DASHBOARD_PORT}", f"http://localhost:{_DASHBOARD_PORT}"):
+            self.send_header("Access-Control-Allow-Origin", origin)
+        else:
+            self.send_header("Access-Control-Allow-Origin", f"http://127.0.0.1:{_DASHBOARD_PORT}")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
     def _json_response(self, data: Any, status: int = 200):
@@ -381,10 +605,77 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(html.encode("utf-8"))
 
+    _rescan_tasks = {}  # task_id -> {status, domain, scope, result, ...}
+
     def do_OPTIONS(self):
         self.send_response(204)
         self._cors()
         self.end_headers()
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        if path == "/api/rescan":
+            content_len = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(content_len)) if content_len else {}
+            domain = body.get("domain", "")
+            scope = body.get("scope", "full")
+            finding = body.get("finding", "")
+
+            if not domain:
+                self._json_response({"error": "domain required"}, 400)
+                return
+
+            task_id = str(uuid.uuid4())[:8]
+            task = {"status": "started", "task_id": task_id, "domain": domain, "scope": scope}
+            DashboardHandler._rescan_tasks[task_id] = task
+
+            # Build fray CLI command based on scope
+            fray_bin = sys.executable
+            if scope == "full":
+                cmd = [fray_bin, "-m", "fray", "recon", domain]
+            elif scope == "waf":
+                cmd = [fray_bin, "-m", "fray", "scan", domain, "--checks", "waf"]
+            elif scope == "endpoint":
+                cmd = [fray_bin, "-m", "fray", "scan", domain, "--checks", "headers,tls,exposed"]
+            elif scope == "changed":
+                cmd = [fray_bin, "-m", "fray", "recon", domain, "--diff"]
+            elif scope == "finding":
+                # For single finding re-scan, run targeted recon
+                cmd = [fray_bin, "-m", "fray", "recon", domain]
+            else:
+                cmd = [fray_bin, "-m", "fray", "recon", domain]
+
+            def run_rescan():
+                try:
+                    result = subprocess.run(
+                        cmd, capture_output=True, text=True, timeout=300,
+                        cwd=str(Path.home())
+                    )
+                    task["status"] = "completed"
+                    task["exit_code"] = result.returncode
+                    task["stdout"] = result.stdout[-2000:] if result.stdout else ""
+                    task["stderr"] = result.stderr[-1000:] if result.stderr else ""
+                    # Check if the finding was resolved (for single finding re-scan)
+                    if scope == "finding" and finding:
+                        new_findings = get_all_findings_triage()
+                        task["resolved"] = not any(
+                            f["domain"] == domain and f["finding"] == finding
+                            for f in new_findings
+                        )
+                except subprocess.TimeoutExpired:
+                    task["status"] = "timeout"
+                except Exception as e:
+                    task["status"] = "error"
+                    task["error"] = str(e)
+
+            thread = threading.Thread(target=run_rescan, daemon=True)
+            thread.start()
+
+            self._json_response(task)
+        else:
+            self._json_response({"error": "Not found"}, 404)
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -415,6 +706,65 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/threat-intel":
             data = _safe_json(FRAY_DIR / "threat_intel_cache.json") or {}
             self._json_response(data)
+        elif path == "/api/global-delta":
+            self._json_response(get_global_delta())
+        elif path == "/api/findings-triage":
+            self._json_response(get_all_findings_triage())
+        elif path == "/api/payload-analytics":
+            self._json_response(get_payload_analytics())
+        elif path == "/api/tests":
+            self._json_response(list_command_results("tests"))
+        elif path == "/api/scans":
+            self._json_response(list_command_results("scans"))
+        elif path == "/api/agents":
+            self._json_response(list_command_results("agents"))
+        elif path.startswith("/api/export-report/"):
+            domain = path.replace("/api/export-report/", "").strip("/")
+            data = get_domain_detail(domain)
+            if not data:
+                self._json_response({"error": "Domain not found"}, 404)
+                return
+            try:
+                from fray.reporter import SecurityReportGenerator
+                gen = SecurityReportGenerator()
+                import tempfile
+                with tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w", encoding="utf-8") as tmp:
+                    gen.generate_recon_html_report(data, tmp.name)
+                    tmp_path = tmp.name
+                with open(tmp_path, "r", encoding="utf-8") as f:
+                    html_content = f.read()
+                os.unlink(tmp_path)
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Disposition", f'attachment; filename="{domain}_report.html"')
+                self._cors()
+                self.end_headers()
+                self.wfile.write(html_content.encode("utf-8"))
+            except Exception as e:
+                self._json_response({"error": str(e)}, 500)
+        elif path.startswith("/api/rescan-status/"):
+            task_id = path.replace("/api/rescan-status/", "").strip("/")
+            task = DashboardHandler._rescan_tasks.get(task_id)
+            if task:
+                self._json_response(task)
+            else:
+                self._json_response({"error": "Task not found", "status": "unknown"}, 404)
+        elif path.startswith("/api/scan-delta/"):
+            domain = path.replace("/api/scan-delta/", "").strip("/")
+            self._json_response(get_scan_delta(domain))
+        elif path == "/api/cve-meta":
+            # Serve CVE descriptions from poc cache for tooltips
+            poc_cache = _safe_json(FRAY_DIR / "cve_poc_cache.json") or {}
+            meta = {}
+            for cve_id, info in poc_cache.items():
+                if isinstance(info, dict):
+                    meta[cve_id] = {
+                        "description": (info.get("description") or "")[:200],
+                        "cvss": info.get("cvss_score"),
+                        "types": [t.get("type", "") for t in info.get("vuln_types", []) if isinstance(t, dict)][:3],
+                        "software": (info.get("affected_software") or "")[:100],
+                    }
+            self._json_response(meta)
         else:
             # Serve SPA for all other routes
             self._html_response(_SPA_HTML)
@@ -488,7 +838,7 @@ a:hover { color:var(--brand2); }
 .card { background:linear-gradient(135deg, var(--bg2) 0%, var(--bg3) 100%); border:1px solid var(--border); border-radius:var(--radius); padding:18px 20px; box-shadow:var(--shadow-sm); transition:border-color .2s, box-shadow .2s; }
 .card:hover { border-color:var(--border-strong); box-shadow:var(--shadow-md); }
 .card-label { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--text2); margin-bottom:6px; font-weight:500; }
-.card-value { font-size:26px; font-weight:700; letter-spacing:-.03em; line-height:1.2; }
+.card-value { font-size:28px; font-weight:700; letter-spacing:-.03em; line-height:1.2; }
 .card-sub { font-size:11px; color:var(--text2); margin-top:4px; }
 
 /* Table */
@@ -512,7 +862,7 @@ tr:hover td { background:rgba(255,255,255,.015); }
 .risk-fill { height:100%; border-radius:3px; transition:width .5s ease; }
 
 /* Section headers */
-.section-title { font-size:17px; font-weight:600; margin-bottom:18px; display:flex; align-items:center; gap:8px; letter-spacing:-.01em; }
+.section-title { font-size:18px; font-weight:700; margin-bottom:18px; display:flex; align-items:center; gap:8px; letter-spacing:-.02em; }
 .section-title .count { font-size:12px; color:var(--text2); font-weight:400; }
 
 /* Detail view */
@@ -531,6 +881,99 @@ tr:hover td { background:rgba(255,255,255,.015); }
 .tag-cdn { background:rgba(16,185,129,.08); color:#6ee7b7; border-color:rgba(16,185,129,.15); }
 .tag-analytics { background:rgba(249,115,22,.08); color:#fdba74; border-color:rgba(249,115,22,.15); }
 .tag-lang { background:rgba(244,63,94,.08); color:#fda4af; border-color:rgba(244,63,94,.15); }
+
+/* Tooltip */
+.tip { position:relative; cursor:help; }
+.tip .tiptext { visibility:hidden; position:absolute; z-index:10; bottom:calc(100% + 8px); left:50%; transform:translateX(-50%); background:var(--bg-elevated); border:1px solid var(--border-strong); border-radius:8px; padding:10px 14px; font-size:12px; color:var(--text); width:280px; box-shadow:var(--shadow-lg); line-height:1.5; pointer-events:none; opacity:0; transition:opacity .15s; font-family:var(--font); }
+.tip:hover .tiptext { visibility:visible; opacity:1; }
+.tiptext strong { color:var(--brand2); }
+.tiptext .tip-cvss { display:inline-block; padding:1px 6px; border-radius:4px; font-size:10px; font-weight:700; margin-left:6px; }
+
+/* Clickable cards */
+.card-link { cursor:pointer; transition:border-color .2s, box-shadow .2s, transform .15s; }
+.card-link:hover { border-color:var(--accent); box-shadow:var(--shadow-md); transform:translateY(-1px); }
+
+/* Delta pills */
+.delta-pill { display:inline-block; font-size:10px; padding:1px 7px; border-radius:20px; font-weight:600; flex-shrink:0; text-transform:uppercase; letter-spacing:.02em; }
+.pill-new { background:rgba(244,63,94,.12); color:var(--critical); }
+.pill-fixed { background:rgba(16,185,129,.12); color:var(--success); }
+.pill-changed { background:rgba(234,179,8,.12); color:var(--medium); }
+.pill-same { background:rgba(255,255,255,.05); color:var(--text2); }
+
+/* Metric delta */
+.metric-delta { font-size:11px; margin-top:4px; }
+.delta-up { color:var(--critical); }
+.delta-down { color:var(--success); }
+.delta-neutral { color:var(--text2); }
+
+/* Grade badge */
+.grade-badge { width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:600; flex-shrink:0; }
+.grade-a { background:rgba(16,185,129,.15); color:var(--success); }
+.grade-b { background:rgba(59,130,246,.15); color:var(--low); }
+.grade-c { background:rgba(234,179,8,.15); color:var(--medium); }
+.grade-d { background:rgba(249,115,22,.15); color:var(--high); }
+.grade-f { background:rgba(244,63,94,.15); color:var(--critical); }
+
+/* Two column layout */
+.two-col { display:grid; grid-template-columns:1fr 340px; gap:16px; margin-bottom:28px; }
+@media (max-width: 1100px) { .two-col { grid-template-columns:1fr; } }
+
+/* Scan bar */
+.scan-bar { display:flex; align-items:center; gap:10px; background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:10px 14px; margin-bottom:16px; }
+.scan-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+.scan-dot-live { background:var(--success); box-shadow:0 0 6px rgba(16,185,129,.4); animation:pulse 2s infinite; }
+.scan-dot-idle { background:var(--text3); }
+@keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.4; } }
+
+/* Finding item — triage queue */
+.finding-item { display:flex; align-items:flex-start; gap:10px; padding:10px 0; border-bottom:1px solid var(--border); }
+.finding-item:last-child { border-bottom:none; padding-bottom:0; }
+.finding-body { flex:1; min-width:0; }
+.finding-name { font-size:13px; color:var(--text); font-weight:500; line-height:1.5; }
+.finding-endpoint { font-size:11px; color:var(--text2); font-family:var(--mono); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.finding-actions { display:flex; gap:6px; margin-top:6px; }
+.btn-xs { font-size:11px; padding:3px 8px; border:1px solid var(--border); border-radius:6px; background:none; color:var(--text2); cursor:pointer; font-family:var(--font); transition:all .15s; }
+.btn-xs:hover { background:var(--bg-elevated); border-color:var(--border-strong); color:var(--text); }
+.btn-xs.primary { background:var(--bg3); color:var(--text); border-color:var(--border-strong); }
+
+/* Target item — watchlist */
+.target-item { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); cursor:pointer; }
+.target-item:last-child { border-bottom:none; }
+.target-item:hover { background:rgba(255,255,255,.02); }
+.target-info { flex:1; min-width:0; }
+.target-domain { font-size:12px; font-weight:500; color:var(--text); font-family:var(--mono); }
+.target-meta { font-size:11px; color:var(--text2); margin-top:1px; }
+.waf-chip { font-size:10px; padding:2px 6px; border-radius:20px; background:rgba(255,255,255,.05); color:var(--text2); border:1px solid var(--border); }
+
+/* Delta row */
+.delta-row { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text); padding:6px 0; border-bottom:1px solid var(--border); }
+.delta-row:last-child { border-bottom:none; }
+
+/* Finding highlights */
+.hl-zone { color:var(--target); font-weight:600; font-family:var(--mono); font-size:11.5px; }
+.hl-domain { color:var(--brand2); font-weight:600; }
+.hl-ip { color:var(--high); font-family:var(--mono); font-size:11px; }
+.hl-num { color:var(--text); font-weight:700; }
+.hl-keyword { color:var(--critical); font-weight:600; }
+
+/* Pagination */
+.pager { display:flex; align-items:center; justify-content:space-between; padding:12px 0; font-size:12px; color:var(--text2); }
+.pager-info { font-family:var(--mono); font-size:11px; }
+.pager-btns { display:flex; gap:4px; }
+.pager-btn { display:inline-flex; align-items:center; justify-content:center; min-width:32px; height:30px; padding:0 10px; border-radius:6px; border:1px solid var(--border); background:var(--bg3); color:var(--text2); font-size:12px; cursor:pointer; transition:all .15s; font-family:var(--font); }
+.pager-btn:hover:not(:disabled) { background:var(--bg-elevated); border-color:var(--border-strong); color:var(--text); }
+.pager-btn:disabled { opacity:.35; cursor:default; }
+.pager-btn.active { background:var(--brand); border-color:var(--brand); color:#fff; }
+
+/* Re-scan dropdown */
+.rescan-menu { position:relative; display:inline-block; }
+.rescan-drop { display:none; position:absolute; right:0; top:calc(100% + 4px); background:var(--bg-elevated); border:1px solid var(--border-strong); border-radius:var(--radius); padding:6px 0; min-width:220px; z-index:50; box-shadow:var(--shadow-lg); }
+.rescan-drop.open { display:block; }
+.rescan-opt { display:flex; align-items:center; gap:8px; padding:8px 14px; font-size:12px; color:var(--text); cursor:pointer; transition:background .15s; white-space:nowrap; }
+.rescan-opt:hover { background:rgba(255,255,255,.06); }
+.rescan-opt .rescan-icon { font-size:14px; width:20px; text-align:center; flex-shrink:0; }
+.rescan-opt .rescan-desc { font-size:10px; color:var(--text2); }
+.rescan-opt.running { opacity:.5; pointer-events:none; }
 
 /* Breadcrumb */
 .breadcrumb { font-size:12px; color:var(--text2); margin-bottom:18px; }
@@ -561,34 +1004,6 @@ tr:hover td { background:rgba(255,255,255,.015); }
 @keyframes fadeIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
 .cards, .table-wrap, .detail-grid, .section-title { animation:fadeIn .35s ease both; }
 
-/* Print / PDF */
-@media print {
-  .sidebar { display:none !important; }
-  .main { margin-left:0 !important; padding:16px !important; background:none !important; }
-  .toolbar { display:none !important; }
-  .shell { display:block !important; }
-  body { background:#fff !important; color:#111 !important; font-size:10.5px !important; }
-  .card { border:1px solid #d4d4d8 !important; background:#fafafa !important; break-inside:avoid; box-shadow:none !important; }
-  .card-value { color:#111 !important; }
-  .card-label { color:#666 !important; }
-  .detail-section { border:1px solid #d4d4d8 !important; background:#fafafa !important; break-inside:avoid; box-shadow:none !important; }
-  .detail-section h3 { color:#333 !important; }
-  .table-wrap { border:1px solid #d4d4d8 !important; break-inside:avoid; box-shadow:none !important; }
-  th { background:#f4f4f5 !important; color:#333 !important; border-bottom:1px solid #d4d4d8 !important; }
-  td { border-bottom:1px solid #e4e4e7 !important; color:#111 !important; }
-  .kv-key { color:#555 !important; }
-  .kv-val { color:#111 !important; }
-  .badge { border:1px solid currentColor !important; }
-  .tag { border:1px solid #d4d4d8 !important; background:#f4f4f5 !important; color:#333 !important; }
-  .section-title { color:#111 !important; }
-  .risk-bar { border:1px solid #d4d4d8 !important; }
-  .nav-item, .nav-section, .logo, .sidebar-footer { display:none !important; }
-  a { color:#333 !important; text-decoration:underline !important; }
-  .breadcrumb { color:#666 !important; }
-  .toast { display:none !important; }
-  * { animation:none !important; }
-  @page { margin:1cm; size:A4; }
-}
 </style>
 </head>
 <body>
@@ -596,15 +1011,16 @@ tr:hover td { background:rgba(255,255,255,.015); }
 <div class="shell">
   <div class="sidebar">
     <div class="logo">&#9876; Fray <span>Dashboard</span></div>
-    <div class="nav-section">Overview</div>
     <div class="nav-item active" data-page="overview">&#9632;&ensp;Overview</div>
+    <div class="nav-item" data-page="findings">&#9888;&ensp;Findings</div>
+    <div class="nav-item" data-page="targets">&#9673;&ensp;Targets</div>
+    <div class="nav-item" data-page="history">&#9683;&ensp;Scan History</div>
+    <div class="nav-section">Intelligence</div>
     <div class="nav-item" data-page="executive">&#9998;&ensp;Executive Report</div>
-    <div class="nav-item" data-page="domains">&#9673;&ensp;All Domains</div>
-    <div class="nav-section">AI Agent</div>
-    <div class="nav-item" data-page="learned">&#9881;&ensp;WAF Bypass Memory</div>
-    <div class="nav-desc">What the agent learned per WAF</div>
+    <div class="nav-item" data-page="learned">&#9881;&ensp;WAF Intel</div>
     <div class="nav-item" data-page="intel">&#9889;&ensp;CVE Feed</div>
-    <div class="nav-desc">Ingested vulnerabilities &amp; payloads</div>
+    <div class="nav-section">Settings</div>
+    <div class="nav-item" data-page="domains">&#9776;&ensp;All Domains</div>
     <div class="sidebar-footer">
       <div class="sidebar-footer-text">Fray Security Scanner</div>
     </div>
@@ -671,6 +1087,187 @@ function timeAgo(ts) {
   } catch(e) { return ts; }
 }
 
+function highlightFinding(text) {
+  if (!text) return '';
+  // Highlight IPs: 1.2.3.4
+  text = text.replace(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/g, '<span class="hl-ip">$1</span>');
+  // Highlight subdomains/zones: word.word.tld patterns (at least 3 parts)
+  text = text.replace(/\b([a-zA-Z0-9][-a-zA-Z0-9]*\.[-a-zA-Z0-9]+\.[a-zA-Z]{2,}(?:\.[a-zA-Z]{2,})?)\b/g, (match) => {
+    return `<span class="hl-zone">${match}</span>`;
+  });
+  // Highlight leading count: "3 subdomain(s)" or "158 subdomain(s)"
+  text = text.replace(/^(\d+)\s+(subdomain|endpoint|lib|script|path|check|CDN)/i, '<span class="hl-num">$1</span> $2');
+  // Highlight critical keywords
+  text = text.replace(/\b(bypass WAF|vulnerable to takeover|Origin IP exposed|WAF completely bypassable|Clickjacking vulnerable|CORS misconfigur|broken chain)\b/gi, '<span class="hl-keyword">$1</span>');
+  // Highlight grade letters in parentheses: (grade C)
+  text = text.replace(/\(grade ([A-F])\)/gi, '(grade <strong>$1</strong>)');
+  return text;
+}
+
+// ── Pagination builder ────────────────────────────────────────────────
+
+function buildPager(total, currentPage, totalPages, perPage, goFn) {
+  if (totalPages <= 1) {
+    return `<div class="pager"><span class="pager-info">Showing ${total} item${total!==1?'s':''}</span><span></span></div>`;
+  }
+  const start = (currentPage - 1) * perPage + 1;
+  const end = Math.min(currentPage * perPage, total);
+  let html = `<div class="pager"><span class="pager-info">${start}\u2013${end} of ${total}</span><div class="pager-btns">`;
+  html += `<button class="pager-btn" onclick="${goFn}(1)" ${currentPage<=1?'disabled':''}>&#171;</button>`;
+  html += `<button class="pager-btn" onclick="${goFn}(${currentPage-1})" ${currentPage<=1?'disabled':''}>&#8249;</button>`;
+  // Show page numbers with ellipsis
+  const range = [];
+  for (let i = 1; i <= totalPages; i++) {
+    if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
+      range.push(i);
+    } else if (range[range.length-1] !== '...') {
+      range.push('...');
+    }
+  }
+  for (const p of range) {
+    if (p === '...') {
+      html += `<span style="color:var(--text3);padding:0 4px;font-size:12px">&hellip;</span>`;
+    } else {
+      html += `<button class="pager-btn${p===currentPage?' active':''}" onclick="${goFn}(${p})">${p}</button>`;
+    }
+  }
+  html += `<button class="pager-btn" onclick="${goFn}(${currentPage+1})" ${currentPage>=totalPages?'disabled':''}>&#8250;</button>`;
+  html += `<button class="pager-btn" onclick="${goFn}(${totalPages})" ${currentPage>=totalPages?'disabled':''}>&#187;</button>`;
+  html += `</div></div>`;
+  return html;
+}
+
+// ── Re-scan system ────────────────────────────────────────────────────
+
+let _rescanRunning = {};
+
+async function rescanFinding(domain, findingEncoded, elementId) {
+  const finding = decodeURIComponent(findingEncoded);
+  const key = domain + ':' + finding;
+  if (_rescanRunning[key]) return;
+  _rescanRunning[key] = true;
+
+  const el = document.getElementById(elementId);
+  const btn = el ? el.querySelector('.finding-actions .btn-xs:last-child') : null;
+  if (btn) { btn.disabled = true; btn.innerHTML = '&#8987; Scanning...'; }
+
+  showToast(`Re-scanning finding on ${domain}...`);
+  try {
+    const resp = await fetch('/api/rescan', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ domain, scope: 'finding', finding })
+    });
+    const result = await resp.json();
+    if (result.status === 'started') {
+      showToast(`Re-scan started for ${domain}. Will refresh when complete.`);
+      pollRescan(result.task_id, elementId, key);
+    } else if (result.status === 'completed') {
+      showToast(result.resolved ? `Finding resolved on ${domain}!` : `Finding still present on ${domain}.`);
+      if (el && result.resolved) {
+        el.style.opacity = '.4';
+        el.style.borderLeft = '3px solid var(--success)';
+        if (btn) btn.innerHTML = '&#10004; Resolved';
+      } else if (btn) {
+        btn.innerHTML = '&#10008; Still present';
+        btn.disabled = false;
+      }
+      delete _rescanRunning[key];
+    } else {
+      showToast(result.error || 'Re-scan failed');
+      if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Re-scan'; }
+      delete _rescanRunning[key];
+    }
+  } catch(e) {
+    showToast('Re-scan request failed: ' + e.message);
+    if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Re-scan'; }
+    delete _rescanRunning[key];
+  }
+}
+
+function pollRescan(taskId, elementId, key) {
+  const check = async () => {
+    try {
+      const resp = await fetch('/api/rescan-status/' + taskId);
+      const result = await resp.json();
+      if (result.status === 'running') {
+        setTimeout(check, 3000);
+      } else {
+        const el = document.getElementById(elementId);
+        const btn = el ? el.querySelector('.finding-actions .btn-xs:last-child') : null;
+        if (result.status === 'completed') {
+          showToast(result.resolved ? 'Finding resolved!' : 'Finding still present.');
+          if (el && result.resolved) {
+            el.style.opacity = '.4';
+            el.style.borderLeft = '3px solid var(--success)';
+            if (btn) btn.innerHTML = '&#10004; Resolved';
+          } else if (btn) {
+            btn.innerHTML = '&#10008; Still present';
+            btn.disabled = false;
+          }
+        } else {
+          showToast('Re-scan finished with status: ' + result.status);
+          if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Re-scan'; }
+        }
+        delete _rescanRunning[key];
+      }
+    } catch(e) { setTimeout(check, 5000); }
+  };
+  setTimeout(check, 3000);
+}
+
+async function rescanDomain(domain, scope) {
+  showToast(`Starting ${scope} re-scan on ${domain}...`);
+  try {
+    const resp = await fetch('/api/rescan', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ domain, scope })
+    });
+    const result = await resp.json();
+    if (result.status === 'started') {
+      showToast(`${scope} re-scan started for ${domain}. Task ID: ${result.task_id}`);
+    } else if (result.status === 'completed') {
+      showToast(`${scope} re-scan completed for ${domain}. Refreshing...`);
+      setTimeout(() => navigate('detail', domain), 1000);
+    } else {
+      showToast(result.error || 'Re-scan failed');
+    }
+  } catch(e) {
+    showToast('Re-scan request failed: ' + e.message);
+  }
+}
+
+function toggleRescanMenu(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle('open');
+  // Close on outside click
+  const closer = (e) => {
+    if (!el.contains(e.target) && !e.target.closest('.rescan-menu')) {
+      el.classList.remove('open');
+      document.removeEventListener('click', closer);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', closer), 0);
+}
+
+async function exportDomainReport(domain) {
+  showToast(`Generating report for ${domain}...`);
+  try {
+    const resp = await fetch('/api/export-report/' + domain);
+    if (!resp.ok) { showToast('Report generation failed'); return; }
+    const blob = await resp.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = domain + '_report.html';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showToast(`Downloaded ${domain}_report.html`);
+  } catch(e) {
+    showToast('Export failed: ' + e.message);
+  }
+}
+
 async function fetchJSON(url) {
   const r = await fetch(API + url);
   return r.json();
@@ -679,83 +1276,202 @@ async function fetchJSON(url) {
 // ── Pages ──────────────────────────────────────────────────────────────
 
 async function renderOverview() {
-  _stats = await fetchJSON('/api/stats');
-  _domains = await fetchJSON('/api/domains');
-  const s = _stats;
-
-  let html = `<div class="section-title">&#9876; Dashboard Overview</div>`;
-
-  // Stat cards
-  html += `<div class="cards">
-    <div class="card"><div class="card-label">Domains Scanned</div><div class="card-value">${s.total_domains||0}</div></div>
-    <div class="card"><div class="card-label">Avg Risk Score</div><div class="card-value" style="color:${riskColor(s.avg_risk||0)}">${s.avg_risk||0}</div>${riskBar(s.avg_risk||0)}</div>
-    <div class="card"><div class="card-label">Total Subdomains</div><div class="card-value">${(s.total_subdomains||0).toLocaleString()}</div></div>
-    <div class="card"><div class="card-label">Attack Vectors</div><div class="card-value">${s.total_vectors||0}</div></div>
-  </div>`;
-
-  // Severity breakdown
+  const [s, domains, delta, triage, tests, scans, agents] = await Promise.all([
+    fetchJSON('/api/stats'),
+    fetchJSON('/api/domains'),
+    fetchJSON('/api/global-delta'),
+    fetchJSON('/api/findings-triage'),
+    fetchJSON('/api/tests'),
+    fetchJSON('/api/scans'),
+    fetchJSON('/api/agents'),
+  ]);
+  _stats = s;
+  _domains = domains;
   const sev = s.severity || {};
+  const critHigh = (sev.critical||0) + (sev.high||0);
+  const totalFindings = delta.total_findings || 0;
+  const newF = delta.new_findings || 0;
+  const resolvedF = delta.resolved_findings || 0;
+
+  // Compute avg grade
+  const grades = domains.map(d => d.grade || 'C');
+  const gradeMap = {A:4,B:3,C:2,D:1,F:0};
+  const avgGradeNum = grades.length ? grades.reduce((s,g) => s + (gradeMap[g]||2), 0) / grades.length : 2;
+  const avgGrade = avgGradeNum >= 3.5 ? 'A' : avgGradeNum >= 2.5 ? 'B' : avgGradeNum >= 1.5 ? 'C' : avgGradeNum >= 0.5 ? 'D' : 'F';
+  const gradeCls = avgGrade === 'A' ? 'grade-a' : avgGrade === 'B' ? 'grade-b' : avgGrade === 'C' ? 'grade-c' : avgGrade === 'D' ? 'grade-d' : 'grade-f';
+
+  let html = '';
+
+  // Metric cards with deltas
   html += `<div class="cards">
-    <div class="card"><div class="card-label">Critical</div><div class="card-value" style="color:var(--critical)">${sev.critical||0}</div></div>
-    <div class="card"><div class="card-label">High</div><div class="card-value" style="color:var(--high)">${sev.high||0}</div></div>
-    <div class="card"><div class="card-label">Medium</div><div class="card-value" style="color:var(--medium)">${sev.medium||0}</div></div>
-    <div class="card"><div class="card-label">Low</div><div class="card-value" style="color:var(--low)">${sev.low||0}</div></div>
+    <div class="card card-link" onclick="navigate('findings')">
+      <div class="card-label">Total Findings</div>
+      <div class="card-value">${totalFindings}</div>
+      <div class="metric-delta ${newF > 0 ? 'delta-up' : resolvedF > 0 ? 'delta-down' : 'delta-neutral'}">${newF > 0 ? '&#9650; '+newF+' new since last scan' : resolvedF > 0 ? '&#9660; '+resolvedF+' resolved' : '&#8596; no change'}</div>
+    </div>
+    <div class="card card-link" onclick="navigate('findings')">
+      <div class="card-label">Critical / High</div>
+      <div class="card-value" style="color:${critHigh > 0 ? 'var(--critical)' : 'var(--success)'}">${critHigh}</div>
+      <div class="metric-delta delta-neutral">${sev.critical||0} critical &middot; ${sev.high||0} high</div>
+    </div>
+    <div class="card card-link" onclick="navigate('targets')">
+      <div class="card-label">Targets Watched</div>
+      <div class="card-value">${domains.length}</div>
+      <div class="metric-delta delta-neutral">${domains.filter(d=>d.scan_count>1).length} scanned multiple times</div>
+    </div>
+    <div class="card card-link" onclick="navigate('targets')">
+      <div class="card-label">Avg. Grade</div>
+      <div class="card-value"><span class="grade-badge ${gradeCls}" style="display:inline-flex;width:auto;padding:4px 12px;font-size:20px">${avgGrade}</span></div>
+      <div class="metric-delta delta-neutral">${s.avg_risk||0} avg risk score</div>
+    </div>
   </div>`;
 
-  // Top domains table
-  html += `<div class="section-title">Top Domains by Risk <span class="count">(${_domains.length})</span></div>`;
-  html += `<div class="table-wrap"><table>
-    <thead><tr><th>Domain</th><th>Risk</th><th>Subs</th><th>Vectors</th><th>Findings</th><th>Tech</th><th>Last Scan</th></tr></thead>
-    <tbody>`;
-  for (const d of _domains.slice(0, 25)) {
-    html += `<tr style="cursor:pointer" onclick="navigate('detail','${d.domain}')">
-      <td><a href="#" onclick="event.preventDefault();navigate('detail','${d.domain}')">${d.domain}</a></td>
-      <td>${riskBadge(d.risk_level)} <span style="color:${riskColor(d.risk_score)};font-size:12px;font-weight:600">${d.risk_score}</span></td>
-      <td style="font-weight:500">${d.subdomains}</td>
-      <td style="font-weight:500">${d.vectors}</td>
-      <td style="font-weight:500">${d.findings||0}</td>
-      <td>${(d.technologies||[]).map(t=>techTag(t)).join('')}</td>
-      <td style="color:var(--text2);font-size:12px">${timeAgo(d.timestamp)}</td>
-    </tr>`;
+  // Scan bar — show most recently scanned domain
+  const mostRecent = [...domains].sort((a,b) => new Date(b.timestamp||0) - new Date(a.timestamp||0))[0];
+  if (mostRecent) {
+    html += `<div class="scan-bar">
+      <div class="scan-dot scan-dot-idle"></div>
+      <div style="font-size:12px;color:var(--text2);flex:1"><strong style="color:var(--text)">${mostRecent.domain}</strong> &mdash; last scanned ${timeAgo(mostRecent.timestamp)} &middot; ${mostRecent.findings} findings &middot; risk ${mostRecent.risk_score}</div>
+      <button class="btn-xs" onclick="navigate('detail','${mostRecent.domain}')">View details</button>
+    </div>`;
   }
-  html += `</tbody></table></div>`;
 
-  // Top technologies
-  if (s.top_technologies && s.top_technologies.length) {
-    html += `<div class="section-title">Top Technologies</div><div class="detail-section">`;
-    for (const [tech, count] of s.top_technologies) {
-      const pct = Math.round(count / s.total_domains * 100);
-      html += `<div class="kv"><span class="kv-key">${tech}</span><span class="kv-val">${count} (${pct}%)</span></div>`;
+  // Two-column layout: Triage queue + right sidebar (watchlist + delta)
+  html += `<div class="two-col">`;
+
+  // Left: Triage queue preview
+  html += `<div class="card" style="padding:16px 18px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <span style="font-size:14px;font-weight:600;color:var(--text)">Triage Queue</span>
+      <button class="btn-xs" onclick="navigate('findings')">View all &rarr;</button>
+    </div>`;
+  for (const f of triage.slice(0, 5)) {
+    html += `<div class="finding-item">
+      ${riskBadge(f.severity)}
+      <div class="finding-body">
+        <div class="finding-name">${highlightFinding(f.finding)}</div>
+        <div class="finding-endpoint"><span class="hl-domain">${f.domain}</span>${f.category ? ' &middot; '+f.category : ''}</div>
+        <div class="finding-actions">
+          <button class="btn-xs primary" onclick="navigate('detail','${f.domain}')">View domain</button>
+        </div>
+      </div>
+    </div>`;
+  }
+  if (!triage.length) html += `<div style="color:var(--text2);font-size:13px;padding:16px 0;text-align:center">No findings yet. Run a scan to get started.</div>`;
+  html += `</div>`;
+
+  // Right column
+  html += `<div style="display:flex;flex-direction:column;gap:16px">`;
+
+  // Target watchlist preview
+  html += `<div class="card" style="padding:16px 18px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <span style="font-size:14px;font-weight:600;color:var(--text)">Target Watchlist</span>
+      <button class="btn-xs" onclick="navigate('targets')">Manage</button>
+    </div>`;
+  for (const d of domains.slice(0, 5)) {
+    const g = d.grade || 'C';
+    const gCls = g === 'A' ? 'grade-a' : g === 'B' ? 'grade-b' : g === 'C' ? 'grade-c' : g === 'D' ? 'grade-d' : 'grade-f';
+    html += `<div class="target-item" onclick="navigate('detail','${d.domain}')">
+      <div class="grade-badge ${gCls}">${g}</div>
+      <div class="target-info">
+        <div class="target-domain">${d.domain}</div>
+        <div class="target-meta">${d.waf ? d.waf+' &middot; ' : ''}scanned ${timeAgo(d.timestamp)}</div>
+      </div>
+      <span style="font-size:11px;color:${riskColor(d.risk_score)}">${d.risk_score}</span>
+    </div>`;
+  }
+  html += `</div>`;
+
+  // Delta card — last scan changes
+  const domainChanges = (delta.domains_with_changes || []).slice(0, 1);
+  if (domainChanges.length) {
+    const dc = domainChanges[0];
+    html += `<div class="card" style="padding:16px 18px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <span style="font-size:14px;font-weight:600;color:var(--text)">Delta &mdash; last scan</span>
+        <span class="hl-domain" style="font-size:12px">${dc.domain}</span>
+      </div>`;
+    for (const d of dc.deltas) {
+      const pillCls = d.type === 'new' ? 'pill-new' : d.type === 'fixed' ? 'pill-fixed' : d.type === 'changed' ? 'pill-changed' : 'pill-same';
+      html += `<div class="delta-row"><span class="delta-pill ${pillCls}">${d.type}</span><span>${highlightFinding(d.detail)}</span></div>`;
     }
+    html += `<button class="btn-xs" style="margin-top:10px;width:100%" onclick="navigate('history')">View scan history &rarr;</button>`;
     html += `</div>`;
   }
 
+  html += `</div>`; // close right column
+  html += `</div>`; // close two-col
+
+  // Activity feed — recent test/scan/agent runs
+  const allActivity = [...tests, ...scans, ...agents].sort((a,b) => new Date(b.timestamp||0) - new Date(a.timestamp||0)).slice(0, 8);
+  if (allActivity.length) {
+    html += `<div class="section-title" style="margin-top:8px">&#9889; Recent Activity <span class="count">(${tests.length + scans.length + agents.length} runs)</span></div>`;
+    html += `<div class="table-wrap"><table>
+      <thead><tr><th>Command</th><th>Target</th><th>Total</th><th>Blocked</th><th>Bypassed</th><th>Block Rate</th><th>Duration</th><th>When</th></tr></thead><tbody>`;
+    for (const a of allActivity) {
+      const cmdCls = a.command === 'test' ? 'tag-infra' : a.command === 'scan' ? 'tag-frontend' : a.command === 'agent' ? 'tag-cms' : '';
+      const bypassed = a.passed || 0;
+      const bypassColor = bypassed > 5 ? 'var(--critical)' : bypassed > 0 ? 'var(--high)' : 'var(--success)';
+      html += `<tr style="cursor:pointer" onclick="navigate('detail','${a.domain}')">
+        <td><span class="tag ${cmdCls}">${a.command}</span></td>
+        <td><span class="hl-domain">${a.domain}</span></td>
+        <td style="font-weight:500">${a.total||0}</td>
+        <td style="color:var(--success);font-weight:600">${a.blocked||0}</td>
+        <td style="color:${bypassColor};font-weight:600">${bypassed}</td>
+        <td style="font-family:var(--mono);font-size:12px">${a.block_rate || a.bypass_rate || '-'}</td>
+        <td style="font-size:12px;color:var(--text2)">${a.duration||'-'}</td>
+        <td style="font-size:12px;color:var(--text2)">${timeAgo(a.timestamp)}</td>
+      </tr>`;
+    }
+    html += `</tbody></table></div>`;
+  }
+
   $('#content').innerHTML = html;
 }
+
+let _domPage = 1;
+const _DOM_PER_PAGE = 20;
+let _domFilter = '';
 
 async function renderDomains() {
   _domains = await fetchJSON('/api/domains');
+  _domPage = 1;
+  _domFilter = '';
   let html = `<div class="section-title">&#9673; All Domains <span class="count">(${_domains.length})</span></div>`;
   html += `<div style="margin-bottom:16px"><input id="domain-search" placeholder="Filter domains..." style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text);width:300px;font-size:13px;outline:none"></div>`;
   html += `<div class="table-wrap"><table>
-    <thead><tr><th>Domain</th><th>Risk</th><th>Score</th><th>Subs</th><th>Vectors</th><th>Findings</th><th>Scans</th><th>TLS</th><th>Headers</th><th>Last Scan</th></tr></thead>
-    <tbody id="domain-tbody">`;
-  for (const d of _domains) {
-    html += domainRow(d);
-  }
-  html += `</tbody></table></div>`;
+    <thead><tr><th>Grade</th><th>Domain</th><th>Risk</th><th>Score</th><th>Subs</th><th>Vectors</th><th>Findings</th><th>Scans</th><th>TLS</th><th>Headers</th><th>Last Scan</th></tr></thead>
+    <tbody id="domain-tbody"></tbody></table></div>`;
+  html += `<div id="domain-pager"></div>`;
   $('#content').innerHTML = html;
+  renderDomainPage();
 
-  // Wire filter
   document.getElementById('domain-search').addEventListener('input', e => {
-    const q = e.target.value.toLowerCase();
-    const filtered = _domains.filter(d => d.domain.includes(q));
-    document.getElementById('domain-tbody').innerHTML = filtered.map(domainRow).join('');
+    _domFilter = e.target.value.toLowerCase();
+    _domPage = 1;
+    renderDomainPage();
   });
 }
 
+function renderDomainPage() {
+  const filtered = _domFilter ? _domains.filter(d => d.domain.includes(_domFilter)) : _domains;
+  const total = filtered.length;
+  const pages = Math.max(1, Math.ceil(total / _DOM_PER_PAGE));
+  if (_domPage > pages) _domPage = pages;
+  const start = (_domPage - 1) * _DOM_PER_PAGE;
+  const slice = filtered.slice(start, start + _DOM_PER_PAGE);
+  document.getElementById('domain-tbody').innerHTML = slice.map(domainRow).join('');
+  document.getElementById('domain-pager').innerHTML = buildPager(total, _domPage, pages, _DOM_PER_PAGE, 'domGoPage');
+}
+
+function domGoPage(p) { _domPage = p; renderDomainPage(); }
+
 function domainRow(d) {
+  const _g = d.grade || 'C';
+  const _gC = _g === 'A' ? 'grade-a' : _g === 'B' ? 'grade-b' : _g === 'C' ? 'grade-c' : _g === 'D' ? 'grade-d' : 'grade-f';
   return `<tr style="cursor:pointer" onclick="navigate('detail','${d.domain}')">
+    <td><div class="grade-badge ${_gC}" style="width:24px;height:24px;font-size:11px;margin:0 auto">${_g}</div></td>
     <td><a href="#" onclick="event.preventDefault();navigate('detail','${d.domain}')">${d.domain}</a></td>
     <td>${riskBadge(d.risk_level)}</td>
     <td style="color:${riskColor(d.risk_score)};font-weight:600;font-size:13px">${d.risk_score}</td>
@@ -767,6 +1483,265 @@ function domainRow(d) {
     <td style="font-weight:500">${d.header_score}%</td>
     <td style="color:var(--text2);font-size:12px">${timeAgo(d.timestamp)}</td>
   </tr>`;
+}
+
+// ── Findings Triage Queue ──────────────────────────────────────────────
+
+let _findingsAll = [];
+let _findPage = 1;
+let _findSevFilter = 'all';
+const _FIND_PER_PAGE = 20;
+
+async function renderFindings() {
+  _findingsAll = await fetchJSON('/api/findings-triage');
+  _findPage = 1;
+  _findSevFilter = 'all';
+  let html = `<div class="section-title">&#9888; Findings Triage Queue <span class="count">(${_findingsAll.length})</span></div>`;
+
+  if (!_findingsAll.length) {
+    html += `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:32px;text-align:center">
+      <div style="font-size:15px;color:var(--text);margin-bottom:8px;font-weight:500">No findings yet</div>
+      <p style="color:var(--text2);font-size:13px;max-width:420px;margin:0 auto 16px">Run a recon scan against a target to discover security findings.</p>
+      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:inline-block;font-family:var(--mono);font-size:12px;color:var(--text)">fray recon example.com</div>
+    </div>`;
+    $('#content').innerHTML = html;
+    return;
+  }
+
+  // Summary cards
+  const sevCounts = {critical:0, high:0, medium:0, low:0};
+  for (const f of _findingsAll) { sevCounts[f.severity.toLowerCase()] = (sevCounts[f.severity.toLowerCase()]||0) + 1; }
+  html += `<div class="cards">
+    <div class="card" style="border-left:3px solid var(--critical)"><div class="card-label">Critical</div><div class="card-value" style="color:var(--critical)">${sevCounts.critical}</div></div>
+    <div class="card" style="border-left:3px solid var(--high)"><div class="card-label">High</div><div class="card-value" style="color:var(--high)">${sevCounts.high}</div></div>
+    <div class="card" style="border-left:3px solid var(--medium)"><div class="card-label">Medium</div><div class="card-value" style="color:var(--medium)">${sevCounts.medium}</div></div>
+    <div class="card" style="border-left:3px solid var(--low)"><div class="card-label">Low</div><div class="card-value" style="color:var(--low)">${sevCounts.low}</div></div>
+  </div>`;
+
+  // Filter bar
+  html += `<div style="margin-bottom:16px;display:flex;gap:8px">
+    <button class="btn btn-brand filter-btn active" data-filter="all" onclick="filterFindings('all')">All (${_findingsAll.length})</button>
+    <button class="btn filter-btn" data-filter="critical" onclick="filterFindings('critical')">Critical (${sevCounts.critical})</button>
+    <button class="btn filter-btn" data-filter="high" onclick="filterFindings('high')">High (${sevCounts.high})</button>
+    <button class="btn filter-btn" data-filter="medium" onclick="filterFindings('medium')">Medium (${sevCounts.medium})</button>
+    <button class="btn filter-btn" data-filter="low" onclick="filterFindings('low')">Low (${sevCounts.low})</button>
+  </div>`;
+
+  html += `<div id="findings-list"></div>`;
+  html += `<div id="findings-pager"></div>`;
+
+  $('#content').innerHTML = html;
+  renderFindingsPage();
+}
+
+function getFilteredFindings() {
+  return _findSevFilter === 'all' ? _findingsAll : _findingsAll.filter(f => f.severity.toLowerCase() === _findSevFilter);
+}
+
+function renderFindingsPage() {
+  const filtered = getFilteredFindings();
+  const total = filtered.length;
+  const pages = Math.max(1, Math.ceil(total / _FIND_PER_PAGE));
+  if (_findPage > pages) _findPage = pages;
+  const start = (_findPage - 1) * _FIND_PER_PAGE;
+  const slice = filtered.slice(start, start + _FIND_PER_PAGE);
+
+  let html = '';
+  for (const f of slice) {
+    const catCls = f.category === 'infra' ? 'tag-infra' : f.category === 'config' ? 'tag-cdn' : f.category === 'app' ? 'tag-frontend' : f.category === 'data' ? 'tag-lang' : '';
+    const findingId = btoa(f.domain + ':' + f.finding).replace(/[^a-zA-Z0-9]/g,'').slice(0,24);
+    html += `<div class="finding-item" data-sev="${f.severity.toLowerCase()}" style="padding:12px 0" id="fi-${findingId}">
+      ${riskBadge(f.severity)}
+      <div class="finding-body">
+        <div class="finding-name">${highlightFinding(f.finding)}</div>
+        <div class="finding-endpoint"><span class="hl-domain">${f.domain}</span> &middot; <span class="tag ${catCls}">${f.category}</span>${f.waf ? ' &middot; <span class="waf-chip">'+f.waf+'</span>' : ''}</div>
+        <div class="finding-actions">
+          <button class="btn-xs primary" onclick="navigate('detail','${f.domain}')">View domain</button>
+          <button class="btn-xs" onclick="rescanFinding('${f.domain}','${encodeURIComponent(f.finding)}','fi-${findingId}')">&#8635; Re-scan</button>
+        </div>
+      </div>
+      <span style="font-family:var(--mono);font-size:12px;color:${riskColor(f.risk_score)};font-weight:600;flex-shrink:0">${f.risk_score}</span>
+    </div>`;
+  }
+  document.getElementById('findings-list').innerHTML = html;
+  document.getElementById('findings-pager').innerHTML = buildPager(total, _findPage, pages, _FIND_PER_PAGE, 'findGoPage');
+}
+
+function findGoPage(p) { _findPage = p; renderFindingsPage(); }
+
+function filterFindings(sev) {
+  _findSevFilter = sev;
+  _findPage = 1;
+  renderFindingsPage();
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.filter === sev);
+    btn.classList.toggle('btn-brand', btn.dataset.filter === sev);
+  });
+}
+
+// ── Targets Watchlist ──────────────────────────────────────────────────
+
+async function renderTargets() {
+  _domains = await fetchJSON('/api/domains');
+  let html = `<div class="section-title">&#9673; Target Watchlist <span class="count">(${_domains.length})</span></div>`;
+
+  if (!_domains.length) {
+    html += `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:32px;text-align:center">
+      <div style="font-size:15px;color:var(--text);margin-bottom:8px;font-weight:500">No targets yet</div>
+      <p style="color:var(--text2);font-size:13px;max-width:420px;margin:0 auto 16px">Scan a domain to add it to your watchlist.</p>
+      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:inline-block;font-family:var(--mono);font-size:12px;color:var(--text)">fray recon example.com</div>
+    </div>`;
+    $('#content').innerHTML = html;
+    return;
+  }
+
+  // Grade distribution cards
+  const gradeDist = {A:0, B:0, C:0, D:0, F:0};
+  for (const d of _domains) { gradeDist[d.grade||'C']++; }
+  html += `<div class="cards">
+    <div class="card"><div class="card-label">Grade A</div><div class="card-value" style="color:var(--success)">${gradeDist.A}</div><div class="card-sub">Risk &le; 10</div></div>
+    <div class="card"><div class="card-label">Grade B</div><div class="card-value" style="color:var(--low)">${gradeDist.B}</div><div class="card-sub">Risk 11&ndash;25</div></div>
+    <div class="card"><div class="card-label">Grade C</div><div class="card-value" style="color:var(--medium)">${gradeDist.C}</div><div class="card-sub">Risk 26&ndash;45</div></div>
+    <div class="card"><div class="card-label">Grade D / F</div><div class="card-value" style="color:var(--critical)">${gradeDist.D + gradeDist.F}</div><div class="card-sub">Risk &gt; 45</div></div>
+  </div>`;
+
+  // Search
+  html += `<div style="margin-bottom:16px"><input id="target-search" placeholder="Filter targets..." style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text);width:300px;font-size:13px;outline:none"></div>`;
+
+  // Target table
+  html += `<div class="table-wrap"><table>
+    <thead><tr><th>Grade</th><th>Domain</th><th>Risk</th><th>WAF</th><th>Findings</th><th>Subs</th><th>Scans</th><th>Last Scan</th></tr></thead>
+    <tbody id="target-tbody">`;
+  for (const d of _domains) {
+    html += targetRow(d);
+  }
+  html += `</tbody></table></div>`;
+
+  $('#content').innerHTML = html;
+
+  document.getElementById('target-search').addEventListener('input', e => {
+    const q = e.target.value.toLowerCase();
+    const filtered = _domains.filter(d => d.domain.includes(q));
+    document.getElementById('target-tbody').innerHTML = filtered.map(targetRow).join('');
+  });
+}
+
+function targetRow(d) {
+  const g = d.grade || 'C';
+  const gCls = g === 'A' ? 'grade-a' : g === 'B' ? 'grade-b' : g === 'C' ? 'grade-c' : g === 'D' ? 'grade-d' : 'grade-f';
+  return `<tr style="cursor:pointer" onclick="navigate('detail','${d.domain}')">
+    <td><div class="grade-badge ${gCls}" style="margin:0 auto">${g}</div></td>
+    <td><a href="#" onclick="event.preventDefault();navigate('detail','${d.domain}')" style="font-family:var(--mono);font-size:12px">${d.domain}</a></td>
+    <td style="color:${riskColor(d.risk_score)};font-weight:600">${d.risk_score}</td>
+    <td>${d.waf ? '<span class="waf-chip">'+d.waf+'</span>' : '<span style="color:var(--text3);font-size:11px">None</span>'}</td>
+    <td style="font-weight:500">${d.findings||0}</td>
+    <td style="font-weight:500">${d.subdomains}</td>
+    <td style="font-weight:500">${d.scan_count}</td>
+    <td style="color:var(--text2);font-size:12px">${timeAgo(d.timestamp)}</td>
+  </tr>`;
+}
+
+// ── Scan History ──────────────────────────────────────────────────────
+
+async function renderHistory() {
+  _domains = await fetchJSON('/api/domains');
+  let html = `<div class="section-title">&#9683; Scan History</div>`;
+
+  if (!_domains.length) {
+    html += `<div class="loading">No scan data yet.</div>`;
+    $('#content').innerHTML = html;
+    return;
+  }
+
+  // Domain selector
+  html += `<div style="margin-bottom:16px;display:flex;gap:8px;align-items:center">
+    <span style="font-size:12px;color:var(--text2)">Domain:</span>
+    <select id="history-domain" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text);font-size:13px;font-family:var(--mono);outline:none;min-width:280px">
+      ${_domains.map(d => `<option value="${d.domain}">${d.domain} (${d.scan_count} scans)</option>`).join('')}
+    </select>
+  </div>`;
+  html += `<div id="history-content"><div class="loading">Select a domain...</div></div>`;
+
+  $('#content').innerHTML = html;
+
+  async function loadHistory(domain) {
+    const [history, delta] = await Promise.all([
+      fetchJSON('/api/domain/' + domain + '/history'),
+      fetchJSON('/api/scan-delta/' + domain),
+    ]);
+    const hc = document.getElementById('history-content');
+    let h = '';
+
+    // Delta summary card
+    if (delta.current && delta.previous) {
+      h += `<div class="card" style="padding:16px 18px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <span style="font-size:14px;font-weight:600;color:var(--text)">Delta: Latest vs Previous Scan</span>
+          <span style="font-size:11px;color:var(--text2)">${delta.current.grade} (was ${delta.previous.grade})</span>
+        </div>`;
+      for (const d of delta.deltas || []) {
+        const pillCls = d.type === 'new' ? 'pill-new' : d.type === 'fixed' ? 'pill-fixed' : d.type === 'changed' ? 'pill-changed' : 'pill-same';
+        h += `<div class="delta-row"><span class="delta-pill ${pillCls}">${d.type}</span><span>${highlightFinding(d.detail)}</span></div>`;
+      }
+      if (!(delta.deltas||[]).length) {
+        h += `<div style="color:var(--text2);font-size:13px;padding:8px 0">No changes between scans.</div>`;
+      }
+      h += `</div>`;
+    }
+
+    // Summary cards comparing current vs previous
+    if (delta.current) {
+      const c = delta.current;
+      const p = delta.previous || {};
+      h += `<div class="cards">
+        <div class="card"><div class="card-label">Risk Score</div><div class="card-value" style="color:${riskColor(c.risk_score)}">${c.risk_score}</div>
+          ${p.risk_score != null ? `<div class="metric-delta ${c.risk_score > p.risk_score ? 'delta-up' : c.risk_score < p.risk_score ? 'delta-down' : 'delta-neutral'}">${c.risk_score > p.risk_score ? '&#9650; +' : c.risk_score < p.risk_score ? '&#9660; ' : '&#8596; '}${Math.abs(c.risk_score - p.risk_score)} from previous</div>` : ''}
+        </div>
+        <div class="card"><div class="card-label">Findings</div><div class="card-value">${c.finding_count}</div>
+          ${p.finding_count != null ? `<div class="metric-delta ${c.finding_count > p.finding_count ? 'delta-up' : c.finding_count < p.finding_count ? 'delta-down' : 'delta-neutral'}">${c.finding_count > p.finding_count ? '&#9650; +' : c.finding_count < p.finding_count ? '&#9660; ' : '&#8596; '}${Math.abs(c.finding_count - p.finding_count)}</div>` : ''}
+        </div>
+        <div class="card"><div class="card-label">Subdomains</div><div class="card-value">${c.subdomains}</div>
+          ${p.subdomains != null ? `<div class="metric-delta ${c.subdomains > p.subdomains ? 'delta-up' : c.subdomains < p.subdomains ? 'delta-down' : 'delta-neutral'}">${c.subdomains > p.subdomains ? '&#9650; +' : c.subdomains < p.subdomains ? '&#9660; ' : '&#8596; '}${Math.abs(c.subdomains - p.subdomains)}</div>` : ''}
+        </div>
+        <div class="card"><div class="card-label">WAF</div><div class="card-value" style="font-size:14px">${c.waf || 'None'}</div>
+          ${p.waf != null && p.waf !== c.waf ? `<div class="metric-delta delta-up">Changed from ${p.waf||'None'}</div>` : ''}
+        </div>
+      </div>`;
+    }
+
+    // Scan timeline table
+    if (history.length) {
+      h += `<div class="section-title" style="margin-top:8px">Scan Timeline <span class="count">(${history.length} scans)</span></div>`;
+      h += `<div class="table-wrap"><table>
+        <thead><tr><th>Date</th><th>Grade</th><th>Risk</th><th>Findings</th><th>Vectors</th><th>Subs</th><th>WAF</th><th>Technologies</th></tr></thead><tbody>`;
+      for (const scan of history.reverse()) {
+        const g = scan.grade || 'C';
+        const gCls = g === 'A' ? 'grade-a' : g === 'B' ? 'grade-b' : g === 'C' ? 'grade-c' : g === 'D' ? 'grade-d' : 'grade-f';
+        h += `<tr>
+          <td style="font-size:12px;white-space:nowrap">${timeAgo(scan.timestamp)}</td>
+          <td><div class="grade-badge ${gCls}" style="width:24px;height:24px;font-size:11px">${g}</div></td>
+          <td style="color:${riskColor(scan.risk_score)};font-weight:600">${scan.risk_score}</td>
+          <td>${scan.finding_count}</td>
+          <td>${scan.vector_count}</td>
+          <td>${scan.subdomains}</td>
+          <td>${scan.waf ? '<span class="waf-chip">'+scan.waf+'</span>' : ''}</td>
+          <td style="font-size:11px">${scan.tech_count} detected</td>
+        </tr>`;
+      }
+      h += `</tbody></table></div>`;
+    } else {
+      h += `<div style="color:var(--text2);font-size:13px;padding:16px 0">Only one scan available. Re-scan to see delta comparison.</div>`;
+    }
+
+    hc.innerHTML = h;
+  }
+
+  // Load first domain's history
+  loadHistory(_domains[0].domain);
+
+  document.getElementById('history-domain').addEventListener('change', e => {
+    loadHistory(e.target.value);
+  });
 }
 
 async function renderDetail(domain) {
@@ -802,9 +1777,40 @@ async function renderDetail(domain) {
   const secrets = data.secrets || {};
   const bot = data.bot_protection || {};
   const gap = data.gap_analysis || {};
+  const subsActiveData = data.subdomains_active || {};
+  const discoveredSubs = subsActiveData.discovered || [];
+  const wafBypassSubs = subsActiveData.waf_bypass || [];
 
-  let html = `<div class="breadcrumb"><a href="#" onclick="event.preventDefault();navigate('domains')">Domains</a> / ${domain}</div>`;
-  html += `<div class="section-title">${domain} ${riskBadge(riskLevel)}</div>`;
+  const _grade = risk >= 0 ? (risk <= 10 ? 'A' : risk <= 25 ? 'B' : risk <= 45 ? 'C' : risk <= 65 ? 'D' : 'F') : 'C';
+  const _gCls = _grade === 'A' ? 'grade-a' : _grade === 'B' ? 'grade-b' : _grade === 'C' ? 'grade-c' : _grade === 'D' ? 'grade-d' : 'grade-f';
+  let html = `<div class="breadcrumb"><a href="#" onclick="event.preventDefault();navigate('targets')">Targets</a> / ${domain}</div>`;
+  html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+    <div class="section-title" style="margin-bottom:0"><span class="grade-badge ${_gCls}" style="width:32px;height:32px;font-size:14px">${_grade}</span> ${domain} ${riskBadge(riskLevel)}</div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn" onclick="exportDomainReport('${domain}')">&#128196; Export Report</button>
+      <div class="rescan-menu">
+      <button class="btn btn-brand" onclick="toggleRescanMenu('rescan-drop-detail')">&#8635; Re-scan</button>
+      <div class="rescan-drop" id="rescan-drop-detail">
+        <div class="rescan-opt" onclick="rescanDomain('${domain}','full')">
+          <span class="rescan-icon">&#9876;</span>
+          <div><div>Full Re-scan</div><div class="rescan-desc">Complete recon + attack surface analysis</div></div>
+        </div>
+        <div class="rescan-opt" onclick="rescanDomain('${domain}','waf')">
+          <span class="rescan-icon">&#9730;</span>
+          <div><div>WAF Only</div><div class="rescan-desc">Quick WAF vendor &amp; bypass check</div></div>
+        </div>
+        <div class="rescan-opt" onclick="rescanDomain('${domain}','changed')">
+          <span class="rescan-icon">&#916;</span>
+          <div><div>Changed Findings</div><div class="rescan-desc">Re-check only findings that moved since last scan</div></div>
+        </div>
+        <div class="rescan-opt" onclick="rescanDomain('${domain}','endpoint')">
+          <span class="rescan-icon">&#9889;</span>
+          <div><div>Endpoint Check</div><div class="rescan-desc">Re-scan exposed files, headers, TLS</div></div>
+        </div>
+      </div>
+    </div>
+    </div>
+  </div>`;
 
   // Top cards
   html += `<div class="cards">
@@ -820,11 +1826,31 @@ async function renderDetail(domain) {
   // Detail grid
   html += `<div class="detail-grid">`;
 
-  // Technologies
-  html += `<div class="detail-section"><h3>Technologies</h3>`;
+  // Technologies — grouped by category with confidence bars
+  html += `<div class="detail-section"><h3>Discovered Technologies (${Object.keys(techs).length})</h3>`;
   if (Object.keys(techs).length) {
-    for (const [t, conf] of Object.entries(techs)) {
-      html += `<div class="kv"><span class="kv-key">${t}</span><span class="kv-val">${Math.round(conf*100)}%</span></div>`;
+    // Group by category
+    const byCategory = {};
+    for (const [name, info] of Object.entries(techs)) {
+      const cat = (typeof info === 'object' && info.category) ? info.category : 'Other';
+      const conf = (typeof info === 'object' && info.confidence != null) ? info.confidence : (typeof info === 'number' ? info : 0);
+      if (!byCategory[cat]) byCategory[cat] = [];
+      byCategory[cat].push({ name, confidence: conf });
+    }
+    for (const [cat, items] of Object.entries(byCategory)) {
+      html += `<div style="margin-bottom:10px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text2);margin-bottom:4px;font-weight:600">${cat}</div>`;
+      for (const item of items.sort((a,b) => b.confidence - a.confidence)) {
+        const confPct = Math.min(100, Math.max(0, item.confidence));
+        const confColor = confPct >= 80 ? 'var(--success)' : confPct >= 50 ? 'var(--medium)' : 'var(--text2)';
+        html += `<div class="kv">
+          <span class="kv-key">${techTag(item.name)}</span>
+          <span class="kv-val" style="display:flex;align-items:center;gap:8px">
+            <span style="width:50px;height:4px;border-radius:2px;background:var(--bg);overflow:hidden;display:inline-block"><span style="width:${confPct}%;height:100%;background:${confColor};display:block;border-radius:2px"></span></span>
+            <span style="color:${confColor}">${confPct}%</span>
+          </span>
+        </div>`;
+      }
+      html += `</div>`;
     }
   } else { html += `<div style="color:var(--text2)">None detected</div>`; }
   html += `</div>`;
@@ -839,25 +1865,48 @@ async function renderDetail(domain) {
   html += `</div>`;
 
   // Attack Vectors
-  html += `<div class="detail-section"><h3>Attack Vectors (${vectors.length})</h3>`;
-  for (const v of vectors.slice(0, 15)) {
-    const sev = (v.severity||'info').toLowerCase();
-    const label = v.type || v.name || '?';
-    const targets = v.targets ? ` (${v.targets.length} targets)` : '';
-    html += `<div class="kv"><span class="kv-key">${riskBadge(sev)} ${label}${targets}</span><span class="kv-val">${v.count ? v.count+' issues' : v.priority||''}</span></div>`;
-  }
-  if (!vectors.length) html += `<div style="color:var(--text2)">None found</div>`;
-  html += `</div>`;
-
-  // Findings
-  if (findings.length) {
-    html += `<div class="detail-section"><h3>Findings (${findings.length})</h3>`;
-    for (const f of findings.slice(0, 15)) {
-      const sev = (f.severity||'info').toLowerCase();
-      html += `<div class="kv"><span class="kv-key">${riskBadge(sev)} ${f.finding||f.title||'?'}</span><span class="kv-val">${f.category||''} ${f.risk_score ? 'risk:'+f.risk_score : ''}</span></div>`;
+  if (vectors.length) {
+    html += `<div class="detail-section" style="grid-column:1/-1"><h3>Attack Vectors (${vectors.length})</h3>`;
+    html += `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+      <thead><tr><th style="padding:8px 12px">Severity</th><th style="padding:8px 12px">Type</th><th style="padding:8px 12px">Targets</th><th style="padding:8px 12px">Priority</th></tr></thead><tbody>`;
+    for (const v of vectors.slice(0, 15)) {
+      const sev = (v.severity||'info').toLowerCase();
+      const label = v.type || v.name || '?';
+      const targetCount = v.targets ? v.targets.length : '';
+      html += `<tr>
+        <td style="padding:6px 12px;border-bottom:1px solid var(--border)">${riskBadge(sev)}</td>
+        <td style="padding:6px 12px;border-bottom:1px solid var(--border);font-size:12.5px">${label}</td>
+        <td style="padding:6px 12px;border-bottom:1px solid var(--border);font-size:12px">${targetCount ? targetCount + ' targets' : ''}</td>
+        <td style="padding:6px 12px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text2)">${v.count ? v.count+' issues' : v.priority||''}</td>
+      </tr>`;
     }
-    html += `</div>`;
+    html += `</tbody></table></div></div>`;
+  } else {
+    html += `<div class="detail-section"><h3>Attack Vectors</h3><div style="color:var(--text2)">None found</div></div>`;
   }
+
+  html += `</div>`; // close detail-grid before findings table
+
+  // Findings — full-width table
+  if (findings.length) {
+    html += `<div class="section-title">Findings <span class="count">(${findings.length})</span></div>`;
+    html += `<div class="table-wrap"><table>
+      <thead><tr><th>Severity</th><th>Finding</th><th>Category</th><th>Risk</th></tr></thead><tbody>`;
+    for (const f of findings) {
+      const sev = (f.severity||'info').toLowerCase();
+      const catCls = f.category === 'infra' ? 'tag-infra' : f.category === 'config' ? 'tag-cdn' : f.category === 'app' ? 'tag-frontend' : f.category === 'data' ? 'tag-lang' : '';
+      const riskVal = f.risk_score || 0;
+      html += `<tr>
+        <td>${riskBadge(sev)}</td>
+        <td style="font-size:12.5px">${highlightFinding(f.finding||f.title||'?')}</td>
+        <td><span class="tag ${catCls}">${f.category||'other'}</span></td>
+        <td style="color:${riskColor(riskVal)};font-weight:600;font-family:var(--mono);font-size:12px">${riskVal}</td>
+      </tr>`;
+    }
+    html += `</tbody></table></div>`;
+  }
+
+  html += `<div class="detail-grid">`; // reopen detail-grid for remaining sections
 
   // DNS
   html += `<div class="detail-section"><h3>DNS</h3>`;
@@ -865,10 +1914,10 @@ async function renderDetail(domain) {
   const aaaa = dns.aaaa || [];
   const mx = dns.mx || [];
   const ns = dns.ns || [];
-  if (aRecords.length) html += `<div class="kv"><span class="kv-key">A</span><span class="kv-val">${aRecords.join(', ')}</span></div>`;
-  if (aaaa.length) html += `<div class="kv"><span class="kv-key">AAAA</span><span class="kv-val">${aaaa.join(', ')}</span></div>`;
-  if (mx.length) html += `<div class="kv"><span class="kv-key">MX</span><span class="kv-val">${mx.slice(0,3).join(', ')}</span></div>`;
-  if (ns.length) html += `<div class="kv"><span class="kv-key">NS</span><span class="kv-val">${ns.slice(0,3).join(', ')}</span></div>`;
+  if (aRecords.length) html += `<div class="kv"><span class="kv-key">A</span><span class="kv-val">${aRecords.map(r => `<span class="hl-ip">${r}</span>`).join(', ')}</span></div>`;
+  if (aaaa.length) html += `<div class="kv"><span class="kv-key">AAAA</span><span class="kv-val">${aaaa.map(r => `<span class="hl-ip">${r}</span>`).join(', ')}</span></div>`;
+  if (mx.length) html += `<div class="kv"><span class="kv-key">MX</span><span class="kv-val">${mx.slice(0,3).map(r => `<span class="hl-zone">${r}</span>`).join(', ')}</span></div>`;
+  if (ns.length) html += `<div class="kv"><span class="kv-key">NS</span><span class="kv-val">${ns.slice(0,3).map(r => `<span class="hl-zone">${r}</span>`).join(', ')}</span></div>`;
   if (dns.cdn_detected) html += `<div class="kv"><span class="kv-key">CDN</span><span class="kv-val">${dns.cdn_detected}</span></div>`;
   html += `</div>`;
 
@@ -887,7 +1936,7 @@ async function renderDetail(domain) {
   if (originCandidates.length) {
     for (const c of originCandidates.slice(0, 5)) {
       const verified = c.verified ? '<span style="color:var(--critical)">VERIFIED</span>' : '<span style="color:var(--text2)">unverified</span>';
-      html += `<div class="kv"><span class="kv-key">${c.ip||'?'}</span><span class="kv-val">${c.source||''} ${verified}</span></div>`;
+      html += `<div class="kv"><span class="kv-key"><span class="hl-ip">${c.ip||'?'}</span></span><span class="kv-val">${c.source||''} ${verified}</span></div>`;
     }
   } else { html += `<div style="color:var(--text2)">Not found</div>`; }
   html += `</div>`;
@@ -900,24 +1949,56 @@ async function renderDetail(domain) {
     html += `<div class="kv"><span class="kv-key">Wildcards</span><span class="kv-val">${(ct.wildcard_certs||[]).length}</span></div>`;
     html += `<div class="kv"><span class="kv-key">Alerts</span><span class="kv-val">${(ct.alerts||[]).length}</span></div>`;
     for (const a of (ct.alerts||[]).slice(0,5)) {
-      html += `<div class="kv"><span class="kv-key">${riskBadge(a.severity)}</span><span class="kv-val">${a.message}</span></div>`;
+      html += `<div class="kv"><span class="kv-key">${riskBadge(a.severity)}</span><span class="kv-val">${highlightFinding(a.message)}</span></div>`;
     }
     html += `</div>`;
   }
 
   html += `</div>`; // close detail-grid
 
-  // Subdomains table
+  // WAF Bypass Subdomains — security alert
+  if (wafBypassSubs.length) {
+    html += `<div class="section-title" style="color:var(--critical)">&#9888; Subdomains Bypassing WAF <span class="count" style="color:var(--critical)">(${wafBypassSubs.length})</span></div>`;
+    html += `<div class="table-wrap" style="border-color:rgba(244,63,94,.2)"><table>
+      <thead><tr><th>Subdomain</th><th>IPs (Direct Origin)</th><th>CDN</th><th>Bypass Reason</th></tr></thead><tbody>`;
+    for (const s of wafBypassSubs) {
+      html += `<tr>
+        <td style="font-size:12px"><span class="hl-zone" style="color:var(--critical)">${s.subdomain||''}</span></td>
+        <td style="font-size:11px">${(s.ips||[]).map(ip => `<span class="hl-ip">${ip}</span>`).join(', ')}</td>
+        <td>${s.cdn ? `<span class="tag tag-cdn">${s.cdn}</span>` : '<span style="color:var(--critical);font-size:11px">None</span>'}</td>
+        <td style="font-size:12px">${s.bypass_reason||''}</td>
+      </tr>`;
+    }
+    html += `</tbody></table></div>`;
+  }
+
+  // Active Subdomain Discovery
+  if (discoveredSubs.length) {
+    html += `<div class="section-title">Actively Discovered Subdomains <span class="count">(${discoveredSubs.length})</span></div>`;
+    html += `<div class="table-wrap"><table>
+      <thead><tr><th>Subdomain</th><th>IPs</th><th>CDN</th><th>WAF Status</th></tr></thead><tbody>`;
+    for (const s of discoveredSubs.slice(0, 50)) {
+      const wafStatus = s.bypasses_waf
+        ? '<span class="badge badge-critical">BYPASSES WAF</span>'
+        : (s.cdn ? '<span class="badge badge-low">Protected</span>' : '<span class="badge badge-medium">Unknown</span>');
+      html += `<tr>
+        <td style="font-size:12px"><span class="hl-zone">${s.subdomain||''}</span></td>
+        <td style="font-size:11px">${(s.ips||[]).map(ip => `<span class="hl-ip">${ip}</span>`).join(', ')}</td>
+        <td>${s.cdn ? `<span class="tag tag-cdn">${s.cdn}</span>` : ''}</td>
+        <td>${wafStatus}</td>
+      </tr>`;
+    }
+    html += `</tbody></table></div>`;
+  }
+
+  // All Subdomains (passive)
   if (allSubs.length) {
-    html += `<div class="section-title">Subdomains <span class="count">(${allSubs.length})</span></div>`;
-    html += `<div class="table-wrap"><table><thead><tr><th>FQDN</th><th>IP</th><th>WAF</th><th>Status</th></tr></thead><tbody>`;
+    html += `<div class="section-title">All Subdomains <span class="count">(${allSubs.length})</span></div>`;
+    html += `<div class="table-wrap"><table><thead><tr><th>FQDN</th></tr></thead><tbody>`;
     const subList = allSubs.slice(0, 50);
     for (const s of subList) {
       const fqdn = typeof s === 'string' ? s : (s.fqdn || s.name || '');
-      const ip = typeof s === 'object' ? (s.ip || s.a || '') : '';
-      const waf = typeof s === 'object' ? (s.waf || s.cdn || '') : '';
-      const status = typeof s === 'object' ? (s.status || '') : '';
-      html += `<tr><td style="font-family:var(--mono);font-size:12px">${fqdn}</td><td>${ip}</td><td>${waf ? `<span class="tag">${waf}</span>` : ''}</td><td>${status}</td></tr>`;
+      html += `<tr><td style="font-size:12px"><span class="hl-zone">${fqdn}</span></td></tr>`;
     }
     html += `</tbody></table></div>`;
     if (allSubs.length > 50) html += `<div style="color:var(--text2);font-size:12px;margin-top:-16px;margin-bottom:16px">... and ${allSubs.length-50} more</div>`;
@@ -960,9 +2041,9 @@ async function renderDetail(domain) {
         const sev = (r.severity||'medium').toLowerCase();
         html += `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">${riskBadge(sev)} <span style="font-weight:600;font-size:12px">${r.action||''}</span></div>
-          <div style="font-size:11px;color:var(--text2);margin-bottom:2px"><strong>Why:</strong> ${r.why||''}</div>
-          <div style="font-size:11px;color:var(--text2);margin-bottom:2px"><strong>How:</strong> ${r.how||''}</div>
-          <div style="font-size:11px"><span class="tag">${r.timeline||'TBD'}</span></div>
+          <div style="font-size:12.5px;color:var(--text2);margin-bottom:2px"><strong style="color:var(--text)">Why:</strong> ${r.why||''}</div>
+          <div style="font-size:12.5px;color:var(--text);margin-bottom:2px"><strong>How:</strong> ${r.how||''}</div>
+          <div style="font-size:12px"><span class="tag">${r.timeline||'TBD'}</span></div>
         </div>`;
       }
       html += `</div>`;
@@ -979,8 +2060,8 @@ async function renderDetail(domain) {
             <span style="font-weight:600;font-size:12px">${b.technique||''}</span>
             <span style="color:${confColor};font-size:11px">${b.confidence||''}</span>
           </div>
-          <div style="font-size:11px;color:var(--text2)">${b.description||''}</div>
-          ${b.payload_example ? `<div style="font-family:var(--mono);font-size:10px;color:var(--accent);margin-top:2px">${b.payload_example}</div>` : ''}
+          <div style="font-size:12.5px;color:var(--text2)">${b.description||''}</div>
+          ${b.payload_example ? `<div style="font-family:var(--mono);font-size:11px;color:var(--accent);margin-top:4px">${b.payload_example}</div>` : ''}
         </div>`;
       }
       html += `</div>`;
@@ -1025,7 +2106,7 @@ async function renderDetail(domain) {
 
 async function renderLearned() {
   const data = await fetchJSON('/api/learned');
-  let html = `<div class="section-title">&#9881; WAF Bypass Memory</div>`;
+  let html = `<div class="section-title">&#9881; WAF Intel</div>`;
 
   // Explanation for new users
   html += `<div style="background:linear-gradient(135deg, var(--bg2) 0%, var(--bg3) 100%);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:var(--radius);padding:18px 22px;margin-bottom:24px;box-shadow:var(--shadow-sm)">
@@ -1091,15 +2172,44 @@ async function renderLearned() {
     }
 
     if (Object.keys(failStrats).length) {
-      html += `<div><div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;font-weight:600;margin-bottom:6px">Deprioritized Strategies</div>`;
+      html += `<div><div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;font-weight:600;margin-bottom:6px">Deprioritized Strategies</div>`;
       const sorted = Object.entries(failStrats).sort((a,b) => (typeof b[1]==='number'?b[1]:0) - (typeof a[1]==='number'?a[1]:0));
       for (const [strat, count] of sorted.slice(0,8)) {
-        html += `<div class="kv"><span class="kv-key" style="color:var(--text3)">${strat}</span><span class="kv-val" style="color:var(--text3)">${typeof count==='number'?count:''} failures</span></div>`;
+        html += `<div class="kv"><span class="kv-key" style="color:var(--text2);opacity:.7">${strat}</span><span class="kv-val" style="color:var(--text2);opacity:.7">${typeof count==='number'?count:''} failures</span></div>`;
       }
       html += `</div>`;
     }
 
     html += `</div>`;
+  }
+
+  // Payload Analytics section
+  const analytics = await fetchJSON('/api/payload-analytics');
+  const analyticsVendors = Object.keys(analytics);
+  if (analyticsVendors.length) {
+    html += `<div class="section-title" style="margin-top:8px">Payload Hit/Miss Analytics</div>`;
+    html += `<div class="table-wrap"><table>
+      <thead><tr><th>WAF Vendor</th><th>Bypass Rate</th><th>Bypassed</th><th>Blocked</th><th>Total Runs</th><th>Top Effective Strategy</th></tr></thead><tbody>`;
+    for (const v of analyticsVendors) {
+      const a = analytics[v];
+      const rate = a.bypass_rate || 0;
+      const rateColor = rate > 20 ? 'var(--critical)' : rate > 5 ? 'var(--high)' : rate > 0 ? 'var(--medium)' : 'var(--success)';
+      const topStrat = (a.top_effective || [])[0];
+      html += `<tr>
+        <td><strong style="color:var(--text)">${v}</strong></td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:60px;height:5px;border-radius:3px;background:var(--bg);overflow:hidden"><div style="width:${Math.min(100,rate)}%;height:100%;background:${rateColor};border-radius:3px"></div></div>
+            <span style="color:${rateColor};font-weight:600;font-family:var(--mono);font-size:12px">${rate}%</span>
+          </div>
+        </td>
+        <td style="color:var(--success);font-weight:600">${a.total_bypassed||0}</td>
+        <td style="color:var(--critical);font-weight:600">${a.total_blocked||0}</td>
+        <td>${a.total_runs||0}</td>
+        <td>${topStrat ? `<span class="tag tag-frontend">${topStrat[0]}</span> <span style="font-size:11px;color:var(--text2)">${topStrat[1]}x</span>` : '<span style="color:var(--text3)">None</span>'}</td>
+      </tr>`;
+    }
+    html += `</tbody></table></div>`;
   }
 
   $('#content').innerHTML = html;
@@ -1147,23 +2257,58 @@ async function renderIntel() {
   html += `<div class="cards">
     <div class="card"><div class="card-label">Known CVEs</div><div class="card-value">${seenCves.length}</div><div class="card-sub">unique vulnerabilities tracked</div></div>
     <div class="card"><div class="card-label">Payloads Ingested</div><div class="card-value">${seenHashes.length}</div><div class="card-sub">${stats.total_fetched||0} fetched, ${stats.total_skipped||0} deduped</div></div>
-    <div class="card"><div class="card-label">Last Fetch</div><div class="card-value" style="font-size:14px;color:var(--text)">${lastFetchStr}</div></div>
-    <div class="card"><div class="card-label">Sources</div><div class="card-value" style="font-size:14px">${fetchEntries.length ? fetchEntries[0][0].split(',').length : 0}</div><div class="card-sub">NVD, CISA, GitHub, ExploitDB, RSS, Nuclei</div></div>
+    <div class="card"><div class="card-label">Last Fetch</div><div class="card-value" style="font-size:16px;color:var(--text)">${lastFetchStr}</div></div>
+    <div class="card"><div class="card-label">Sources</div><div class="card-value">${fetchEntries.length ? fetchEntries[0][0].split(',').length : 0}</div><div class="card-sub">NVD, CISA, GitHub, ExploitDB, RSS, Nuclei</div></div>
   </div>`;
 
-  // CVE list — grouped by year
+  // CVE list — grouped by year with tooltips
   if (seenCves.length) {
+    // Fetch CVE metadata for tooltips
+    const cveMeta = await fetchJSON('/api/cve-meta');
+
+    function cveTag(cve) {
+      const m = cveMeta[cve];
+      const isGhsa = cve.startsWith('GHSA');
+      const url = isGhsa ? `https://github.com/advisories/${cve}` : `https://nvd.nist.gov/vuln/detail/${cve}`;
+      const cls = isGhsa ? 'tag tag-cms' : 'tag';
+      // Severity color for the tag itself
+      let tagStyle = 'font-family:var(--mono);cursor:pointer';
+      if (m && m.cvss) {
+        if (m.cvss >= 9) tagStyle += ';background:rgba(244,63,94,.15);color:var(--critical);border-color:rgba(244,63,94,.3)';
+        else if (m.cvss >= 7) tagStyle += ';background:rgba(249,115,22,.12);color:var(--high);border-color:rgba(249,115,22,.25)';
+        else if (m.cvss >= 4) tagStyle += ';background:rgba(234,179,8,.12);color:var(--medium);border-color:rgba(234,179,8,.25)';
+        else tagStyle += ';background:rgba(59,130,246,.12);color:var(--low);border-color:rgba(59,130,246,.25)';
+      } else {
+        tagStyle += '';
+      }
+      if (m && m.description) {
+        const cvssColor = m.cvss >= 9 ? 'background:var(--critical);color:#fff' : m.cvss >= 7 ? 'background:var(--high);color:#fff' : m.cvss >= 4 ? 'background:var(--medium);color:#000' : 'background:var(--low);color:#fff';
+        const types = (m.types||[]).filter(Boolean).map(t => t.replace(/_/g,' ')).join(', ');
+        return `<span class="tip ${cls}" style="${tagStyle}" onclick="window.open('${url}','_blank')">
+          ${cve}
+          <span class="tiptext">
+            <strong>${cve}</strong>${m.cvss ? `<span class="tip-cvss" style="${cvssColor}">CVSS ${m.cvss}</span>` : ''}<br>
+            ${m.description}${types ? `<br><span style="color:var(--text2);font-size:11px">Type: ${types}</span>` : ''}${m.software ? `<br><span style="color:var(--text2);font-size:11px">Affects: ${m.software}</span>` : ''}
+          </span>
+        </span>`;
+      }
+      return `<span class="${cls}" style="${tagStyle}" onclick="window.open('${url}','_blank')" title="Click to view on ${isGhsa?'GitHub':'NVD'}">${cve}</span>`;
+    }
+
     // Classify
     const byYear = {};
-    let ghsaCount = 0;
     for (const cve of seenCves) {
-      if (cve.startsWith('GHSA')) { ghsaCount++; continue; }
+      if (cve.startsWith('GHSA')) {
+        if (!byYear['GitHub']) byYear['GitHub'] = [];
+        byYear['GitHub'].push(cve);
+        continue;
+      }
       const year = cve.split('-')[1] || 'Unknown';
       if (!byYear[year]) byYear[year] = [];
       byYear[year].push(cve);
     }
-    const ghsas = seenCves.filter(c => c.startsWith('GHSA'));
-    const sortedYears = Object.keys(byYear).sort((a,b) => parseInt(b) - parseInt(a));
+    const sortedYears = Object.keys(byYear).filter(y=>y!=='GitHub').sort((a,b) => parseInt(b) - parseInt(a));
+    if (byYear['GitHub']) sortedYears.push('GitHub');
 
     html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <div class="section-title" style="margin-bottom:0">Tracked CVEs <span class="count">(${seenCves.length})</span></div>
@@ -1171,21 +2316,14 @@ async function renderIntel() {
     </div>`;
 
     html += `<div class="table-wrap"><table>
-      <thead><tr><th>Year</th><th>Count</th><th>CVE IDs</th></tr></thead><tbody>`;
+      <thead><tr><th>Source</th><th>Count</th><th>CVE IDs <span style="font-weight:400;text-transform:none;letter-spacing:0">(hover for details, click to open)</span></th></tr></thead><tbody>`;
     for (const year of sortedYears) {
       const cves = byYear[year];
-      const yearColor = parseInt(year) >= 2026 ? 'var(--critical)' : parseInt(year) >= 2025 ? 'var(--high)' : 'var(--text2)';
+      const yearColor = year === 'GitHub' ? 'var(--accent)' : parseInt(year) >= 2026 ? 'var(--critical)' : parseInt(year) >= 2025 ? 'var(--high)' : 'var(--text2)';
       html += `<tr>
         <td style="font-weight:600;color:${yearColor};white-space:nowrap">${year}</td>
         <td style="font-weight:600">${cves.length}</td>
-        <td style="font-family:var(--mono);font-size:11.5px;line-height:1.8">${cves.map(c => `<span class="tag" style="font-family:var(--mono)">${c}</span>`).join(' ')}</td>
-      </tr>`;
-    }
-    if (ghsas.length) {
-      html += `<tr>
-        <td style="font-weight:600;color:var(--accent);white-space:nowrap">GitHub</td>
-        <td style="font-weight:600">${ghsas.length}</td>
-        <td style="font-family:var(--mono);font-size:11.5px;line-height:1.8">${ghsas.map(c => `<span class="tag tag-cms" style="font-family:var(--mono)">${c}</span>`).join(' ')}</td>
+        <td style="line-height:2.2">${cves.map(c => cveTag(c)).join(' ')}</td>
       </tr>`;
     }
     html += `</tbody></table></div>`;
@@ -1294,9 +2432,7 @@ async function renderExecutive() {
     html += `</tbody></table></div>`;
   }
 
-  html += `<div class="detail-grid">`;
-
-  // Critical Findings — proper table
+  // Critical Findings — proper table (full width)
   const cf = s.critical_findings || [];
   if (cf.length) {
     html += `<div class="section-title">Critical &amp; High Findings <span class="count">(${cf.length})</span></div>`;
@@ -1307,7 +2443,7 @@ async function renderExecutive() {
       const catCls = f.category === 'infra' ? 'tag-infra' : f.category === 'config' ? 'tag-cdn' : f.category === 'app' ? 'tag-frontend' : f.category === 'data' ? 'tag-lang' : '';
       html += `<tr>
         <td>${riskBadge(sev)}</td>
-        <td style="font-size:12.5px;max-width:400px">${(f.finding||f.title||'')}</td>
+        <td style="font-size:12.5px">${highlightFinding(f.finding||f.title||'')}</td>
         <td><span class="tag ${catCls}">${f.category||'other'}</span></td>
         <td><a href="#" onclick="event.preventDefault();navigate('detail','${f.domain}')">${f.domain}</a></td>
       </tr>`;
@@ -1315,34 +2451,38 @@ async function renderExecutive() {
     html += `</tbody></table></div>`;
   }
 
-  // Finding Categories
+  html += `<div class="detail-grid">`;
+
+  // Finding Categories — with bars
   const cats = s.top_categories || [];
   if (cats.length) {
     html += `<div class="detail-section"><h3>Finding Categories</h3>`;
     for (const [cat, count] of cats) {
       const pct = Math.round(count / (s.total_findings||1) * 100);
-      html += `<div class="kv"><span class="kv-key">${cat}</span><span class="kv-val">${count} (${pct}%)</span></div>`;
+      html += `<div class="kv"><span class="kv-key">${cat}</span><span class="kv-val" style="display:flex;align-items:center;gap:8px"><span style="width:60px;height:4px;border-radius:2px;background:var(--bg);overflow:hidden;display:inline-block"><span style="width:${pct}%;height:100%;background:var(--accent);display:block;border-radius:2px"></span></span><span>${count} (${pct}%)</span></span></div>`;
     }
     html += `</div>`;
   }
 
-  // Attack Vector Types
+  // Attack Vector Types — with bars
   const vecs = s.top_vectors || [];
   if (vecs.length) {
     html += `<div class="detail-section"><h3>Attack Vector Types</h3>`;
+    const maxVec = Math.max(...vecs.map(v=>v[1]));
     for (const [vtype, count] of vecs) {
-      html += `<div class="kv"><span class="kv-key">${vtype}</span><span class="kv-val">${count} domains</span></div>`;
+      const pct = Math.round(count / maxVec * 100);
+      html += `<div class="kv"><span class="kv-key">${vtype}</span><span class="kv-val" style="display:flex;align-items:center;gap:8px"><span style="width:60px;height:4px;border-radius:2px;background:var(--bg);overflow:hidden;display:inline-block"><span style="width:${pct}%;height:100%;background:var(--brand2);display:block;border-radius:2px"></span></span><span>${count} domains</span></span></div>`;
     }
     html += `</div>`;
   }
 
-  // WAF Vendors
+  // WAF Vendors — with bars
   const wafs = s.waf_vendors || [];
   if (wafs.length) {
     html += `<div class="detail-section"><h3>WAF Distribution</h3>`;
     for (const [waf, count] of wafs) {
       const pct = Math.round(count / s.total_domains * 100);
-      html += `<div class="kv"><span class="kv-key">${waf}</span><span class="kv-val">${count} (${pct}%)</span></div>`;
+      html += `<div class="kv"><span class="kv-key">${techTag(waf)}</span><span class="kv-val" style="display:flex;align-items:center;gap:8px"><span style="width:60px;height:4px;border-radius:2px;background:var(--bg);overflow:hidden;display:inline-block"><span style="width:${pct}%;height:100%;background:var(--success);display:block;border-radius:2px"></span></span><span>${count} (${pct}%)</span></span></div>`;
     }
     html += `</div>`;
   }
@@ -1410,6 +2550,9 @@ function navigate(page, arg) {
   // Render
   switch(page) {
     case 'overview': renderOverview(); break;
+    case 'findings': renderFindings(); break;
+    case 'targets': renderTargets(); break;
+    case 'history': renderHistory(); break;
     case 'executive': renderExecutive(); break;
     case 'domains': renderDomains(); break;
     case 'detail': renderDetail(arg); break;
@@ -1428,11 +2571,14 @@ function updateToolbar() {
   const tb = document.getElementById('toolbar');
   const pageTitle = {
     overview: 'Overview',
+    findings: 'Findings',
+    targets: 'Targets',
+    history: 'Scan History',
     executive: 'Executive Report',
     domains: 'All Domains',
     detail: _currentArg || 'Domain Detail',
-    learned: 'WAF Bypass Memory',
-    intel: 'Threat Intel',
+    learned: 'WAF Intel',
+    intel: 'CVE Feed',
   }[_currentPage] || 'Dashboard';
 
   tb.innerHTML = `
@@ -1443,9 +2589,6 @@ function updateToolbar() {
       </button>
       <button class="btn" onclick="downloadJSON()" title="Download page data as JSON">
         &#128230; JSON
-      </button>
-      <button class="btn btn-brand" onclick="downloadPDF()" title="Export as PDF">
-        &#128196; Download PDF
       </button>
     </div>
   `;
@@ -1470,15 +2613,13 @@ function copyShareLink() {
   });
 }
 
-function downloadPDF() {
-  showToast('Preparing PDF...');
-  setTimeout(() => window.print(), 300);
-}
-
 function downloadJSON() {
   let endpoint = '/api/stats';
   let filename = 'fray-dashboard.json';
-  if (_currentPage === 'executive') { endpoint = '/api/executive-summary'; filename = 'fray-executive-summary.json'; }
+  if (_currentPage === 'findings') { endpoint = '/api/findings-triage'; filename = 'fray-findings-triage.json'; }
+  else if (_currentPage === 'targets') { endpoint = '/api/domains'; filename = 'fray-targets.json'; }
+  else if (_currentPage === 'history') { endpoint = '/api/global-delta'; filename = 'fray-scan-delta.json'; }
+  else if (_currentPage === 'executive') { endpoint = '/api/executive-summary'; filename = 'fray-executive-summary.json'; }
   else if (_currentPage === 'domains') { endpoint = '/api/domains'; filename = 'fray-domains.json'; }
   else if (_currentPage === 'detail' && _currentArg) { endpoint = `/api/domain/${_currentArg}`; filename = `fray-${_currentArg}.json`; }
   else if (_currentPage === 'learned') { endpoint = '/api/learned'; filename = 'fray-learned.json'; }
@@ -1506,7 +2647,7 @@ function loadFromHash() {
   const parts = hash.split('/');
   const page = parts[0];
   const arg = parts.slice(1).join('/');
-  if (['overview','executive','domains','detail','learned','intel'].includes(page)) {
+  if (['overview','findings','targets','history','executive','domains','detail','learned','intel'].includes(page)) {
     navigate(page, arg || undefined);
     return true;
   }
@@ -1535,6 +2676,8 @@ if (!loadFromHash()) renderOverview();
 def start_dashboard(port: int = 8337, open_browser: bool = True,
                     quiet: bool = False) -> None:
     """Start the dashboard web server."""
+    global _DASHBOARD_PORT
+    _DASHBOARD_PORT = port
     handler = DashboardHandler
 
     with socketserver.TCPServer(("127.0.0.1", port), handler) as httpd:
