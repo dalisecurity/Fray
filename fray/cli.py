@@ -1091,6 +1091,22 @@ def cmd_test(args):
     )
 
     all_payloads = []
+    json_mode = getattr(args, 'json', False)
+
+    # ── Educational header for standalone test ──
+    if not json_mode and not getattr(args, 'quiet', False):
+        _cat = getattr(args, 'category', None)
+        _cat_label = f" ({_cat})" if _cat else ""
+        sys.stderr.write(f"\n  \033[1m⚔️  Test: WAF payload testing{_cat_label}\033[0m\n")
+        sys.stderr.write(f"  \033[2mSending payloads through the WAF and analyzing responses...\033[0m\n")
+        if getattr(args, 'smart', False):
+            sys.stderr.write(f"  \033[2m🧠 Smart mode: fingerprint WAF first, then select targeted payloads\033[0m\n")
+        if getattr(args, 'blind', False):
+            sys.stderr.write(f"  \033[2m👁  Blind mode: testing with out-of-band callbacks\033[0m\n")
+        if getattr(args, 'stealth', False):
+            sys.stderr.write(f"  \033[2m🥷 Stealth mode: randomized timing, TLS fingerprint rotation\033[0m\n")
+        sys.stderr.write("\n")
+        sys.stderr.flush()
 
     # --from-crawl: load endpoints from crawl JSON and test each param
     _from_crawl = getattr(args, 'from_crawl', None)
@@ -2804,6 +2820,15 @@ def cmd_recon(args):
 
     else:
         # Sequential (single target, interactive, SARIF, CI, etc.)
+        if not suppress_progress and not multi:
+            _mode_desc = {"fast": "Quick scan", "deep": "Deep scan", "default": "Standard scan"}
+            sys.stderr.write(f"\n  \033[1m🔍 Recon: {_mode_desc.get(scan_mode, 'Scan')}\033[0m\n")
+            sys.stderr.write(f"  \033[2mFingerprinting tech stack, WAF, TLS, headers, DNS, subdomains...\033[0m\n")
+            if stealth:
+                sys.stderr.write(f"  \033[2m🥷 Stealth mode: randomized timing, passive checks first\033[0m\n")
+            sys.stderr.write("\n")
+            sys.stderr.flush()
+
         for target in targets:
             result = run_recon(target, timeout=getattr(args, 'timeout', 8),
                                headers=auth_headers, mode=scan_mode,
@@ -7880,6 +7905,15 @@ def main():
     _apply_profile(args)
 
     # ── Flag compatibility shims ──
+    # -p deprecation warning: ambiguous short flag (--payload-file vs --param)
+    if args.command in ('test', 'compare') and '-p' in sys.argv:
+        _long = '--payload-file' if args.command == 'test' else '--param'
+        sys.stderr.write(
+            f"  \033[33m⚠  -p is ambiguous across commands "
+            f"(--payload-file in test, --param in compare)\033[0m\n"
+            f"  \033[2m   Use '{_long}' instead. -p will be removed in a future version.\033[0m\n\n"
+        )
+
     # --webhook → --notify migration: merge legacy value into notify
     _nl = getattr(args, 'notify_legacy', None)
     if _nl and not getattr(args, 'notify', None):
