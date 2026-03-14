@@ -5875,118 +5875,74 @@ def cmd_monitor(args):
 def cmd_help(args):
     """Friendly high-level guide to every fray command."""
     print(f"""
-  ⚔️  Fray v{__version__} — WAF Security Testing Toolkit
+  \033[1m⚔️  Fray v{__version__} — WAF Security Testing Toolkit\033[0m
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  🔍 RECON — Know your target
+  \033[33mQUICK START\033[0m
   ─────────────────────────────
-  fray recon <url>              Full recon: TLS, headers, DNS, cookies, fingerprint,
-                                GraphQL, API discovery, Host injection, admin panels,
-                                rate limits, WAF detection mode, gap analysis (24 checks)
-  fray recon <url> --js         LinkFinder-style JS extraction: endpoints, hostnames,
-                                cloud buckets (S3/GCS/Azure), API keys, secrets
-  fray recon <url> --history    Discover old URLs via Wayback Machine / sitemap / robots
-  fray recon <url> --params     Brute-force 136 common parameter names (?id= ?file= ?redirect=)
-  fray recon <url> --ai         AI-ready JSON output for LLMs
+  fray <url>                    Full assessment (= fray go <url>)
+  fray                          Interactive guided wizard
 
-  🗺️  GRAPH — Attack surface visualization
+  \033[36mCORE\033[0m — Security testing workflow
   ─────────────────────────────
-  fray graph <url>              Visual tree: subdomains, DNS, tech, endpoints, files
-  fray graph <url> --deep       Deep mode: + JS endpoints + Wayback historical URLs
-  fray graph <url> --json       Output graph as JSON
+  fray go <url>           \033[33m★\033[0m Full assessment: recon → smart test → report
+  fray recon <url>          Reconnaissance & fingerprinting (24+ checks)
+                            --deep --js --history --params --graph --harden
+  fray test <url>           Test WAF with payloads
+                            -c xss --smart --bypass --ai --agent --smuggle --race
+  fray scan <url>           Auto crawl → discover → inject
+                            --crawl-only --bounty --browser --blind
+  fray monitor <url>        Continuous monitoring with alerts
 
-  🛡️  DETECT — Identify the WAF
+  \033[36mDATA\033[0m — Reports & intelligence
   ─────────────────────────────
-  fray detect <url>             Fingerprint WAF vendor (Cloudflare, AWS, Akamai, etc.)
+  fray report <sub>         Generate reports
+                            \033[2msub: generate, company, waf, posture, diff, explain\033[0m
+  fray intel <sub>          Threat intelligence
+                            \033[2msub: feed, cve, poc-recheck, leak, osint, ct\033[0m
+  fray auth <sub>           Authentication & sessions
+                            \033[2msub: session, solve, cred\033[0m
+  fray export <sub>         Export to other tools
+                            \033[2msub: nuclei, ci\033[0m
 
-  🎯 SCAN — Automated vulnerability scan
+  \033[36mMANAGE\033[0m — Configuration & data
   ─────────────────────────────
-  fray scan <url>               Auto crawl → param discovery → payload injection
-  fray scan <url> -c sqli       Scan with specific payload category
-  fray scan <url> --depth 5     Control crawl depth and scope
-  fray scan <url> --ai          AI-ready JSON output for LLMs (pipe to Claude, GPT, etc.)
-  fray scan <url> --sarif        SARIF 2.1.0 output for GitHub Security tab / CodeQL
+  fray config               .fray.toml configuration (init, show, validate)
+  fray plugin               Plugin system (list, init, install, hooks)
+  fray cache                Payload cache & stats (show, clear, export, import)
+  fray update               Update payload database
 
-  ⚡ TEST — Payload injection
+  \033[36mINTEGRATIONS\033[0m
   ─────────────────────────────
-  fray test <url> -c xss        Test a specific payload category
-  fray test <url> --all         Test ALL 24 payload categories
-  fray test <url> --smart       Adaptive mode: probe WAF first, skip redundant payloads
-  fray test <url> --ai          AI-ready JSON output for LLMs
-  fray test <url> --sarif        SARIF 2.1.0 output for GitHub Security tab
+  fray dashboard            Launch local web dashboard
+  fray mcp                  Start MCP server for AI assistants
+  fray completions          Shell completion scripts (bash/zsh/fish)
 
-  🔓 BYPASS — WAF evasion scoring
+  \033[36mLEARN & HELP\033[0m
   ─────────────────────────────
-  fray bypass <url>             Evasion-optimized testing with bypass scorecard
-  fray bypass <url> --waf cloudflare   Target a specific WAF vendor
+  fray ask <query>          Natural language query over your data
+  fray learn [topic]        Interactive CTF-style security tutorial
+  fray doctor [--fix]       Check environment & auto-fix issues
+  fray help                 This guide
 
-  🕵️  SMUGGLE — HTTP request smuggling
+  \033[36mGLOBAL FLAGS\033[0m (work with most commands)
   ─────────────────────────────
-  fray smuggle <url>            Detect CL.TE / TE.CL / TE.TE smuggling vulns
+  --json                    JSON output
+  --stealth                 Anti-detection mode (random UA, jitter, TLS spoof)
+  --profile <name>          Preset: quick / deep / stealth / bounty
+  -o, --output <file>       Save results to file
+  --cookie / --bearer / -H  Authentication headers
+  --notify <webhook>        Slack/Discord/Teams notification
 
-  📊 REPORT — Generate reports
+  \033[36mPIPE-FRIENDLY\033[0m (like httpx)
   ─────────────────────────────
-  fray report -i results.json   Generate HTML security report
-  fray report --sample          Generate a sample demo report
+  cat domains.txt | fray recon                   JSONL per target
+  cat domains.txt | fray test -c xss -m 10       XSS test all targets
+  subfinder -d example.com | fray recon           Chain with any tool
 
-  🔍 OSINT — Offensive Open Source Intelligence
-  ─────────────────────────────
-  fray osint example.com           Full OSINT: whois, emails, typosquatting, GitHub org, employees, docs
-  fray osint example.com --github  GitHub org recon + employee enumeration only
-  fray osint example.com --docs    Document metadata harvesting only
-  fray osint example.com --whois   Whois lookup only
-  fray osint example.com --emails  Email harvesting only
-  fray osint example.com --permutations   Typosquatting check only
-
-  🔑 CRED — Credential Stuffing Test
-  ─────────────────────────────
-  fray cred <login-url> --pairs leaked.txt   Test leaked email:password pairs
-  fray cred <login-url> --pairs leaked.txt --dry-run   Preview without sending
-  fray cred <login-url> --pairs leaked.txt --rate 2 --delay 3   Rate control
-
-  🔄 MONITOR — Continuous Monitoring
-  ─────────────────────────────
-  fray monitor example.com                    Default: scan every 24h
-  fray monitor example.com --interval 12h     Custom interval
-  fray monitor example.com --webhook <url>    Alert via Slack/Discord/Teams
-  fray monitor example.com --email <addr>     Alert via email (needs RESEND_API_KEY)
-  fray monitor example.com --once             Single scan, diff against last
-  fray monitor example.com --list             List previous snapshots
-
-  🔎 OTHER TOOLS
-  ─────────────────────────────
-  fray payloads                 List all {len(list_categories())} payload categories with counts
-  fray validate <url>           Blue team: validate WAF config (defense report)
-  fray bounty --platform hackerone   Bug bounty integration
-  fray leak example.com          Search GitHub + HIBP for leaked credentials
-  fray leak user@example.com     Check specific email in breach databases
-  fray diff before.json after.json   Compare scan results (regression testing)
-  fray explain CVE-2021-44228   Explain a CVE with payloads and severity
-  fray explain results.json      Explain scan findings: impact, why it matters, next steps
-  fray demo                     Quick showcase: detect WAF + XSS scan
-  fray learn xss                Interactive CTF-style security tutorial
-  fray ci init                  Generate GitHub Actions workflow for CI/CD
-  fray stats                    Payload database statistics
-  fray doctor                   Check environment, auto-fix issues
-
-  🔑 AUTHENTICATION (works with any command)
-  ─────────────────────────────
-  --cookie "session=abc"        Cookie header
-  --bearer "eyJ..."             Bearer token
-  -H "X-Api-Key: secret"       Custom header (repeatable)
-  --login-flow "url,user=x,pass=y"   Auto-login and capture session
-
-  🔗 PIPE-FRIENDLY (like httpx)
-  ─────────────────────────────
-  cat domains.txt | fray detect                  WAF detect all targets (TSV output)
-  cat domains.txt | fray recon                   Attack surface JSONL per target
-  cat domains.txt | fray test -c xss -m 10       XSS test all targets (JSONL output)
-  subfinder -d example.com | fray detect         Chain with any tool
-  cat targets.txt | fray recon | jq '.risk_level'   Filter with jq
-
-  📖 Docs:   https://dalisec.io/docs/#quickstart
-  🔗 GitHub: https://github.com/dalisecurity/fray
-  ⚠️  Only test systems you own or have written permission to test.
+  \033[2mDocs:   https://dalisec.io/docs/#quickstart\033[0m
+  \033[2mGitHub: https://github.com/dalisecurity/fray\033[0m
+  \033[2m⚠️  Only test systems you own or have written permission to test.\033[0m
 """)
 
 
@@ -6102,30 +6058,141 @@ def list_categories():
     ])
 
 
+def _looks_like_url(arg):
+    """Check if an argument looks like a URL or domain (not a subcommand)."""
+    if arg.startswith(('http://', 'https://')):
+        return True
+    # domain-like: contains a dot, no spaces, no dashes at start
+    if '.' in arg and ' ' not in arg and not arg.startswith('-'):
+        parts = arg.split('.')
+        if len(parts) >= 2 and len(parts[-1]) >= 2:
+            return True
+    return False
+
+
+def _deprecation_warning(old_cmd, new_cmd):
+    """Print a deprecation warning to stderr."""
+    sys.stderr.write(
+        f"\n  \033[33m⚠  '{old_cmd}' is deprecated. Use '{new_cmd}' instead.\033[0m\n"
+        f"  \033[2m   This command will be removed in a future version.\033[0m\n\n"
+    )
+
+
+def _deprecated(old_name, new_name, real_func):
+    """Wrap a command handler with a deprecation warning."""
+    def wrapper(args):
+        if not os.environ.pop('_FRAY_NS_ROUTED', None):
+            _deprecation_warning(f"fray {old_name}", f"fray {new_name}")
+        return real_func(args)
+    wrapper.__doc__ = real_func.__doc__
+    return wrapper
+
+
 def main():
+    # ── Bare URL interception: fray <url> → fray go <url> ──
+    if len(sys.argv) >= 2 and _looks_like_url(sys.argv[1]):
+        sys.argv.insert(1, "go")
+
+    # ── Namespace routing: fray report company → fray company-report ──
+    # Rewrites sys.argv so argparse dispatches to existing flat parsers.
+    _NS_MAP = {
+        'report': {
+            'company': 'company-report', 'waf': 'waf-report', 'posture': 'posture',
+            'diff': 'diff', 'explain': 'explain', 'generate': 'report',
+        },
+        'intel': {
+            'feed': 'feed', 'cve': 'cve-payload', 'poc-recheck': 'poc-recheck',
+            'leak': 'leak', 'osint': 'osint', 'ct': 'ct',
+        },
+        'auth': {
+            'session': 'session', 'solve': 'solve', 'cred': 'cred',
+        },
+        'export': {
+            'nuclei': 'export-nuclei', 'ci': 'ci',
+        },
+    }
+    if len(sys.argv) >= 2 and sys.argv[1] in _NS_MAP:
+        ns = sys.argv[1]
+        subs = _NS_MAP[ns]
+        if len(sys.argv) >= 3 and sys.argv[2] in subs:
+            # fray report company ... → fray company-report ...
+            real_cmd = subs[sys.argv[2]]
+            sys.argv = [sys.argv[0], real_cmd] + sys.argv[3:]
+            os.environ['_FRAY_NS_ROUTED'] = '1'  # suppress deprecation warning
+        elif len(sys.argv) >= 3 and sys.argv[2].startswith('-'):
+            # fray report -i file.json → pass through to existing flat parser (backward compat)
+            pass
+        elif len(sys.argv) == 2:
+            # Bare namespace: fray report → show help for that namespace
+            _ns_help = {
+                'report': "generate, company, waf, posture, diff, explain",
+                'intel': "feed, cve, poc-recheck, leak, osint, ct",
+                'auth': "session, solve, cred",
+                'export': "nuclei, ci",
+            }
+            sys.stderr.write(f"\n  Usage: fray {ns} <subcommand>\n")
+            sys.stderr.write(f"  Subcommands: {_ns_help.get(ns, '')}\n")
+            sys.stderr.write(f"  Run 'fray {ns} <subcommand> --help' for details.\n\n")
+            sys.exit(0)
+
+    # ── Custom --help: grouped, clean output ──
+    if len(sys.argv) == 2 and sys.argv[1] in ('-h', '--help'):
+        print(f"""Fray v{__version__} — AI-Powered WAF Security Testing Platform
+
+\033[33mQUICK START\033[0m
+  fray <url>                Full assessment (= fray go <url>)
+  fray                      Interactive guided wizard
+
+\033[36mCORE\033[0m
+  go <url>           \033[33m★\033[0m Full assessment: recon → smart test → report
+  recon <url>          Reconnaissance & fingerprinting (24+ checks)
+  test <url>           Test WAF with payloads (-c xss --smart --blind)
+  scan <url>           Auto crawl → discover → inject (--bounty)
+  monitor <url>        Continuous monitoring with alerts
+
+\033[36mDATA\033[0m
+  report <sub>         Reports (generate, company, waf, posture, diff, explain)
+  intel <sub>          Threat intel (feed, cve, poc-recheck, leak, osint, ct)
+  auth <sub>           Authentication (session, solve, cred)
+  export <sub>         Export (nuclei, ci)
+
+\033[36mMANAGE\033[0m
+  config               .fray.toml configuration
+  plugin               Plugin system
+  cache                Payload cache & stats
+  update               Update payload database
+
+\033[36mINTEGRATIONS\033[0m
+  dashboard            Web UI
+  mcp                  AI assistant MCP server
+  completions          Shell completions (bash/zsh/fish)
+
+\033[36mLEARN\033[0m
+  ask <query>          Natural language query
+  learn [topic]        Security tutorial
+  doctor [--fix]       Check environment
+  help                 Full command guide
+
+\033[36mGLOBAL FLAGS\033[0m
+  --json               JSON output
+  --stealth            Anti-detection mode
+  --profile <name>     Preset (quick/deep/stealth/bounty)
+  --cookie/--bearer/-H Auth headers
+  --no-hints           Suppress next-step hints
+  --theme <name>       Color theme (dark/light/hacker/minimal)
+
+\033[2mRun 'fray <command> --help' for command-specific options.\033[0m
+\033[2mRun 'fray help' for detailed examples and workflows.\033[0m
+\033[2mDocs: https://dalisec.io/docs  GitHub: https://github.com/dalisecurity/fray\033[0m""")
+        sys.exit(0)
+
     parser = argparse.ArgumentParser(
         prog="fray",
         description=f"Fray v{__version__} — AI-Powered WAF Security Testing Platform",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  fray detect https://example.com
-  fray test https://example.com --category xss
-  fray test https://example.com --category xss --smart
-  fray recon https://example.com
-
-Pipe-friendly (like httpx):
-  cat domains.txt | fray detect                    # WAF detect all targets
-  cat domains.txt | fray recon                     # JSONL attack surface per target
-  cat domains.txt | fray test -c xss -m 10         # XSS test all targets
-  echo example.com | fray recon --json             # single target via pipe
-  subfinder -d example.com | fray detect           # chain with subfinder
-  cat targets.txt | fray recon | jq '.risk_level'  # chain with jq
-
-Docs:   https://dalisec.io/docs/#quickstart
-GitHub: https://github.com/dalisecurity/fray
-        """
+        add_help=False,  # We handle --help ourselves above
     )
+    parser.add_argument('-h', '--help', action='store_true', default=False, help=argparse.SUPPRESS)
 
     # Global flags
     parser.add_argument("--no-hints", action="store_true", default=False,
@@ -6200,7 +6267,7 @@ GitHub: https://github.com/dalisecurity/fray
     p_recon.set_defaults(func=cmd_recon)
 
     # detect
-    p_detect = subparsers.add_parser("detect", help="Detect WAF vendor on target URL")
+    p_detect = subparsers.add_parser("detect", help=argparse.SUPPRESS)
     p_detect.add_argument("target", nargs="?", default=None, help="Target URL (or pipe: cat domains.txt | fray detect)")
     p_detect.add_argument("--insecure", action="store_true", help="Disable TLS certificate verification")
     p_detect.add_argument("--cookie", default=None, help="Cookie header for authenticated detection")
@@ -6290,7 +6357,7 @@ GitHub: https://github.com/dalisecurity/fray
 
     # bypass
     p_bypass = subparsers.add_parser("bypass",
-        help="WAF bypass scoring — evasion-optimized payload testing with scorecard")
+        help=argparse.SUPPRESS)
     p_bypass.add_argument("target", nargs="?", default=None, help="Target URL to test")
     p_bypass.add_argument("--waf", default=None,
                           help="WAF vendor (cloudflare, akamai, aws_waf, imperva, f5, fastly, modsecurity)")
@@ -6335,7 +6402,7 @@ GitHub: https://github.com/dalisecurity/fray
 
     # ai-bypass
     p_ai = subparsers.add_parser("ai-bypass",
-        help="AI-assisted WAF bypass — LLM-generated payloads with adaptive feedback")
+        help=argparse.SUPPRESS)
     p_ai.add_argument("target", nargs="?", default=None, help="Target URL to test")
     p_ai.add_argument("-c", "--category", default="xss",
                       help="Attack category: xss, sqli, ssti, command_injection (default: xss)")
@@ -6362,7 +6429,7 @@ GitHub: https://github.com/dalisecurity/fray
 
     # agent
     p_agent = subparsers.add_parser("agent",
-        help="Self-improving payload agent — iterative probe → mutate → learn loop")
+        help=argparse.SUPPRESS)
     p_agent.add_argument("target", nargs="?", default=None, help="Target URL to test")
     p_agent.add_argument("-c", "--category", default="xss",
                          help="Payload categories, comma-separated (default: xss)")
@@ -6395,7 +6462,7 @@ GitHub: https://github.com/dalisecurity/fray
 
     # feed (threat intelligence)
     p_feed = subparsers.add_parser("feed",
-        help="Threat intelligence feed — auto-discover & ingest new attack vectors from CVEs, advisories, and research")
+        help=argparse.SUPPRESS)
     p_feed.add_argument("--sources", default=None,
                         help="Comma-separated sources: nvd,cisa,github,exploitdb,rss,nuclei (default: all)")
     p_feed.add_argument("--since", default="7d",
@@ -6440,7 +6507,7 @@ GitHub: https://github.com/dalisecurity/fray
 
     # sync (push/pull/configure cloud)
     p_sync = subparsers.add_parser("sync",
-        help="Cloud sync — publish or pull payload database (R2 + GitHub)")
+        help=argparse.SUPPRESS)
     p_sync.add_argument("--push", action="store_true",
                         help="Publish local payload DB to cloud (maintainer)")
     p_sync.add_argument("--pull", action="store_true",
@@ -6461,7 +6528,7 @@ GitHub: https://github.com/dalisecurity/fray
 
     # todo (internal private TODO list)
     p_todo = subparsers.add_parser("todo",
-        help="Internal TODO list — private, stored in ~/.fray/todo.json")
+        help=argparse.SUPPRESS)
     p_todo_sub = p_todo.add_subparsers(dest="action")
     p_todo_sub.default = "list"
 
@@ -6494,7 +6561,7 @@ GitHub: https://github.com/dalisecurity/fray
 
     # harden
     p_harden = subparsers.add_parser("harden",
-        help="OWASP Top 10 misconfiguration checks + security header hardening audit")
+        help=argparse.SUPPRESS)
     p_harden.add_argument("target", nargs="?", default=None, help="Target URL to check")
     p_harden.add_argument("--json", action="store_true", help="Output as JSON")
     p_harden.add_argument("-o", "--output", default=None, help="Save report to file")
@@ -6534,7 +6601,7 @@ GitHub: https://github.com/dalisecurity/fray
 
     # solve — standalone challenge solver
     p_solve = subparsers.add_parser("solve",
-        help="Solve WAF challenges (Cloudflare Turnstile/JS, reCAPTCHA, hCaptcha) and extract cookies")
+        help=argparse.SUPPRESS)
     p_solve.add_argument("target", help="Target URL with challenge")
     p_solve.add_argument("-t", "--timeout", type=int, default=30, help="Solver timeout (default: 30)")
     p_solve.add_argument("--type", default=None, dest="challenge_type",
@@ -6550,7 +6617,7 @@ GitHub: https://github.com/dalisecurity/fray
 
     # session — manage saved auth sessions
     p_session = subparsers.add_parser("session",
-        help="Manage saved authentication sessions (list, delete, login)")
+        help=argparse.SUPPRESS)
     p_session_sub = p_session.add_subparsers(dest="session_action")
     p_session_list = p_session_sub.add_parser("list", help="List saved sessions")
     p_session_delete = p_session_sub.add_parser("delete", help="Delete a saved session")
@@ -6583,7 +6650,7 @@ GitHub: https://github.com/dalisecurity/fray
 
     # diff — compare two recon reports
     p_diff = subparsers.add_parser("diff",
-        help="Compare two recon reports and highlight attack surface changes")
+        help=argparse.SUPPRESS)
     p_diff.add_argument("old_report", help="Path to older recon JSON report")
     p_diff.add_argument("new_report", help="Path to newer recon JSON report")
     p_diff.add_argument("--json", action="store_true", help="Output as JSON")
@@ -6591,7 +6658,7 @@ GitHub: https://github.com/dalisecurity/fray
 
     # compare — A/B TLS fingerprint analysis
     p_compare = subparsers.add_parser("compare",
-        help="A/B bypass testing: compare raw vs impersonated TLS to classify WAF blocks")
+        help=argparse.SUPPRESS)
     p_compare.add_argument("target", help="Target URL")
     p_compare.add_argument("-c", "--category", default="xss", help="Payload category (default: xss)")
     p_compare.add_argument("-m", "--max", type=int, default=20, help="Max payloads (each tested twice)")
@@ -6610,7 +6677,7 @@ GitHub: https://github.com/dalisecurity/fray
 
     # export-nuclei — generate Nuclei templates from bypass results
     p_nuclei = subparsers.add_parser("export-nuclei",
-        help="Generate Nuclei YAML templates from Fray bypass/test results JSON")
+        help=argparse.SUPPRESS)
     p_nuclei.add_argument("input", help="Fray results JSON file (from fray bypass/test --json)")
     p_nuclei.add_argument("-o", "--output", default="./nuclei", help="Output directory (default: ./nuclei)")
     p_nuclei.add_argument("-c", "--category", default="xss", help="Payload category (default: xss)")
@@ -6619,7 +6686,7 @@ GitHub: https://github.com/dalisecurity/fray
 
     # auto — full pipeline (legacy, more flags)
     p_auto = subparsers.add_parser("auto",
-        help="Full pipeline: recon → scan → ai-bypass in one command")
+        help=argparse.SUPPRESS)
     p_auto.add_argument("target", nargs="?", default=None, help="Target URL")
     p_auto.add_argument("-c", "--category", default="xss",
                         help="Attack category (default: xss)")
@@ -6647,7 +6714,7 @@ GitHub: https://github.com/dalisecurity/fray
 
     # smuggle
     p_smuggle = subparsers.add_parser("smuggle",
-        help="HTTP request smuggling detection (CL.TE / TE.CL / TE.TE)")
+        help=argparse.SUPPRESS)
     p_smuggle.add_argument("target", nargs="?", default=None, help="Target URL to test")
     p_smuggle.add_argument("-t", "--timeout", type=int, default=10,
                            help="Request timeout in seconds (default: 10)")
@@ -6667,12 +6734,12 @@ GitHub: https://github.com/dalisecurity/fray
     p_report.set_defaults(func=cmd_report)
 
     # payloads
-    p_payloads = subparsers.add_parser("payloads", help="List available payload categories")
+    p_payloads = subparsers.add_parser("payloads", help=argparse.SUPPRESS)
     p_payloads.set_defaults(func=cmd_payloads)
 
     # crawl
     p_crawl = subparsers.add_parser("crawl",
-        help="Injection point discovery — forms, URL params, JS API routes, GraphQL")
+        help=argparse.SUPPRESS)
     p_crawl.add_argument("target", help="Target URL to crawl")
     p_crawl.add_argument("-m", "--max", type=int, default=50, dest="max_pages",
                           help="Max pages to crawl (default: 50)")
@@ -6775,7 +6842,7 @@ GitHub: https://github.com/dalisecurity/fray
 
     # graph
     p_graph = subparsers.add_parser("graph",
-        help="Visualize attack surface: subdomains, DNS, tech, endpoints, exposed files")
+        help=argparse.SUPPRESS)
     p_graph.add_argument("target", help="Target URL or domain (e.g. https://example.com)")
     p_graph.add_argument("--deep", action="store_true",
                           help="Deep mode: also discover JS endpoints + historical URLs")
@@ -6796,7 +6863,7 @@ GitHub: https://github.com/dalisecurity/fray
     p_graph.set_defaults(func=cmd_graph)
 
     # stats
-    p_stats = subparsers.add_parser("stats", help="Show payload database statistics")
+    p_stats = subparsers.add_parser("stats", help=argparse.SUPPRESS)
     p_stats.add_argument("--json", action="store_true", help="Output as JSON")
     p_stats.add_argument("--waf-market", action="store_true", dest="waf_market",
                           help="Show WAF vendor market share from scan data")
@@ -6809,7 +6876,7 @@ GitHub: https://github.com/dalisecurity/fray
     p_stats.set_defaults(func=cmd_stats)
 
     # version
-    p_version = subparsers.add_parser("version", help="Show version")
+    p_version = subparsers.add_parser("version", help=argparse.SUPPRESS)
     p_version.set_defaults(func=cmd_version)
 
     # doctor
@@ -6819,7 +6886,7 @@ GitHub: https://github.com/dalisecurity/fray
     p_doctor.set_defaults(func=cmd_doctor)
 
     # submit-payload
-    p_submit = subparsers.add_parser("submit-payload", help="Submit payload to community database via GitHub PR")
+    p_submit = subparsers.add_parser("submit-payload", help=argparse.SUPPRESS)
     p_submit.add_argument("--payload", default=None, help="Payload string to submit")
     p_submit.add_argument("-c", "--category", default=None, help="Payload category (e.g. xss, sqli)")
     p_submit.add_argument("--subcategory", default=None, help="Subcategory / target file (default: community)")
@@ -6832,7 +6899,7 @@ GitHub: https://github.com/dalisecurity/fray
     p_submit.set_defaults(func=cmd_submit_payload)
 
     # validate
-    p_validate = subparsers.add_parser("validate", help="Validate WAF configuration (blue team report)")
+    p_validate = subparsers.add_parser("validate", help=argparse.SUPPRESS)
     p_validate.add_argument("target", help="Target URL to validate")
     p_validate.add_argument("--waf", default=None, help="Expected WAF vendor (e.g. cloudflare, aws_waf, imperva)")
     p_validate.add_argument("--categories", default=None, help="Comma-separated payload categories to test")
@@ -6844,7 +6911,7 @@ GitHub: https://github.com/dalisecurity/fray
     p_validate.set_defaults(func=cmd_validate)
 
     # bounty
-    p_bounty = subparsers.add_parser("bounty", help="Bug bounty platform integration (HackerOne/Bugcrowd)")
+    p_bounty = subparsers.add_parser("bounty", help=argparse.SUPPRESS)
     p_bounty.add_argument("--platform", default=None, help="Platform: hackerone or bugcrowd")
     p_bounty.add_argument("--program", default=None, help="Program handle (e.g. github, tesla)")
     p_bounty.add_argument("--urls", default=None, help="Text file with URLs (one per line)")
@@ -6864,14 +6931,14 @@ GitHub: https://github.com/dalisecurity/fray
     p_bounty.set_defaults(func=cmd_bounty)
 
     # smoke test — QA against 10 intentionally vulnerable targets
-    p_smoke = subparsers.add_parser("smoke", help="QA test against 10 hardcoded vulnerable targets (runs on every change)")
+    p_smoke = subparsers.add_parser("smoke", help=argparse.SUPPRESS)
     p_smoke.add_argument("--quick", action="store_true", help="Quick mode: WAF detect + recon only (default)")
     p_smoke.add_argument("--full", action="store_true", help="Full mode: detect + recon + payload test")
     p_smoke.add_argument("--json", action="store_true", help="JSON output for CI")
     p_smoke.set_defaults(func=lambda args: __import__('fray.smoke_test', fromlist=['cmd_smoke']).cmd_smoke(args))
 
     # company-report (#73)
-    p_company_report = subparsers.add_parser("company-report", help="Generate automated security report per company/domain (#73)")
+    p_company_report = subparsers.add_parser("company-report", help=argparse.SUPPRESS)
     p_company_report.add_argument("--company", required=True, help="Company domain (e.g. example.com)")
     p_company_report.add_argument("-o", "--output", default=None,
                           help="Output file (.md for Markdown, .json for JSON)")
@@ -6891,21 +6958,21 @@ GitHub: https://github.com/dalisecurity/fray
     p_plugin.set_defaults(func=cmd_plugin)
 
     # posture (#72)
-    p_posture = subparsers.add_parser("posture", help="Industry-level security posture comparison from batch results (#72)")
+    p_posture = subparsers.add_parser("posture", help=argparse.SUPPRESS)
     p_posture.add_argument("source", help="JSONL file with batch recon results")
     p_posture.add_argument("-o", "--output", default=None, help="Save report (.md or .json)")
     p_posture.add_argument("--json", action="store_true", help="Output as JSON")
     p_posture.set_defaults(func=cmd_posture)
 
     # waf-report (#71)
-    p_wafrep = subparsers.add_parser("waf-report", help="Corporate WAF coverage report — gaps, vendor distribution, scores (#71)")
+    p_wafrep = subparsers.add_parser("waf-report", help=argparse.SUPPRESS)
     p_wafrep.add_argument("--company", default=None, help="Filter by company domain suffix (e.g. example.com)")
     p_wafrep.add_argument("-o", "--output", default=None, help="Save report (.md or .json)")
     p_wafrep.add_argument("--json", action="store_true", help="Output as JSON")
     p_wafrep.set_defaults(func=cmd_waf_report)
 
     # proto (#164)
-    p_proto = subparsers.add_parser("proto", help="Multi-protocol security testing — WebSocket, GraphQL, gRPC (#164)")
+    p_proto = subparsers.add_parser("proto", help=argparse.SUPPRESS)
     p_proto.add_argument("target", help="Target URL")
     p_proto.add_argument("-t", "--timeout", type=int, default=8, help="Request timeout (default: 8)")
     p_proto.add_argument("-d", "--delay", type=float, default=0.15, help="Delay between probes (default: 0.15)")
@@ -6920,7 +6987,7 @@ GitHub: https://github.com/dalisecurity/fray
     p_proto.set_defaults(func=cmd_proto)
 
     # cve-payload (#144)
-    p_cvepay = subparsers.add_parser("cve-payload", help="Generate payloads from CVE description or ID (#144)")
+    p_cvepay = subparsers.add_parser("cve-payload", help=argparse.SUPPRESS)
     p_cvepay.add_argument("cve_id", nargs="?", default="", help="CVE ID (e.g. CVE-2024-12345)")
     p_cvepay.add_argument("--description", default=None,
                            help="Free-text vulnerability description (alternative to CVE ID)")
@@ -6942,7 +7009,7 @@ GitHub: https://github.com/dalisecurity/fray
 
     # poc-recheck — re-scan CVEs that had no PoC (PoCs appear later)
     p_pocre = subparsers.add_parser("poc-recheck",
-        help="Re-check CVEs for newly available PoC exploits (PoCs often appear days/weeks after disclosure)")
+        help=argparse.SUPPRESS)
     p_pocre.add_argument("--age", type=int, default=7,
                           help="Re-check CVEs older than this many days (default: 7)")
     p_pocre.add_argument("--limit", type=int, default=50,
@@ -6953,15 +7020,15 @@ GitHub: https://github.com/dalisecurity/fray
     p_pocre.set_defaults(func=cmd_poc_recheck)
 
     # wizard (#143)
-    p_wizard = subparsers.add_parser("wizard", help="Interactive scan wizard — guided mode (#143)")
+    p_wizard = subparsers.add_parser("wizard", help=argparse.SUPPRESS)
     p_wizard.set_defaults(func=cmd_wizard)
 
     # init (alias for wizard)
-    p_init = subparsers.add_parser("init", help="Interactive scan wizard (alias for 'wizard')")
+    p_init = subparsers.add_parser("init", help=argparse.SUPPRESS)
     p_init.set_defaults(func=cmd_wizard)
 
     # batch (#70)
-    p_batch = subparsers.add_parser("batch", help="Batch recon across domain lists (Nikkei 225, custom) (#70)")
+    p_batch = subparsers.add_parser("batch", help=argparse.SUPPRESS)
     p_batch.add_argument("file", nargs="?", default=None, help="Text file with domains (one per line)")
     p_batch.add_argument("--nikkei225", action="store_true", help="Use built-in Nikkei 225 domain list")
     p_batch.add_argument("-w", "--workers", type=int, default=4, help="Parallel workers (default: 4)")
@@ -6981,7 +7048,7 @@ GitHub: https://github.com/dalisecurity/fray
     p_ask.set_defaults(func=cmd_ask)
 
     # waf-reverse (#149)
-    p_wafrev = subparsers.add_parser("waf-reverse", help="Reverse engineer WAF rules: tags, events, keywords, encodings (#149)")
+    p_wafrev = subparsers.add_parser("waf-reverse", help=argparse.SUPPRESS)
     p_wafrev.add_argument("target", help="Target URL")
     p_wafrev.add_argument("-t", "--timeout", type=int, default=8, help="Request timeout (default: 8)")
     p_wafrev.add_argument("-d", "--delay", type=float, default=0.15, help="Delay between probes (default: 0.15)")
@@ -6994,7 +7061,7 @@ GitHub: https://github.com/dalisecurity/fray
     p_wafrev.set_defaults(func=cmd_waf_reverse)
 
     # race (#24)
-    p_race = subparsers.add_parser("race", help="Race condition (TOCTOU) testing — concurrent request divergence (#24)")
+    p_race = subparsers.add_parser("race", help=argparse.SUPPRESS)
     p_race.add_argument("target", help="Target URL (e.g. https://example.com/api/redeem)")
     p_race.add_argument("--method", default="GET", help="HTTP method (default: GET)")
     p_race.add_argument("--body", default=None, help="Request body (for POST/PUT)")
@@ -7010,7 +7077,7 @@ GitHub: https://github.com/dalisecurity/fray
     p_race.set_defaults(func=cmd_race)
 
     # ci
-    p_ci = subparsers.add_parser("ci", help="Generate GitHub Actions workflow for WAF testing on PRs")
+    p_ci = subparsers.add_parser("ci", help=argparse.SUPPRESS)
     p_ci.add_argument("action", nargs="?", default="init", choices=["init", "show"],
                       help="Action: init (write file) or show (print to stdout)")
     p_ci.add_argument("--target", default=None, help="Default target URL for WAF tests")
@@ -7036,11 +7103,11 @@ GitHub: https://github.com/dalisecurity/fray
     p_mcp.set_defaults(func=cmd_mcp)
 
     # init-config
-    p_init_config = subparsers.add_parser("init-config", help="Create a sample .fray.toml config file in the current directory")
+    p_init_config = subparsers.add_parser("init-config", help=argparse.SUPPRESS)
     p_init_config.set_defaults(func=cmd_init_config)
 
     # explain
-    p_explain = subparsers.add_parser("explain", help="Explain a CVE or scan results — human-readable findings with impact & remediation")
+    p_explain = subparsers.add_parser("explain", help=argparse.SUPPRESS)
     p_explain.add_argument("cve_id", help="CVE ID (e.g. CVE-2021-44228) or results JSON file (e.g. results.json)")
     p_explain.add_argument("--max", type=int, default=5, help="Max payloads to show per CVE (default: 5)")
     p_explain.add_argument("--json", action="store_true", help="Output as JSON")
@@ -7048,7 +7115,7 @@ GitHub: https://github.com/dalisecurity/fray
     p_explain.set_defaults(func=cmd_explain)
 
     # scope
-    p_scope = subparsers.add_parser("scope", help="Inspect or validate a scope file for bug bounty testing")
+    p_scope = subparsers.add_parser("scope", help=argparse.SUPPRESS)
     p_scope.add_argument("scope_file", help="Path to scope file (one domain/IP/CIDR per line)")
     p_scope.add_argument("--check", default=None, help="Check if a specific URL is in scope")
     p_scope.add_argument("--json", action="store_true", help="Output parsed scope as JSON")
@@ -7056,7 +7123,7 @@ GitHub: https://github.com/dalisecurity/fray
 
     # leak
     p_leak = subparsers.add_parser("leak",
-        help="Search for leaked credentials on GitHub and Have I Been Pwned")
+        help=argparse.SUPPRESS)
     p_leak.add_argument("target", help="Domain (example.com) or email (user@example.com)")
     p_leak.add_argument("--github-only", action="store_true",
                          help="Only search GitHub code (skip HIBP)")
@@ -7071,7 +7138,7 @@ GitHub: https://github.com/dalisecurity/fray
 
     # osint
     p_osint = subparsers.add_parser("osint",
-        help="Offensive OSINT: whois, emails, typosquatting, GitHub org recon, employee enum, doc metadata")
+        help=argparse.SUPPRESS)
     p_osint.add_argument("target", nargs="?", default=None,
                           help="Target domain (e.g. example.com)")
     p_osint.add_argument("--json", action="store_true", help="Output as JSON")
@@ -7093,7 +7160,7 @@ GitHub: https://github.com/dalisecurity/fray
 
     # cred
     p_cred = subparsers.add_parser("cred",
-        help="Credential stuffing test: test leaked email:password pairs against login endpoints")
+        help=argparse.SUPPRESS)
     p_cred.add_argument("target", nargs="?", default=None,
                          help="Login endpoint URL (e.g. https://example.com/login)")
     p_cred.add_argument("--pairs", required=False, default=None,
@@ -7128,7 +7195,7 @@ GitHub: https://github.com/dalisecurity/fray
 
     # ct — Certificate Transparency monitoring (#128)
     p_ct = subparsers.add_parser("ct",
-        help="Certificate Transparency monitoring — discover certs, subdomains, alert on suspicious patterns")
+        help=argparse.SUPPRESS)
     p_ct.add_argument("target", nargs="?", default=None,
                        help="Target domain (e.g. example.com)")
     p_ct.add_argument("--days", type=int, default=30,
@@ -7175,7 +7242,7 @@ GitHub: https://github.com/dalisecurity/fray
 
     # demo
     p_demo = subparsers.add_parser("demo",
-        help="Quick showcase: detect WAF + XSS scan (great for GIFs)")
+        help=argparse.SUPPRESS)
     p_demo.add_argument("target", nargs="?", default=None,
                          help="Target URL (default: http://testphp.vulnweb.com)")
     p_demo.set_defaults(func=cmd_demo)
@@ -7221,6 +7288,40 @@ GitHub: https://github.com/dalisecurity/fray
     p_help = subparsers.add_parser("help",
         help="Show friendly guide to all fray commands")
     p_help.set_defaults(func=cmd_help)
+
+    # ── Deprecation wrappers for old flat commands ──
+    # Old commands still work but print a deprecation warning.
+
+    _DEPRECATED_MAP = {
+        # report namespace
+        'company-report': ('report company', cmd_company_report),
+        'waf-report': ('report waf', cmd_waf_report),
+        'posture': ('report posture', cmd_posture),
+        'diff': ('report diff', cmd_diff),
+        'explain': ('report explain', cmd_explain),
+        # intel namespace
+        'feed': ('intel feed', cmd_feed),
+        'cve-payload': ('intel cve', cmd_cve_payload),
+        'poc-recheck': ('intel poc-recheck', cmd_poc_recheck),
+        'leak': ('intel leak', cmd_leak),
+        'osint': ('intel osint', cmd_osint),
+        'ct': ('intel ct', cmd_ct),
+        # auth namespace
+        'session': ('auth session', cmd_session),
+        'solve': ('auth solve', cmd_solve),
+        'cred': ('auth cred', cmd_cred),
+        # export namespace
+        'export-nuclei': ('export nuclei', cmd_export_nuclei),
+        'ci': ('export ci', cmd_ci),
+        # fully deprecated
+        'auto': ('go', cmd_auto),
+        'init-config': ('config init', cmd_init_config),
+    }
+
+    for _old_name, (_new_name, _real_func) in _DEPRECATED_MAP.items():
+        _p = subparsers.choices.get(_old_name)
+        if _p:
+            _p._defaults['func'] = _deprecated(_old_name, _new_name, _real_func)
 
     # ── Environment variable overrides (#186) ──────────────────────────────
     # FRAY_<FLAG> env vars → argparse defaults. CLI flags always win.
