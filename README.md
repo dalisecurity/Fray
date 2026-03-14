@@ -78,9 +78,8 @@ That's it. Fray scans your target, identifies the tech stack and WAF, finds vuln
 ```bash
 fray recon https://target.com          # 35-check reconnaissance
 fray test https://target.com --smart   # Smart payload selection from recon findings
-fray detect https://target.com         # Fingerprint WAF/CDN vendor (98 vendors)
-fray fuzz https://target.com/FUZZ      # Content discovery (ffuf-like)
-fray harden https://target.com         # OWASP hardening audit (A-F grade)
+fray scan https://target.com           # Auto crawl → discover → inject
+fray monitor https://target.com        # Continuous monitoring with alerts
 ```
 
 ---
@@ -109,51 +108,58 @@ fray harden https://target.com         # OWASP hardening audit (A-F grade)
 
 ---
 
-## Core Commands
+## Commands
 
-### `fray go` — Full Pipeline
+Fray has 20 commands organized into 6 groups. Run `fray --help` or `fray help` for full details.
 
-The hero command. Runs everything automatically: reconnaissance → vulnerability testing → report generation.
-
-```bash
-fray go https://target.com              # Automatic full pipeline
-fray go https://target.com --deep       # Deep mode with subdomain brute-force
-fray go https://target.com --stealth    # Rate-limited, randomized UA
-```
-
-### `fray recon` — Reconnaissance
-
-35+ checks in one command: TLS, DNS, subdomains, CORS, security headers, admin panels, VPN gateways, AI/LLM endpoints, cloud buckets, secrets, JS endpoint extraction, and more. Outputs JSON, HTML report, or interactive menu.
+### Core — Security testing workflow
 
 ```bash
-fray recon https://target.com --deep   # Full depth with subdomain brute-force
+fray go <url>              # ★ Full assessment: recon → smart test → report
+fray recon <url>           # Reconnaissance & fingerprinting (35+ checks)
+fray test <url>            # Test WAF with payloads (-c xss --smart --blind)
+fray scan <url>            # Auto crawl → discover → inject (--bounty)
+fray monitor <url>         # Continuous monitoring with alerts
 ```
 
-### `fray test --smart` — Vulnerability Testing
+`fray <url>` is a shortcut for `fray go <url>` — just point and scan.
 
-Reads recon findings and selects the right payloads automatically. Six deep modules: `XSSScanner`, `SQLiInjector`, `CMDiScanner`, `CachePoisonScanner`, `MassAssignScanner`, `DeserScanner`.
+### Data — Reports & intelligence
 
 ```bash
-fray test https://target.com --smart -c xss   # Context-aware XSS testing
+fray report <sub>          # generate, company, waf, posture, diff, explain
+fray intel <sub>           # feed, cve, poc-recheck, leak, osint, ct
+fray auth <sub>            # session, solve, cred
+fray export <sub>          # nuclei, ci
 ```
 
-### `fray detect` — WAF Fingerprinting
-
-Identifies 98 WAF/CDN vendors via headers, CNAME records, cookies, and response signatures.
+### Manage — Configuration & data
 
 ```bash
-fray detect https://target.com --json
+fray config                # .fray.toml configuration
+fray plugin                # Plugin system
+fray cache                 # Payload cache & stats
+fray update                # Update payload database
 ```
 
-### `fray report` — Reporting
-
-Generate HTML or Markdown reports from scan results. Unified v11 dark theme across all report types.
+### Integrations
 
 ```bash
-fray report --company example.com -o report.md
+fray dashboard             # Web UI
+fray mcp                   # AI assistant MCP server
+fray completions           # Shell completions (bash/zsh/fish)
 ```
 
-[All commands →](docs/quickstart.md) · [Scan guide →](docs/scanning-guide.md)
+### Learn & help
+
+```bash
+fray ask <query>           # Natural language query
+fray learn [topic]         # Interactive security tutorial
+fray doctor [--fix]        # Check environment
+fray help                  # Full command guide
+```
+
+[Quick start →](docs/quickstart.md) · [Scan guide →](docs/scanning-guide.md)
 
 ---
 
