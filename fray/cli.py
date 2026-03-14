@@ -723,6 +723,30 @@ def _build_recon_sarif_output(target: str, recon_result: dict, tool_version: str
     return sarif
 
 
+def _save_to_fray(subdir: str, target: str, data: dict) -> str:
+    """Persist command output to ~/.fray/<subdir>/ for dashboard consumption.
+
+    Writes both a timestamped file and a _latest.json symlink-style copy.
+    Returns the path of the latest file written.
+    """
+    from urllib.parse import urlparse as _urlparse
+    fray_dir = Path.home() / ".fray" / subdir
+    fray_dir.mkdir(parents=True, exist_ok=True)
+
+    # Normalise target → domain-safe filename
+    parsed = _urlparse(target if "://" in target else f"https://{target}")
+    domain = (parsed.hostname or target).replace("/", "_").replace(":", "_")
+
+    ts = __import__("datetime").datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+    ts_file = fray_dir / f"{domain}_{ts}.json"
+    latest_file = fray_dir / f"{domain}_latest.json"
+
+    payload = json.dumps(data, indent=2, ensure_ascii=False, default=str)
+    ts_file.write_text(payload, encoding="utf-8")
+    latest_file.write_text(payload, encoding="utf-8")
+    return str(latest_file)
+
+
 def _validate_output_path(output: str) -> None:
     """Ensure output path is within the current working directory subtree."""
     resolved = Path(output).resolve()
@@ -1563,6 +1587,7 @@ def cmd_test(args):
         'target': args.target,
         'timestamp': _dt.now().isoformat(),
         'duration': duration,
+        'command': 'test',
         'summary': {
             'total': total,
             'blocked': blocked,
@@ -1571,6 +1596,9 @@ def cmd_test(args):
         },
         'results': results,
     }
+
+    # Persist to ~/.fray/tests/ for dashboard
+    _save_to_fray("tests", args.target, report)
 
     # SARIF output (GitHub Security tab / CodeQL compatible)
     if getattr(args, 'sarif', False):
@@ -1700,6 +1728,7 @@ def cmd_test(args):
                        categories=_cats)
         except Exception:
             pass
+        sys.stderr.write(f"\n  \033[2m💡 View in dashboard: \033[0mfray dashboard\n")
 
 
 def cmd_report(args):
@@ -6117,7 +6146,7 @@ def cmd_help(args):
   -t, --timeout <secs>      Request timeout (default: 8)
   -d, --delay <secs>        Delay between requests (default: 0.5)
   --cookie / --bearer / -H  Authentication headers
-  --notify <webhook>        Slack/Discord/Teams notification
+  --notify <url>            Slack/Discord/Teams notification
 
   \033[36mEXIT CODES\033[0m
   ─────────────────────────────
@@ -6240,7 +6269,7 @@ _HELP_TOPICS = {
 
   \033[36mKEY FLAGS\033[0m
     --interval <dur>       Check interval (e.g. 6h, 24h, 7d; default: 24h)
-    --notify <webhook>     Slack/Discord/Teams webhook for alerts
+    --notify <url>         Slack/Discord/Teams notification for alerts
     --checks <list>        Comma-separated checks (default: all)
     --baseline <file>      Compare against baseline JSON
     -o, --output <file>    Save results
@@ -7644,7 +7673,7 @@ def main():
     p_ci.add_argument("-m", "--max", type=int, default=50, help="Max payloads per run (default: 50)")
     p_ci.add_argument("--webhook", default=None, dest="notify", help=argparse.SUPPRESS)  # alias for --notify
     p_ci.add_argument("--notify", default=None, metavar="WEBHOOK_URL",
-                      help="Slack/Discord/Teams webhook URL for notifications")
+                      help="Slack/Discord/Teams notification URL")
     p_ci.add_argument("--fail-on-bypass", action="store_true", help="Fail CI if any payload bypasses WAF")
     p_ci.add_argument("--no-comment", action="store_true", help="Disable PR comment with results")
     p_ci.add_argument("--minimal", action="store_true", help="Generate minimal workflow")
@@ -7779,7 +7808,7 @@ def main():
                             help="Scan interval: 30m, 6h, 12h, 24h, 7d (default: 24h)")
     p_monitor.add_argument("--webhook", default=None, dest="notify_legacy", help=argparse.SUPPRESS)  # deprecated alias
     p_monitor.add_argument("--notify", default=None, metavar="WEBHOOK_URL",
-                            help="Slack/Discord/Teams webhook URL for alerts")
+                            help="Slack/Discord/Teams notification URL for alerts")
     p_monitor.add_argument("--email", default=None,
                             help="Email address for alerts (needs RESEND_API_KEY)")
     p_monitor.add_argument("--leak", action="store_true",
