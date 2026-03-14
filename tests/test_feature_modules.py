@@ -1196,3 +1196,248 @@ class TestAutoConcurrency:
             "bot_protection": {"has_fingerprinting": True},
         }
         assert _auto_concurrency(recon) == 1
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 11. Config file support — profiles, targets, init, show, validate
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestConfigProfiles:
+    def test_get_profile_found(self):
+        from fray.config import get_profile
+        config = {"profiles": {"stealth": {"delay": 1.0, "stealth": True}}}
+        p = get_profile(config, "stealth")
+        assert p["delay"] == 1.0
+        assert p["stealth"] is True
+
+    def test_get_profile_missing(self):
+        from fray.config import get_profile
+        config = {"profiles": {"stealth": {"delay": 1.0}}}
+        assert get_profile(config, "nope") == {}
+
+    def test_get_profile_no_profiles(self):
+        from fray.config import get_profile
+        assert get_profile({}, "anything") == {}
+
+    def test_get_targets(self):
+        from fray.config import get_targets
+        config = {"targets": ["https://a.com", "https://b.com"]}
+        t = get_targets(config)
+        assert len(t) == 2
+        assert t[0] == "https://a.com"
+
+    def test_get_targets_empty(self):
+        from fray.config import get_targets
+        assert get_targets({}) == []
+        assert get_targets({"targets": "not a list"}) == []
+
+    def test_apply_profile(self):
+        from fray.config import apply_profile
+        import argparse
+        args = argparse.Namespace(delay=0.5, stealth=False, parallel=None)
+        config = {"profiles": {"fast": {"delay": 0.0, "parallel": 10}}}
+        apply_profile(args, config, "fast")
+        assert args.delay == 0.0
+        assert args.parallel == 10
+
+    def test_apply_config_defaults_with_auth(self):
+        from fray.config import apply_config_defaults
+        import argparse
+        args = argparse.Namespace(timeout=None, cookie=None, bearer=None)
+        config = {
+            "test": {"timeout": 15},
+            "auth": {"cookie": "sess=abc", "bearer": "tok123"},
+        }
+        apply_config_defaults(args, config, "test")
+        assert args.timeout == 15
+        assert args.cookie == "sess=abc"
+
+    def test_show_config(self):
+        from fray.config import show_config
+        config = {"test": {"timeout": 10}, "targets": ["a", "b"]}
+        out = show_config(config)
+        assert "test" in out
+        assert "timeout" in out
+        assert "2 items" in out
+
+    def test_show_config_empty(self):
+        from fray.config import show_config
+        assert "No .fray.toml" in show_config({})
+
+    def test_validate_config_valid(self):
+        from fray.config import validate_config
+        config = {"test": {"timeout": 10, "delay": 0.5, "stealth": True}}
+        assert validate_config(config) == []
+
+    def test_validate_config_unknown_key(self):
+        from fray.config import validate_config
+        config = {"test": {"unknown_key": 42}}
+        warnings = validate_config(config)
+        assert any("Unknown" in w for w in warnings)
+
+    def test_validate_config_wrong_type(self):
+        from fray.config import validate_config
+        config = {"test": {"timeout": "not_int"}}
+        warnings = validate_config(config)
+        assert any("expected" in w for w in warnings)
+
+    def test_validate_config_out_of_range(self):
+        from fray.config import validate_config
+        config = {"test": {"timeout": 999}}
+        warnings = validate_config(config)
+        assert any("maximum" in w for w in warnings)
+
+    def test_init_config(self, tmp_path):
+        from fray.config import init_config
+        path = tmp_path / ".fray.toml"
+        result = init_config(path=path)
+        assert result.exists()
+        content = result.read_text()
+        assert "[test]" in content
+        assert "[scan]" in content
+        assert "[profiles.stealth]" in content
+
+    def test_init_config_no_overwrite(self, tmp_path):
+        from fray.config import init_config
+        path = tmp_path / ".fray.toml"
+        path.write_text("existing")
+        import pytest
+        with pytest.raises(FileExistsError):
+            init_config(path=path)
+
+    def test_init_config_force(self, tmp_path):
+        from fray.config import init_config
+        path = tmp_path / ".fray.toml"
+        path.write_text("old")
+        result = init_config(path=path, force=True)
+        assert "[test]" in result.read_text()
+
+    def test_schema_has_scan_section(self):
+        from fray.config import _CONFIG_SCHEMA
+        assert "scan" in _CONFIG_SCHEMA
+        assert "parallel" in _CONFIG_SCHEMA["scan"]
+        assert "follow_redirects" in _CONFIG_SCHEMA["scan"]
+
+    def test_schema_has_agent_section(self):
+        from fray.config import _CONFIG_SCHEMA
+        assert "agent" in _CONFIG_SCHEMA
+        assert "rounds" in _CONFIG_SCHEMA["agent"]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 12. Checkpoint / --resume
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestCheckpoint:
+    def test_import(self):
+        from fray.checkpoint import (load_checkpoint, save_checkpoint,
+                                     clear_checkpoint, get_tested_set,
+                                     _payload_hash, _target_hash)
+        assert callable(load_checkpoint)
+        assert callable(save_checkpoint)
+
+    def test_payload_hash_deterministic(self):
+        from fray.checkpoint import _payload_hash
+        h1 = _payload_hash("<script>alert(1)</script>")
+        h2 = _payload_hash("<script>alert(1)</script>")
+        assert h1 == h2
+        assert len(h1) == 16
+
+    def test_payload_hash_unique(self):
+        from fray.checkpoint import _payload_hash
+        assert _payload_hash("a") != _payload_hash("b")
+
+    def test_save_and_load(self, tmp_path, monkeypatch):
+        import fray.checkpoint as cp
+        monkeypatch.setattr(cp, "_CHECKPOINT_DIR", tmp_path)
+        cp.save_checkpoint("https://target.com", "GET", "q", "cloudflare",
+                          100, ["hash1", "hash2"], [{"payload": "x"}], "2024-01-01")
+        loaded = cp.load_checkpoint("https://target.com")
+        assert loaded is not None
+        assert loaded["target"] == "https://target.com"
+        assert len(loaded["tested_hashes"]) == 2
+        assert len(loaded["results"]) == 1
+
+    def test_load_missing(self, tmp_path, monkeypatch):
+        import fray.checkpoint as cp
+        monkeypatch.setattr(cp, "_CHECKPOINT_DIR", tmp_path)
+        assert cp.load_checkpoint("https://nonexistent.com") is None
+
+    def test_clear(self, tmp_path, monkeypatch):
+        import fray.checkpoint as cp
+        monkeypatch.setattr(cp, "_CHECKPOINT_DIR", tmp_path)
+        cp.save_checkpoint("https://t.com", "GET", "q", "", 10, ["h"], [], "now")
+        assert cp.load_checkpoint("https://t.com") is not None
+        cp.clear_checkpoint("https://t.com")
+        assert cp.load_checkpoint("https://t.com") is None
+
+    def test_get_tested_set(self):
+        from fray.checkpoint import get_tested_set
+        cp = {"tested_hashes": ["a", "b", "c"]}
+        s = get_tested_set(cp)
+        assert isinstance(s, set)
+        assert len(s) == 3
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 13. Auth session persistence
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestAuthSessions:
+    def test_save_and_load_session(self, tmp_path, monkeypatch):
+        from fray.auth import AuthProfile
+        monkeypatch.setattr(AuthProfile, "_SESSIONS_DIR", tmp_path)
+        p = AuthProfile.from_cookie("session=test123")
+        path = p.save_session("mysite")
+        assert path.exists()
+
+        loaded = AuthProfile.load_session("mysite")
+        assert loaded.cookie == "session=test123"
+        assert loaded.auth_type == "cookie"
+
+    def test_list_sessions(self, tmp_path, monkeypatch):
+        from fray.auth import AuthProfile
+        monkeypatch.setattr(AuthProfile, "_SESSIONS_DIR", tmp_path)
+        AuthProfile.from_cookie("a=1").save_session("site1")
+        AuthProfile.from_bearer("tok").save_session("site2")
+        sessions = AuthProfile.list_sessions()
+        assert len(sessions) == 2
+        names = {s["name"] for s in sessions}
+        assert "site1" in names
+        assert "site2" in names
+
+    def test_delete_session(self, tmp_path, monkeypatch):
+        from fray.auth import AuthProfile
+        monkeypatch.setattr(AuthProfile, "_SESSIONS_DIR", tmp_path)
+        AuthProfile.from_cookie("x=1").save_session("todel")
+        assert len(AuthProfile.list_sessions()) == 1
+        AuthProfile.delete_session("todel")
+        assert len(AuthProfile.list_sessions()) == 0
+
+    def test_load_session_not_found(self, tmp_path, monkeypatch):
+        from fray.auth import AuthProfile
+        monkeypatch.setattr(AuthProfile, "_SESSIONS_DIR", tmp_path)
+        import pytest
+        with pytest.raises(FileNotFoundError):
+            AuthProfile.load_session("nonexistent")
+
+    def test_session_with_bearer(self, tmp_path, monkeypatch):
+        from fray.auth import AuthProfile
+        monkeypatch.setattr(AuthProfile, "_SESSIONS_DIR", tmp_path)
+        p = AuthProfile.from_bearer("eyJhbGciOiJSUzI1NiJ9.test")
+        p.save_session("jwt_site")
+        loaded = AuthProfile.load_session("jwt_site")
+        assert loaded.bearer_token == "eyJhbGciOiJSUzI1NiJ9.test"
+        headers = loaded.get_headers()
+        assert "Authorization" in headers
+
+    def test_session_cookies_dict(self, tmp_path, monkeypatch):
+        from fray.auth import AuthProfile
+        monkeypatch.setattr(AuthProfile, "_SESSIONS_DIR", tmp_path)
+        p = AuthProfile(auth_type="form_login")
+        p._session_cookies = {"sid": "abc123", "csrf": "xyz"}
+        p.save_session("form_site")
+        loaded = AuthProfile.load_session("form_site")
+        assert loaded._session_cookies["sid"] == "abc123"
+        cookie_str = loaded.get_cookie_string()
+        assert "sid=abc123" in cookie_str

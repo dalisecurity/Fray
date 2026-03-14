@@ -1877,6 +1877,7 @@ def cmd_scan(args):
         parallel=getattr(args, 'parallel', 0),
         follow_redirects=getattr(args, 'follow_redirects', False),
         use_baseline=getattr(args, 'baseline', False),
+        resume=getattr(args, 'resume', False),
     )
 
     # Merge Crawler-discovered injection points into scan results
@@ -3073,6 +3074,180 @@ def cmd_solve(args):
 
     if not result.success:
         sys.exit(1)
+
+
+def cmd_session(args):
+    """Manage saved authentication sessions."""
+    from fray.auth import AuthProfile
+
+    action = getattr(args, 'session_action', None)
+
+    if action == "list":
+        sessions = AuthProfile.list_sessions()
+        if sessions:
+            print(f"Saved sessions ({len(sessions)}):\n")
+            for s in sessions:
+                flags = []
+                if s["has_cookies"]:
+                    flags.append("cookies")
+                if s["has_token"]:
+                    flags.append("token")
+                print(f"  {s['name']:<20} {s['auth_type']:<15} {', '.join(flags):<20} {s['saved_at']}")
+            print(f"\nUsage: fray test target.com --load-session <name>")
+            print(f"       fray scan target.com --load-session <name>")
+        else:
+            print("No saved sessions.")
+            print("\nCreate one:")
+            print("  fray session login https://target.com/login --name mysite")
+            print("  fray solve https://target.com --save-session mysite")
+            print("  fray test https://target.com --cookie 'sess=abc' --save-session mysite")
+
+    elif action == "delete":
+        name = args.name
+        if AuthProfile.delete_session(name):
+            print(f"✔ Deleted session: {name}")
+        else:
+            print(f"✖ Session not found: {name}")
+            sys.exit(1)
+
+    elif action == "login":
+        verbose = getattr(args, 'verbose', False)
+        insecure = getattr(args, 'insecure', False)
+        name = args.name
+
+        # Build auth profile from flags
+        profile = None
+        auth_file = getattr(args, 'auth_profile', None)
+        if auth_file:
+            profile = AuthProfile.from_file(auth_file)
+            profile._verify_ssl = not insecure
+        elif getattr(args, 'cookie', None):
+            profile = AuthProfile.from_cookie(args.cookie)
+        elif getattr(args, 'bearer', None):
+            profile = AuthProfile.from_bearer(args.bearer)
+        else:
+            # Auto form login: try to login with config credentials
+            try:
+                from fray.config import load_config
+                config = load_config()
+                auth_cfg = config.get("auth", {})
+                if auth_cfg.get("login_url") and auth_cfg.get("username"):
+                    profile = AuthProfile.form_login(
+                        login_url=auth_cfg.get("login_url", args.target),
+                        credentials={
+                            "username": auth_cfg["username"],
+                            "password": auth_cfg.get("password", ""),
+                        },
+                        verify_ssl=not insecure,
+                    )
+            except Exception:
+                pass
+
+            if not profile:
+                # Fallback: form login at target URL
+                import getpass
+                print(f"Login to: {args.target}")
+                username = input("  Username: ")
+                password = getpass.getpass("  Password: ")
+                profile = AuthProfile.form_login(
+                    login_url=args.target,
+                    credentials={"username": username, "password": password},
+                    verify_ssl=not insecure,
+                )
+
+        success = profile.authenticate(verbose=verbose)
+        if success:
+            path = profile.save_session(name)
+            print(f"✔ Session saved: {path}")
+            print(f"  Reuse: fray test <target> --load-session {name}")
+        else:
+            print(f"✖ Authentication failed")
+            sys.exit(1)
+
+    else:
+        # No subcommand — show help
+        sessions = AuthProfile.list_sessions()
+        print(f"Session management ({len(sessions)} saved)\n")
+        print("  fray session list                List saved sessions")
+        print("  fray session login <url> --name  Login and save")
+        print("  fray session delete <name>       Delete a session")
+
+
+def cmd_config(args):
+    """Manage .fray.toml configuration."""
+    from fray.config import (init_config, show_config, validate_config,
+                             get_targets, get_profile, load_config, find_config)
+
+    action = getattr(args, 'config_action', None)
+
+    if action == "init":
+        from pathlib import Path
+        path = Path(args.path) if getattr(args, 'path', None) else None
+        force = getattr(args, 'force', False)
+        try:
+            created = init_config(path=path, force=force)
+            print(f"✔ Created {created}")
+            print(f"  Edit it to set your defaults, then run: fray config validate")
+        except FileExistsError as e:
+            print(f"✖ {e}")
+            sys.exit(1)
+
+    elif action == "show":
+        print(show_config())
+
+    elif action == "validate":
+        config = load_config()
+        if not config:
+            config_path = find_config()
+            if not config_path:
+                print("✖ No .fray.toml found. Run: fray config init")
+                sys.exit(1)
+        warnings = validate_config(config)
+        if warnings:
+            print(f"⚠ {len(warnings)} warning(s):")
+            for w in warnings:
+                print(f"  • {w}")
+            sys.exit(1)
+        else:
+            config_path = find_config()
+            print(f"✔ {config_path or '.fray.toml'} is valid")
+
+    elif action == "targets":
+        config = load_config()
+        targets = get_targets(config)
+        if targets:
+            print(f"Targets ({len(targets)}):")
+            for t in targets:
+                print(f"  • {t}")
+        else:
+            print("No targets defined. Add to .fray.toml:\n  targets = [\"https://target.com\"]")
+
+    elif action == "profiles":
+        config = load_config()
+        profiles = config.get("profiles", {})
+        if profiles and isinstance(profiles, dict):
+            print(f"Profiles ({len(profiles)}):")
+            for name, settings in profiles.items():
+                keys = ", ".join(f"{k}={v}" for k, v in settings.items())
+                print(f"  • {name}: {keys}")
+            print(f"\nUsage: fray test --profile <name>")
+        else:
+            print("No profiles defined. Add to .fray.toml:\n  [profiles.stealth]\n  stealth = true\n  delay = 1.0")
+
+    else:
+        # No subcommand — show help
+        config = load_config()
+        config_path = find_config()
+        if config_path:
+            print(f"Config: {config_path}")
+            print(show_config(config))
+        else:
+            print("No .fray.toml found.")
+            print("  fray config init       Create a starter config")
+            print("  fray config show       Display current config")
+            print("  fray config validate   Validate config")
+            print("  fray config targets    List targets")
+            print("  fray config profiles   List profiles")
 
 
 def cmd_compare(args):
@@ -6318,6 +6493,39 @@ GitHub: https://github.com/dalisecurity/fray
                           help="Save solved cookies to ~/.fray/sessions/NAME.json")
     p_solve.set_defaults(func=cmd_solve)
 
+    # session — manage saved auth sessions
+    p_session = subparsers.add_parser("session",
+        help="Manage saved authentication sessions (list, delete, login)")
+    p_session_sub = p_session.add_subparsers(dest="session_action")
+    p_session_list = p_session_sub.add_parser("list", help="List saved sessions")
+    p_session_delete = p_session_sub.add_parser("delete", help="Delete a saved session")
+    p_session_delete.add_argument("name", help="Session name to delete")
+    p_session_login = p_session_sub.add_parser("login", help="Login and save session")
+    p_session_login.add_argument("target", help="Login URL or target")
+    p_session_login.add_argument("--name", required=True, help="Session name to save as")
+    p_session_login.add_argument("--cookie", default=None, help="Static cookie string")
+    p_session_login.add_argument("--bearer", default=None, help="Bearer token")
+    p_session_login.add_argument("--auth-profile", dest="auth_profile", default=None, metavar="FILE",
+                                  help="Auth profile JSON file for form/OAuth2 login")
+    p_session_login.add_argument("-k", "--insecure", action="store_true", help="Skip TLS verification")
+    p_session_login.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+    p_session.set_defaults(func=cmd_session)
+
+    # config — manage .fray.toml configuration
+    p_config = subparsers.add_parser("config",
+        help="Manage .fray.toml configuration (init, show, validate)")
+    p_config_sub = p_config.add_subparsers(dest="config_action")
+    p_config_init = p_config_sub.add_parser("init", help="Create a starter .fray.toml")
+    p_config_init.add_argument("--force", action="store_true",
+                                help="Overwrite existing .fray.toml")
+    p_config_init.add_argument("--path", default=None,
+                                help="Custom path (default: .fray.toml in CWD)")
+    p_config_show = p_config_sub.add_parser("show", help="Display current config")
+    p_config_validate = p_config_sub.add_parser("validate", help="Validate .fray.toml")
+    p_config_targets = p_config_sub.add_parser("targets", help="List targets from config")
+    p_config_profiles = p_config_sub.add_parser("profiles", help="List available profiles")
+    p_config.set_defaults(func=cmd_config)
+
     # diff — compare two recon reports
     p_diff = subparsers.add_parser("diff",
         help="Compare two recon reports and highlight attack surface changes")
@@ -6484,6 +6692,12 @@ GitHub: https://github.com/dalisecurity/fray
                          help="Follow 3xx redirects to detect redirect-based WAF blocks")
     p_scan.add_argument("--baseline", action="store_true",
                          help="Capture baseline response for false positive reduction")
+    p_scan.add_argument("--resume", action="store_true",
+                         help="Resume interrupted scan from last checkpoint")
+    p_scan.add_argument("--load-session", dest="load_session", default=None, metavar="NAME",
+                         help="Load saved session cookies/tokens (from fray session list)")
+    p_scan.add_argument("--save-session", dest="save_session", default=None, metavar="NAME",
+                         help="Save session after scan for reuse across commands")
     p_scan.add_argument("--browser", action="store_true",
                          help="Use Playwright browser for JS-heavy SPAs (requires: pip install playwright)")
     p_scan.add_argument("--burp", default=None, metavar="FILE",
@@ -7017,13 +7231,26 @@ GitHub: https://github.com/dalisecurity/fray
     }
 
     def _apply_profile(args):
-        """Apply --profile preset defaults. Explicit CLI flags take precedence."""
+        """Apply --profile preset defaults. Explicit CLI flags take precedence.
+
+        Checks built-in profiles first, then .fray.toml [profiles.<name>].
+        """
         profile = getattr(args, "profile", None)
         if not profile:
             return
         command = getattr(args, "command", "")
         profiles = _RECON_PROFILES if command == "recon" else _TEST_PROFILES
         defaults = profiles.get(profile, {})
+
+        # If not a built-in profile, check .fray.toml profiles
+        if not defaults:
+            try:
+                from fray.config import load_config, get_profile
+                config = load_config()
+                defaults = get_profile(config, profile)
+            except Exception:
+                pass
+
         for key, value in defaults.items():
             current = getattr(args, key, None)
             # Only apply if CLI didn't set it (None for optional, False for store_true,

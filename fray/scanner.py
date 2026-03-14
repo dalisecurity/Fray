@@ -807,7 +807,8 @@ def run_scan(target: str, category: str = "xss", max_payloads: int = 5,
              impersonate: str = None,
              parallel: int = 0,
              follow_redirects: bool = False,
-             use_baseline: bool = False) -> ScanResult:
+             use_baseline: bool = False,
+             resume: bool = False) -> ScanResult:
     """Full automated scan: crawl → discover params → inject payloads.
 
     Args:
@@ -922,6 +923,27 @@ def run_scan(target: str, category: str = "xss", max_payloads: int = 5,
     all_results = []
     print_lock = threading.Lock()
 
+    # Resume: load checkpoint and skip already-tested payloads
+    _tested_hashes: set = set()
+    _checkpoint_started = datetime.now().isoformat()
+    if resume:
+        try:
+            from fray.checkpoint import (load_checkpoint, get_tested_set,
+                                         save_checkpoint, clear_checkpoint, _payload_hash)
+            _cp = load_checkpoint(target)
+            if _cp:
+                _tested_hashes = get_tested_set(_cp)
+                all_results = _cp.get("results", [])
+                _checkpoint_started = _cp.get("started_at", _checkpoint_started)
+                if not quiet:
+                    from fray.output import console
+                    console.print(
+                        f"  [cyan]↻ Resuming: {len(_tested_hashes)} payloads already tested, "
+                        f"skipping completed[/cyan]"
+                    )
+        except Exception:
+            pass
+
     # Parallel mode: use async engine with baseline + redirect following
     if parallel > 0:
         try:
@@ -1019,8 +1041,19 @@ def run_scan(target: str, category: str = "xss", max_payloads: int = 5,
                 )
 
         _blocked_families = set()
+        _skipped_resume = 0
         for payload_data in test_payloads:
             payload = payload_data.get("payload", payload_data) if isinstance(payload_data, dict) else str(payload_data)
+
+            # Resume: skip already-tested payloads
+            if _tested_hashes:
+                try:
+                    from fray.checkpoint import _payload_hash
+                    if _payload_hash(payload) in _tested_hashes:
+                        _skipped_resume += 1
+                        continue
+                except Exception:
+                    pass
 
             # Skip if this payload's technique family was already blocked
             if _payload_clusters:
@@ -1047,7 +1080,26 @@ def run_scan(target: str, category: str = "xss", max_payloads: int = 5,
                     reflected_tag = " [bold magenta]↩ REFLECTED[/bold magenta]" if result.get("reflected") else ""
                     console.print(f"    ", badge, f" {result['status']} │ {label}{reflected_tag}", highlight=False)
 
+            # Checkpoint: save progress after each payload
+            if resume:
+                try:
+                    from fray.checkpoint import save_checkpoint, _payload_hash
+                    _all = all_results + results
+                    _hashes = list(_tested_hashes | {_payload_hash(r.get("payload", ""))
+                                                     for r in _all if r.get("payload")})
+                    save_checkpoint(target, ip.method, ip.param, "",
+                                    len(test_payloads), _hashes, _all,
+                                    _checkpoint_started)
+                except Exception:
+                    pass
+
             tester._stealth_delay()
+
+        if _skipped_resume and not quiet:
+            with print_lock:
+                from fray.output import console
+                console.print(f"    [dim]↻ Skipped {_skipped_resume} already-tested payloads[/dim]")
+
         return results
 
     if workers <= 1:
@@ -1077,6 +1129,14 @@ def run_scan(target: str, category: str = "xss", max_payloads: int = 5,
     minutes = int(elapsed.total_seconds() // 60)
     seconds = int(elapsed.total_seconds() % 60)
     scan.duration = f"{minutes}m {seconds}s" if minutes > 0 else f"{seconds}s"
+
+    # ── Clear checkpoint on successful completion ──────────────────────────
+    if resume:
+        try:
+            from fray.checkpoint import clear_checkpoint
+            clear_checkpoint(target)
+        except Exception:
+            pass
 
     # ── Persist results to adaptive cache (async D1 share included) ───────
     if all_results:

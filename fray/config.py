@@ -104,10 +104,35 @@ _CONFIG_SCHEMA: Dict[str, Dict[str, Any]] = {
         "redirect_limit": {"_type": "int", "_min": 0, "_max": 20},
         "stealth": {"_type": "bool"},
         "method": {"_type": "str", "_choices": ["GET", "POST", "PUT", "DELETE", "PATCH"]},
+        "impersonate": {"_type": "str"},
+        "solve_challenge": {"_type": "bool"},
         "auth": {
             "cookie": {"_type": "str"},
             "bearer": {"_type": "str"},
         },
+    },
+    "scan": {
+        "timeout": {"_type": "int", "_min": 1, "_max": 300},
+        "delay": {"_type": "float", "_min": 0.0, "_max": 60.0},
+        "category": {"_type": "str"},
+        "depth": {"_type": "int", "_min": 1, "_max": 10},
+        "max_pages": {"_type": "int", "_min": 1, "_max": 500},
+        "max_payloads": {"_type": "int", "_min": 1, "_max": 5000},
+        "workers": {"_type": "int", "_min": 1, "_max": 32},
+        "parallel": {"_type": "int", "_min": 0, "_max": 50},
+        "follow_redirects": {"_type": "bool"},
+        "baseline": {"_type": "bool"},
+        "insecure": {"_type": "bool"},
+        "stealth": {"_type": "bool"},
+        "impersonate": {"_type": "str"},
+        "auto_throttle": {"_type": "bool"},
+    },
+    "go": {
+        "deep": {"_type": "bool"},
+        "stealth": {"_type": "bool"},
+        "impersonate": {"_type": "str"},
+        "solve_challenge": {"_type": "bool"},
+        "output": {"_type": "str"},
     },
     "recon": {
         "timeout": {"_type": "int", "_min": 1, "_max": 300},
@@ -120,6 +145,22 @@ _CONFIG_SCHEMA: Dict[str, Dict[str, Any]] = {
         "delay": {"_type": "float", "_min": 0.0},
         "platform": {"_type": "str", "_choices": ["hackerone", "bugcrowd"]},
     },
+    "agent": {
+        "rounds": {"_type": "int", "_min": 1, "_max": 50},
+        "budget": {"_type": "int", "_min": 1, "_max": 5000},
+        "category": {"_type": "str"},
+        "ai": {"_type": "bool"},
+    },
+    "auth": {
+        "cookie": {"_type": "str"},
+        "bearer": {"_type": "str"},
+        "login_url": {"_type": "str"},
+        "username": {"_type": "str"},
+        "password": {"_type": "str"},
+        "session_file": {"_type": "str"},
+    },
+    "targets": {"_type": "list"},
+    "profiles": {"_type": "dict"},
     "webhook": {
         "url": {"_type": "str"},
     },
@@ -196,6 +237,15 @@ def apply_config_defaults(args, config: Dict[str, Any], section: str) -> None:
     if not isinstance(section_config, dict):
         return
 
+    # Also apply [auth] section to all commands
+    auth_config = config.get("auth", {})
+    if isinstance(auth_config, dict):
+        section_config = {**section_config}  # shallow copy
+        # Merge auth into section (section keys win)
+        for k, v in auth_config.items():
+            if k not in section_config:
+                section_config[k] = v
+
     # Flatten nested dicts (e.g. [test.auth] -> cookie, bearer)
     flat: Dict[str, Any] = {}
     for k, v in section_config.items():
@@ -211,3 +261,204 @@ def apply_config_defaults(args, config: Dict[str, Any], section: str) -> None:
         # Only apply if CLI didn't set it (None for optional, False for store_true)
         if current is None or current is False:
             setattr(args, attr, value)
+
+
+def get_profile(config: Dict[str, Any], profile_name: str) -> Dict[str, Any]:
+    """Get a named profile from config. Returns {} if not found.
+
+    Profiles are defined under [profiles.<name>] and can override any setting.
+    Example:
+        [profiles.stealth]
+        stealth = true
+        delay = 1.0
+        impersonate = "chrome"
+        parallel = 2
+
+        [profiles.aggressive]
+        parallel = 10
+        delay = 0.0
+        workers = 4
+    """
+    profiles = config.get("profiles", {})
+    if not isinstance(profiles, dict):
+        return {}
+    return profiles.get(profile_name, {})
+
+
+def apply_profile(args, config: Dict[str, Any], profile_name: str) -> None:
+    """Apply a named profile to argparse Namespace. Profile overrides config defaults."""
+    profile = get_profile(config, profile_name)
+    if not profile:
+        return
+    for key, value in profile.items():
+        attr = key.replace("-", "_")
+        setattr(args, attr, value)
+
+
+def get_targets(config: Dict[str, Any]) -> list:
+    """Get target list from config. Returns [].
+
+    Example:
+        targets = [
+            "https://target1.com",
+            "https://target2.com",
+            "https://staging.target1.com",
+        ]
+    """
+    targets = config.get("targets", [])
+    if isinstance(targets, list):
+        return [str(t) for t in targets if t]
+    return []
+
+
+def init_config(path: Optional[Path] = None, force: bool = False) -> Path:
+    """Create a starter .fray.toml in CWD or specified path.
+
+    Returns the path to the created config file.
+    Raises FileExistsError if file exists and force is False.
+    """
+    target = path or (Path.cwd() / _CONFIG_FILENAME)
+    if target.exists() and not force:
+        raise FileExistsError(f"{target} already exists (use --force to overwrite)")
+
+    template = '''# Fray Configuration — https://github.com/dalisecurity/Fray
+# CLI arguments always override these values.
+
+[env]
+# GITHUB_TOKEN = "ghp_xxxx"
+# OPENAI_API_KEY = "sk-xxxx"
+
+# ── Global Auth (applied to all commands) ─────────────────────
+[auth]
+# cookie = "session=abc123"
+# bearer = "eyJ..."
+# login_url = "https://target.com/login"
+# session_file = "~/.fray/sessions/target.json"
+
+# ── Test Defaults ─────────────────────────────────────────────
+[test]
+timeout = 10
+delay = 0.3
+category = "xss"
+insecure = false
+stealth = false
+# impersonate = "chrome"
+# solve_challenge = false
+
+# ── Scan Defaults ─────────────────────────────────────────────
+[scan]
+timeout = 8
+delay = 0.5
+category = "xss"
+depth = 3
+max_pages = 30
+max_payloads = 5
+workers = 1
+parallel = 0
+follow_redirects = false
+baseline = false
+insecure = false
+stealth = false
+# auto_throttle = true
+# impersonate = "chrome"
+
+# ── Go Pipeline Defaults ─────────────────────────────────────
+[go]
+deep = false
+stealth = false
+# impersonate = "chrome"
+# solve_challenge = false
+
+# ── Recon Defaults ───────────────────────────────────────────
+[recon]
+timeout = 10
+deep = false
+fast = false
+
+# ── Agent Defaults ───────────────────────────────────────────
+[agent]
+rounds = 5
+budget = 100
+category = "xss"
+# ai = false
+
+# ── Bounty Defaults ──────────────────────────────────────────
+[bounty]
+max = 20
+workers = 4
+delay = 0.5
+# platform = "hackerone"
+
+# ── Webhook ──────────────────────────────────────────────────
+[webhook]
+# url = "https://hooks.slack.com/services/..."
+
+# ── Targets (for fray bounty or batch scanning) ──────────────
+# targets = [
+#     "https://target1.com",
+#     "https://target2.com",
+# ]
+
+# ── Profiles ─────────────────────────────────────────────────
+# Use with: fray test --profile stealth
+
+[profiles.stealth]
+stealth = true
+delay = 1.0
+jitter = 0.5
+impersonate = "chrome"
+parallel = 2
+
+[profiles.aggressive]
+delay = 0.0
+parallel = 10
+workers = 4
+baseline = true
+follow_redirects = true
+
+[profiles.ci]
+insecure = true
+parallel = 5
+baseline = true
+
+# theme = "dark"  # dark | light | hacker | minimal | none
+'''
+    target.write_text(template, encoding="utf-8")
+    return target
+
+
+def show_config(config: Optional[Dict[str, Any]] = None) -> str:
+    """Return a human-readable summary of loaded config."""
+    if config is None:
+        config = load_config()
+    if not config:
+        return "No .fray.toml found."
+
+    lines = []
+    path = find_config()
+    if path:
+        lines.append(f"Config: {path}")
+    lines.append("")
+
+    for section, values in config.items():
+        if section == "env":
+            # Mask secrets
+            lines.append(f"[{section}]")
+            for k, v in (values if isinstance(values, dict) else {}).items():
+                masked = v[:4] + "..." + v[-4:] if isinstance(v, str) and len(v) > 12 else "***"
+                lines.append(f"  {k} = {masked}")
+        elif isinstance(values, dict):
+            lines.append(f"[{section}]")
+            for k, v in values.items():
+                if isinstance(v, dict):
+                    lines.append(f"  [{section}.{k}]")
+                    for sk, sv in v.items():
+                        lines.append(f"    {sk} = {sv}")
+                else:
+                    lines.append(f"  {k} = {v}")
+        elif isinstance(values, list):
+            lines.append(f"{section} = [{len(values)} items]")
+        else:
+            lines.append(f"{section} = {values}")
+
+    return "\n".join(lines)
