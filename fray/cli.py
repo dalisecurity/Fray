@@ -1261,11 +1261,10 @@ def cmd_test(args):
             except ImportError:
                 if not json_mode:
                     sys.stderr.write("  \033[33maiohttp not installed — falling back to sequential\033[0m\n")
+                    sys.stderr.write("  \033[2mRun 'fray doctor' to check optional dependencies.\033[0m\n")
                 _concurrency = 1  # Fall through to sequential below
 
         if _concurrency <= 1:
-            # Sequential testing
-            _done = 0
             for _tgt in _targets:
                 _parsed = urllib.parse.urlparse(_tgt['url'])
                 _orig = (tester.host, tester.path, tester.query, tester.use_ssl, tester.port)
@@ -4862,6 +4861,7 @@ def cmd_mcp(args):
     except ImportError:
         print("Error: MCP SDK not installed. Install with:")
         print("  pip install 'mcp[cli]'")
+        print("\n  Run 'fray doctor' to check all optional dependencies.")
         sys.exit(1)
 
 
@@ -7877,6 +7877,7 @@ def main():
         _exit_code = 130
     except Exception as e:
         sys.stderr.write(f"\n  \033[31m✗\033[0m  {e}\n")
+        sys.stderr.write(f"     \033[2mRun 'fray doctor' to diagnose environment issues.\033[0m\n\n")
         _exit_code = 2
     sys.exit(_exit_code)
 
