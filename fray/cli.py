@@ -6199,8 +6199,16 @@ def cmd_help(args):
     show_all = getattr(args, 'show_all', False) or topic == '--all'
 
     # ── Deep dive: fray help <command> ──
+    man_mode = getattr(args, 'man', False)
     if topic and topic != '--all':
-        _cmd_help_topic(topic)
+        _cmd_help_topic(topic, man_mode=man_mode)
+        return
+
+    # --man without a topic: generate all man pages to stdout
+    if man_mode:
+        for t in sorted(_HELP_TOPICS.keys()):
+            print(_help_to_manpage(t, _HELP_TOPICS[t]))
+            print()
         return
 
     # ── Progressive view (bare fray help) ──
@@ -6626,11 +6634,82 @@ _HELP_TOPICS = {
 }
 
 
-def _cmd_help_topic(topic):
+def _help_to_manpage(topic: str, text: str) -> str:
+    """Convert a help topic's ANSI text to groff man page format."""
+    import re as _re
+    # Strip ANSI escape sequences
+    clean = _re.sub(r'\033\[[0-9;]*m', '', text).strip()
+    lines = clean.split('\n')
+
+    # Extract first line as NAME
+    name_line = lines[0].strip() if lines else f"fray-{topic}"
+    # Split on " — " or " - " for name vs description
+    if ' — ' in name_line:
+        cmd_name, desc = name_line.split(' — ', 1)
+    elif ' - ' in name_line:
+        cmd_name, desc = name_line.split(' - ', 1)
+    else:
+        cmd_name, desc = name_line, ""
+
+    roff = []
+    roff.append(f'.TH FRAY-{topic.upper()} 1 "" "Fray v{__version__}" "Fray Manual"')
+    roff.append(f'.SH NAME')
+    roff.append(f'{cmd_name.strip()} \\- {desc.strip()}')
+
+    current_section = None
+    for line in lines[1:]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Detect section headers (all-caps words like USAGE, KEY FLAGS, etc.)
+        if stripped.isupper() or stripped.upper() == stripped and len(stripped) > 2 and not stripped.startswith('-') and not stripped.startswith('fray'):
+            current_section = stripped
+            roff.append(f'.SH {stripped}')
+        elif stripped.startswith('fray '):
+            # Command examples
+            roff.append(f'.TP')
+            if '#' in stripped:
+                cmd_part, comment = stripped.split('#', 1)
+                roff.append(f'.B {cmd_part.strip()}')
+                roff.append(comment.strip())
+            else:
+                roff.append(f'.B {stripped}')
+        elif stripped.startswith('-'):
+            # Flag entries
+            parts = stripped.split(None, 1)
+            if len(parts) >= 2:
+                # Find where description starts (after flag + metavar)
+                flag_match = _re.match(r'([-\w, ]+(?:\s+<[^>]+>)?)\s+(.*)', stripped)
+                if flag_match:
+                    roff.append(f'.TP')
+                    roff.append(f'.B {flag_match.group(1)}')
+                    roff.append(flag_match.group(2))
+                else:
+                    roff.append(f'.TP')
+                    roff.append(f'.B {stripped}')
+            else:
+                roff.append(f'.TP')
+                roff.append(f'.B {stripped}')
+        elif stripped.startswith('sub:'):
+            roff.append(stripped)
+        else:
+            roff.append(stripped)
+
+    roff.append(f'.SH SEE ALSO')
+    roff.append(f'.BR fray (1)')
+    roff.append(f'.SH AUTHORS')
+    roff.append(f'Dali Security <https://dalisec.io>')
+    return '\n'.join(roff)
+
+
+def _cmd_help_topic(topic, man_mode=False):
     """Print deep-dive help for a single command."""
     text = _HELP_TOPICS.get(topic)
     if text:
-        print(text)
+        if man_mode:
+            print(_help_to_manpage(topic, text))
+        else:
+            print(text)
     else:
         # Fuzzy match: suggest closest command
         from difflib import get_close_matches
@@ -6679,15 +6758,33 @@ def cmd_cache(args):
 
     elif sub == "clear":
         domain = getattr(args, "domain", "") or ""
-        removed = clear_domain_cache(domain)
-        if json_mode:
-            print(json.dumps({"action": "clear", "domain": domain or "*",
-                              "removed": removed}))
-        elif removed:
-            target = domain if domain else "all domains"
-            print(f"  Cache cleared for {target} ({removed} entr{'y' if removed == 1 else 'ies'} removed).")
+        dry_run = getattr(args, "dry_run", False)
+        if dry_run:
+            # Show what would be cleared without deleting
+            cache = load_cache()
+            if domain:
+                stats = get_domain_stats(domain)
+                n = len(stats.get("blocked_hashes", [])) + len(stats.get("successful_payloads", [])) if stats else 0
+                target_label = domain
+            else:
+                n = sum(len(v) if isinstance(v, (list, dict)) else 1 for v in (cache or {}).values())
+                target_label = f"all {len(cache or {})} domains"
+            if json_mode:
+                print(json.dumps({"action": "clear", "dry_run": True,
+                                  "domain": domain or "*", "would_remove": n}))
+            else:
+                print(f"  [dry-run] Would clear cache for {target_label} (~{n} entries)")
+                print(f"  Run without --dry-run to actually delete.")
         else:
-            print("  Nothing to clear.")
+            removed = clear_domain_cache(domain)
+            if json_mode:
+                print(json.dumps({"action": "clear", "domain": domain or "*",
+                                  "removed": removed}))
+            elif removed:
+                target = domain if domain else "all domains"
+                print(f"  Cache cleared for {target} ({removed} entr{'y' if removed == 1 else 'ies'} removed).")
+            else:
+                print("  Nothing to clear.")
 
     elif sub == "stats":
         domain = getattr(args, "domain", "")
@@ -6745,38 +6842,107 @@ def cmd_cache(args):
 
 
 def cmd_init_config(args):
-    """Create a sample .fray.toml in the current directory"""
-    target = Path.cwd() / ".fray.toml"
-    if target.exists():
-        print(f".fray.toml already exists at {target}")
-        sys.exit(1)
-    sample = '''\
+    """Scaffold .fray.toml, auth profile, and scope file for a new project"""
+    created = []
+
+    # 1. .fray.toml
+    toml_path = Path.cwd() / ".fray.toml"
+    if toml_path.exists():
+        print(f"  \033[2m✓ .fray.toml already exists\033[0m")
+    else:
+        sample = '''\
 # Fray configuration file
 # CLI arguments always override these defaults.
+# Docs: https://dalisec.io/docs/config
 
 [test]
 timeout = 8
 delay = 0.5
 # category = "xss"
 # insecure = false
-# verbose = false
+# stealth = false
 redirect_limit = 5
 
 [test.auth]
 # cookie = "session=abc123"
 # bearer = "eyJ..."
 
+[scan]
+# depth = 3
+# max_pages = 50
+# max_payloads = 100
+
+[recon]
+# deep = false
+# fast = false
+
 [bounty]
 max = 10
 workers = 1
 delay = 0.5
 
-[webhook]
+[agent]
+# rounds = 5
+# budget = 100
+# category = "xss"
+
+# [webhook]
 # url = "https://hooks.slack.com/services/..."
 '''
-    target.write_text(sample, encoding="utf-8")
-    print(f"Created {target}")
-    print("Edit the file to set your defaults, then run fray commands as usual.")
+        toml_path.write_text(sample, encoding="utf-8")
+        created.append(str(toml_path))
+
+    # 2. Auth profile template
+    auth_dir = Path.home() / ".fray" / "auth"
+    auth_template = auth_dir / "_template.json"
+    if not auth_template.exists():
+        auth_dir.mkdir(parents=True, exist_ok=True)
+        auth_content = json.dumps({
+            "_comment": "Rename this file to match your target (e.g. mysite.json)",
+            "_docs": "https://dalisec.io/docs/auth",
+            "type": "cookie",
+            "cookie": "session=YOUR_SESSION_COOKIE",
+            "_alt_bearer": "eyYOUR.JWT.TOKEN",
+            "_alt_login": {
+                "type": "form",
+                "login_url": "https://target.com/login",
+                "username_field": "email",
+                "password_field": "password",
+                "username": "test@example.com",
+                "password": "password123"
+            }
+        }, indent=2)
+        auth_template.write_text(auth_content, encoding="utf-8")
+        created.append(str(auth_template))
+
+    # 3. Scope file template
+    scope_path = Path.cwd() / "scope.txt"
+    if not scope_path.exists():
+        scope_content = """\
+# Fray scope file — only targets matching these patterns will be tested.
+# Docs: https://dalisec.io/docs/scope
+#
+# One pattern per line. Supports:
+#   example.com            — exact domain
+#   *.example.com          — wildcard subdomains
+#   https://example.com/*  — URL prefix
+#   !out-of-scope.com      — explicit exclusion
+#
+# Example:
+# example.com
+# *.example.com
+# !internal.example.com
+"""
+        scope_path.write_text(scope_content, encoding="utf-8")
+        created.append(str(scope_path))
+
+    if created:
+        print(f"\n  \033[1m⚔  Fray project initialized\033[0m\n")
+        for f in created:
+            print(f"  \033[32m✓\033[0m {f}")
+        print(f"\n  \033[2mEdit these files, then run: fray go <url>\033[0m")
+    else:
+        print(f"\n  All config files already exist. Nothing to create.")
 
 
 def list_categories():
@@ -7766,9 +7932,10 @@ def main():
     p_wizard = subparsers.add_parser("wizard", help=argparse.SUPPRESS)
     p_wizard.set_defaults(func=cmd_wizard)
 
-    # init (alias for wizard)
-    p_init = subparsers.add_parser("init", help=argparse.SUPPRESS)
-    p_init.set_defaults(func=cmd_wizard)
+    # init — scaffold .fray.toml + auth profile + scope file
+    p_init = subparsers.add_parser("init",
+        help="Initialize project: .fray.toml + auth template + scope file")
+    p_init.set_defaults(func=cmd_init_config)
 
     # batch (#70)
     p_batch = subparsers.add_parser("batch", help=argparse.SUPPRESS)
@@ -8010,6 +8177,8 @@ def main():
     p_cache_clear = p_cache_sub.add_parser("clear", help="Clear cache for a domain or all")
     p_cache_clear.add_argument("domain", nargs="?", default="",
                                 help="Domain to clear, or blank to clear everything")
+    p_cache_clear.add_argument("--dry-run", action="store_true",
+                                help="Show what would be cleared without deleting")
 
     p_cache_stats = p_cache_sub.add_parser("stats", help="Dump raw cache JSON")
     p_cache_stats.add_argument("domain", nargs="?", default="",
@@ -8043,6 +8212,8 @@ def main():
                          help="Command to show detailed help for (e.g. 'fray help recon')")
     p_help.add_argument("--all", action="store_true", dest="show_all",
                          help="Show all 20 commands (same as bare 'fray help')")
+    p_help.add_argument("--man", action="store_true",
+                         help="Output groff man page format (pipe to man -l -)")
     p_help.set_defaults(func=cmd_help)
 
     # ── Deprecation wrappers for old flat commands ──
@@ -8223,11 +8394,18 @@ def main():
     _apply_env_overrides(args)
 
     # Load .fray.toml: env vars first, then apply defaults for the active subcommand
-    from fray.config import load_config, apply_config_defaults, load_env_from_config
+    from fray.config import load_config, apply_config_defaults, load_env_from_config, validate_config
     config = load_config()
     load_env_from_config(config)
     if config:
         apply_config_defaults(args, config, args.command)
+        # Warn about unknown/invalid config keys (once, non-blocking)
+        if not os.environ.get('FRAY_NO_HINTS') and not getattr(args, 'quiet', False):
+            _warnings = validate_config(config)
+            if _warnings:
+                sys.stderr.write(f"  \033[33m⚠ .fray.toml:\033[0m {_warnings[0]}\n")
+                if len(_warnings) > 1:
+                    sys.stderr.write(f"  \033[2m  ... and {len(_warnings)-1} more (run: fray config validate)\033[0m\n")
 
     # Apply --profile presets (after config, before command execution)
     _apply_profile(args)
