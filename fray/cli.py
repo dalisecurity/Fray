@@ -1843,6 +1843,19 @@ def cmd_crawl(args):
         print(f"  ▸ fray scan {target}  — Full auto crawl + inject pipeline")
         print()
 
+    # Persist to ~/.fray/crawls/ for dashboard
+    crawl_data = {
+        "target": target,
+        "timestamp": __import__("datetime").datetime.now().isoformat(),
+        "command": "crawl",
+        "pages_crawled": result.get("pages_crawled", 0),
+        "total_endpoints": result.get("total_endpoints", 0),
+        "total_params": result.get("total_params", 0),
+        "sources": sources,
+        "endpoints": endpoints,
+    }
+    _save_to_fray("crawls", target, crawl_data)
+
     # Save to file
     output_file = getattr(args, 'output', None)
     if output_file:
@@ -1851,6 +1864,9 @@ def cmd_crawl(args):
             json.dump(result, f, indent=2, ensure_ascii=False)
         if not json_mode:
             print(f"  Saved: {output_file}")
+
+    if not json_mode and not getattr(args, 'quiet', False):
+        sys.stderr.write(f"\n  \033[2m💡 View in dashboard: \033[0mfray dashboard\n")
 
 
 def cmd_scan(args):
@@ -2081,7 +2097,7 @@ def cmd_scan(args):
         send_generic_notification(notify_url, "scan", args.target, summary)
 
     # Next-step hints (TTY only)
-    if not getattr(args, 'json', False):
+    if not getattr(args, 'json', False) and not getattr(args, 'quiet', False):
         try:
             from fray.interactive import next_steps
             sd = scan.to_dict()
@@ -2213,6 +2229,16 @@ def cmd_submit_payload(args):
 
 def cmd_validate(args):
     """Validate WAF configuration and generate report"""
+    # ── Educational header ──
+    json_mode = getattr(args, 'json', False)
+    if not json_mode and not getattr(args, 'quiet', False):
+        _waf = getattr(args, 'waf', None)
+        _waf_label = f" ({_waf})" if _waf else ""
+        sys.stderr.write(f"\n  \033[1m🛡  Validate: blue team WAF config audit{_waf_label}\033[0m\n")
+        sys.stderr.write(f"  \033[2mTesting WAF rules with known-good and known-bad payloads...\033[0m\n")
+        sys.stderr.write(f"  \033[2mGenerates a coverage report: what's blocked, what's missed.\033[0m\n\n")
+        sys.stderr.flush()
+
     if args.output:
         _validate_output_path(args.output)
     from fray.validate import run_validate
@@ -2292,6 +2318,16 @@ def cmd_bounty(args):
         else:
             print(md)
         return
+
+    # ── Educational header ──
+    if not getattr(args, 'quiet', False):
+        _platform = getattr(args, 'platform', 'hackerone')
+        sys.stderr.write(f"\n  \033[1m🎯 Bounty: bug bounty scope fetch + batch test ({_platform})\033[0m\n")
+        sys.stderr.write(f"  \033[2mFetching in-scope targets, then running WAF tests on each...\033[0m\n")
+        if not getattr(args, 'no_smart', True):
+            sys.stderr.write(f"  \033[2m🧠 Smart mode: adaptive payload selection per target\033[0m\n")
+        sys.stderr.write("\n")
+        sys.stderr.flush()
 
     if args.output:
         _validate_output_path(args.output)
@@ -3144,7 +3180,7 @@ def cmd_smuggle(args):
         sys.exit(1)
 
     # ── Educational header ──
-    if not getattr(args, 'json', False):
+    if not getattr(args, 'json', False) and not getattr(args, 'quiet', False):
         sys.stderr.write(f"\n  \033[1m🔀 Smuggle: HTTP request smuggling detection\033[0m\n")
         sys.stderr.write(f"  \033[2mTesting CL.TE, TE.CL, and TE.TE desync variants...\033[0m\n")
         sys.stderr.write(f"  \033[2mThis exploits discrepancies between front-end and back-end HTTP parsers.\033[0m\n\n")
@@ -3181,7 +3217,7 @@ def cmd_smuggle(args):
     _save_to_fray("smuggle", args.target, smuggle_data)
 
     # Next-step hints
-    if not getattr(args, 'json', False):
+    if not getattr(args, 'json', False) and not getattr(args, 'quiet', False):
         try:
             from fray.interactive import next_steps
             next_steps(args.target, "smuggle")
@@ -3681,7 +3717,7 @@ def cmd_bypass(args):
     _save_to_fray("bypasses", args.target, bypass_data)
 
     # Next-step hints
-    if not getattr(args, 'json', False):
+    if not getattr(args, 'json', False) and not getattr(args, 'quiet', False):
         try:
             from fray.interactive import next_steps
             _bypassed = len([b for b in bypass_results if not b.get('blocked')]) if bypass_results else 0
@@ -3887,7 +3923,7 @@ def cmd_agent(args):
         )
 
     # Next-step hints
-    if not json_mode:
+    if not json_mode and not getattr(args, 'quiet', False):
         try:
             from fray.interactive import next_steps
             next_steps(args.target, "agent", bypassed=stats.total_bypasses)
@@ -4376,6 +4412,13 @@ def cmd_harden(args):
 
     json_mode = getattr(args, 'json', False)
 
+    # ── Educational header ──
+    if not json_mode and not getattr(args, 'quiet', False):
+        sys.stderr.write(f"\n  \033[1m🔒 Harden: OWASP Top 10 misconfiguration audit\033[0m\n")
+        sys.stderr.write(f"  \033[2mChecking security headers, CSP, CORS, cookie flags, rate limits...\033[0m\n")
+        sys.stderr.write(f"  \033[2mGenerates fix snippets for nginx, Apache, Cloudflare, and CDN configs.\033[0m\n\n")
+        sys.stderr.flush()
+
     # Phase 1: Headers audit
     if not json_mode:
         from fray.output import console, print_header, print_phase
@@ -4685,6 +4728,19 @@ def cmd_go(args):
             json.dump(summary, f, indent=2, ensure_ascii=False)
         if not json_mode:
             print(f"  Pipeline results saved to {output_file}")
+
+    # Persist to ~/.fray/go/ for dashboard
+    go_data = {
+        "target": target,
+        "timestamp": __import__("datetime").datetime.now().isoformat(),
+        "command": "go",
+        "phases": summary.get("phases", []),
+        "duration": summary.get("duration", None),
+    }
+    _save_to_fray("go", target, go_data)
+
+    if not json_mode and not ci_mode and not getattr(args, 'quiet', False):
+        sys.stderr.write(f"\n  \033[2m💡 View in dashboard: \033[0mfray dashboard\n")
 
     # CI exit code
     if ci_mode:
@@ -5613,6 +5669,54 @@ def cmd_explain(args):
 
 def cmd_dashboard(args):
     """Launch the Fray web dashboard (#57)."""
+
+    # --summary: quick overview of persisted data without launching the web server
+    if getattr(args, 'summary', False) or getattr(args, 'json', False) and not getattr(args, 'port', None):
+        fray_dir = Path.home() / ".fray"
+        _SUBDIRS = ["recon", "tests", "scans", "bypasses", "smuggle", "agents", "crawls", "go"]
+        summary = {}
+        for subdir in _SUBDIRS:
+            d = fray_dir / subdir
+            if d.exists():
+                latest_files = sorted(d.glob("*_latest.json"))
+                domains = set()
+                for f in latest_files:
+                    name = f.stem.replace("_latest", "")
+                    domains.add(name)
+                # Count timestamped (non-latest) files
+                all_files = [f for f in d.glob("*.json") if "_latest" not in f.name]
+                summary[subdir] = {
+                    "domains": sorted(domains),
+                    "total_runs": len(all_files),
+                }
+
+        if getattr(args, 'json', False):
+            _json_print({"data_dir": str(fray_dir), "commands": summary})
+            return
+
+        # Pretty-print summary
+        print(f"\n  \033[1m📊 Fray Dashboard — Data Summary\033[0m")
+        print(f"  \033[2m{fray_dir}\033[0m\n")
+        if not any(summary.values()):
+            print(f"  No scan data yet. Run some commands first:")
+            print(f"    fray go <url>       Full pipeline")
+            print(f"    fray recon <url>    Reconnaissance")
+            print(f"    fray test <url>     WAF testing")
+        else:
+            for subdir, info in sorted(summary.items()):
+                n_domains = len(info["domains"])
+                n_runs = info["total_runs"]
+                label = subdir.replace("_", " ").title()
+                print(f"  \033[1m{label:<12}\033[0m {n_domains} domain(s), {n_runs} run(s)")
+                if n_domains <= 5:
+                    for d in info["domains"]:
+                        print(f"  \033[2m             └ {d}\033[0m")
+            print()
+            print(f"  Launch web UI:  fray dashboard")
+            print(f"  JSON export:    fray dashboard --summary --json")
+        print()
+        return
+
     from fray.web_dashboard import start_dashboard
 
     port = getattr(args, 'port', 8337)
@@ -7881,8 +7985,10 @@ def main():
                          help="Port to listen on (default: 8337)")
     p_dash.add_argument("--no-open", action="store_true", dest="no_open",
                          help="Don't auto-open browser")
+    p_dash.add_argument("--summary", action="store_true",
+                         help="Show data summary without launching web server")
     p_dash.add_argument("--json", action="store_true",
-                         help="Print API endpoint list and exit")
+                         help="JSON output (with --summary: data overview; without: API endpoints)")
     p_dash.set_defaults(func=cmd_dashboard)
 
     # demo

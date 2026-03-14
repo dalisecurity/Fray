@@ -417,8 +417,35 @@ class FrayDoctor:
         self.check_api_keys()
         self.check_encoding()
         self.check_disk_space()
+        self.check_core_imports()
 
         return self.checks
+
+    def check_core_imports(self):
+        """Check that core Fray modules import cleanly (catches missing typing imports, etc.)"""
+        _MODULES = [
+            "fray.tester", "fray.mutator", "fray.agent", "fray.bypass",
+            "fray.crawler", "fray.scanner", "fray.smuggling",
+            "fray.recon", "fray.validate", "fray.bounty",
+        ]
+        broken = []
+        for mod in _MODULES:
+            try:
+                __import__(mod)
+            except Exception as e:
+                broken.append((mod, str(e)))
+
+        if not broken:
+            self._add("Core module imports", PASS,
+                       f"All {len(_MODULES)} core modules import cleanly")
+        else:
+            names = ", ".join(m for m, _ in broken)
+            self._add("Core module imports", FAIL,
+                       f"{len(broken)} broken: {names}",
+                       fix_hint=broken[0][1])
+            if self.verbose:
+                for mod, err in broken:
+                    self._add(f"  └ {mod}", FAIL, err)
 
     def print_report(self):
         """Print formatted diagnostic report"""
