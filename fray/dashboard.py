@@ -160,7 +160,8 @@ class Dashboard:
                 if s in sev_counts:
                     c = _SEV_COLORS.get(s, "")
                     parts.append(f"{c}{sev_counts[s]} {s}{_A.RESET}")
-            self._out.write(f"  Findings:  {' \u2502 '.join(parts)}\n")
+            _sep = ' \u2502 '
+            self._out.write(f"  Findings:  {_sep.join(parts)}\n")
 
         for k, v in self._stats.items():
             if v > 0:
@@ -261,7 +262,8 @@ class Dashboard:
                 if v > 0:
                     stat_parts.append(f"{_A.WHITE}{v}{_A.RESET} {k}")
             if stat_parts:
-                lines.append(f"  {' \u2502 '.join(stat_parts)}")
+                _sep = ' \u2502 '
+                lines.append(f"  {_sep.join(stat_parts)}")
 
             # Finding feed (last 4)
             if self._findings:
