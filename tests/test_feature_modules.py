@@ -1138,3 +1138,61 @@ class TestClassifyRedirectBlock:
         from fray.async_engine import classify_redirect_block
         chain = [{"status": 302, "url": "https://x.com", "location": "/page"}]
         assert classify_redirect_block(chain, 403, "nope") == "redirect_block"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 10. _auto_concurrency — smart parallel selection from recon
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestAutoConcurrency:
+    def test_import(self):
+        from fray.interactive import _auto_concurrency
+        assert callable(_auto_concurrency)
+
+    def test_no_recon(self):
+        from fray.interactive import _auto_concurrency
+        assert _auto_concurrency(None) == 1
+        assert _auto_concurrency({}) == 1
+
+    def test_no_waf_no_bot(self):
+        from fray.interactive import _auto_concurrency
+        recon = {"attack_surface": {"waf_vendor": ""}}
+        assert _auto_concurrency(recon) == 10
+
+    def test_waf_no_bot_no_rate(self):
+        from fray.interactive import _auto_concurrency
+        recon = {"attack_surface": {"waf_vendor": "Cloudflare"}}
+        assert _auto_concurrency(recon) == 5
+
+    def test_waf_with_rate_limit(self):
+        from fray.interactive import _auto_concurrency
+        recon = {
+            "attack_surface": {"waf_vendor": "Cloudflare"},
+            "rate_limits": {"threshold_rps": 10},
+        }
+        assert _auto_concurrency(recon) == 2
+
+    def test_bot_detection_sequential(self):
+        from fray.interactive import _auto_concurrency
+        recon = {
+            "attack_surface": {"waf_vendor": "Cloudflare"},
+            "bot_protection": {"detected": True, "has_captcha": True},
+        }
+        assert _auto_concurrency(recon) == 1
+
+    def test_no_waf_but_rate_limited(self):
+        from fray.interactive import _auto_concurrency
+        recon = {
+            "attack_surface": {"waf_vendor": ""},
+            "rate_limits": {"rate_limited": True},
+        }
+        # No WAF, no bot → still aggressive (rate limit only matters with WAF)
+        assert _auto_concurrency(recon) >= 3
+
+    def test_bot_fingerprinting(self):
+        from fray.interactive import _auto_concurrency
+        recon = {
+            "attack_surface": {"waf_vendor": "Akamai"},
+            "bot_protection": {"has_fingerprinting": True},
+        }
+        assert _auto_concurrency(recon) == 1

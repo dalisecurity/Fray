@@ -736,6 +736,43 @@ def next_steps(target: str, context: str = "recon", *,
 # GuidedPipeline — `fray go <url>` zero-knowledge full pipeline
 # ═══════════════════════════════════════════════════════════════════════
 
+def _auto_concurrency(recon_result: dict) -> int:
+    """Determine safe parallel concurrency from recon intelligence.
+
+    Returns concurrency level: 1 (sequential) to 10 (aggressive).
+    """
+    if not recon_result:
+        return 1
+
+    atk = recon_result.get("attack_surface", {})
+    waf = (atk.get("waf_vendor") or "").lower()
+    bot = recon_result.get("bot_protection", {})
+    rate_info = recon_result.get("rate_limits", {})
+    has_bot_detection = bool(bot.get("detected") or bot.get("has_captcha")
+                            or bot.get("has_fingerprinting"))
+    has_rate_limit = bool(rate_info.get("threshold_rps")
+                         or rate_info.get("rate_limited"))
+
+    # Aggressive: no WAF, no bot detection, no rate limits
+    if not waf and not has_bot_detection and not has_rate_limit:
+        return 10
+
+    # Moderate: WAF present but no bot detection or rate limits
+    if waf and not has_bot_detection and not has_rate_limit:
+        return 5
+
+    # Careful: WAF + rate limits but no bot detection
+    if waf and has_rate_limit and not has_bot_detection:
+        return 2
+
+    # Very careful: bot detection active (Turnstile, DataDome, etc.)
+    if has_bot_detection:
+        return 1
+
+    # Default: moderate
+    return 3
+
+
 class GuidedPipeline:
     """Zero-knowledge guided pipeline: recon → smart test → report.
 
@@ -895,11 +932,15 @@ class GuidedPipeline:
         # ── Smart payload testing (WAFTester + clustering + vendor mutations) ──
         # If recon found a WAF and recommended xss/sqli categories, run an
         # adaptive clustered test using WAFTester with impersonation.
+        # Auto-parallel: use recon intelligence to pick safe concurrency.
         _smart_results = []
         _smart_cats = [c for c in (recs[:2] if recs else ["xss"]) if isinstance(c, str)]
         if not _smart_cats:
             _smart_cats = [c.get("category", "") for c in recs[:2] if isinstance(c, dict)]
         _smart_cats = [c for c in _smart_cats if c][:2]
+
+        _concurrency = _auto_concurrency(self.recon_result)
+
         if _smart_cats:
             try:
                 from fray.tester import WAFTester
@@ -924,13 +965,60 @@ class GuidedPipeline:
                     if not _payloads or len(_payloads) < 2:
                         continue
 
+                    _mode_label = f"\u26A1 parallel\u00D7{_concurrency}" if _concurrency > 1 else "sequential"
                     if not self.quiet:
                         out.write(f"  \u25B6 Smart {_sc.upper()} test ({len(_payloads)} payloads")
                         if _waf_vendor:
                             out.write(f", vendor: {_waf_vendor}")
-                        out.write(f")...")
+                        out.write(f", {_mode_label})...")
                         out.flush()
 
+                    # Parallel path: use async engine for speed
+                    if _concurrency > 1:
+                        try:
+                            from fray.async_engine import parallel_test_payloads, ResponseBaseline
+                            _payload_strs = [p.get("payload", p) if isinstance(p, dict)
+                                             else str(p) for p in _payloads[:100]]
+                            _baseline = ResponseBaseline.capture(
+                                self.target, param="q", method="GET",
+                                timeout=6, verify_ssl=False,
+                                headers=self.headers,
+                            )
+                            _par_res = parallel_test_payloads(
+                                url=self.target, param="q",
+                                payloads=_payload_strs,
+                                method="GET", category=_sc,
+                                concurrency=_concurrency,
+                                timeout=6, verify_ssl=False,
+                                headers=self.headers,
+                                baseline=_baseline,
+                                follow_redirect=True,
+                            )
+                            _bypasses = [r for r in _par_res if not r.get("blocked", True)]
+                            _fp = sum(1 for r in _par_res if r.get("false_positive"))
+                            _result = {
+                                "module": f"smart_{_sc}",
+                                "target": self.target,
+                                "vulnerable": len(_bypasses) > 0,
+                                "findings": len(_bypasses),
+                                "requests": len(_par_res),
+                                "false_positives": _fp,
+                                "parallel": _concurrency,
+                                "bypasses": [{"payload": b.get("payload", ""), "status": b.get("status", 0)}
+                                             for b in _bypasses[:10]],
+                            }
+                            _smart_results.append(_result)
+
+                            if not self.quiet:
+                                _status = f"{S.error}{len(_bypasses)} bypass(es){S.reset}" if _bypasses else f"{S.success}clean{S.reset}"
+                                _fp_tag = f", {_fp} FP filtered" if _fp else ""
+                                out.write(f" {_status} ({len(_par_res)} reqs{_fp_tag})\n")
+                                out.flush()
+                            continue  # Skip sequential fallback
+                        except ImportError:
+                            pass  # Fall through to sequential
+
+                    # Sequential fallback (or concurrency=1)
                     _t = WAFTester(
                         self.target, timeout=6, delay=0.1,
                         verify_ssl=False, stealth=self.stealth,
