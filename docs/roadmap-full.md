@@ -1,7 +1,7 @@
-# Fray Full Roadmap — 222 Items Across 27 Layers
+# Fray Full Roadmap — 226 Items Across 28 Layers
 
-**Status:** 132 done · 90 pending  
-**Last updated:** 2026-03-13
+**Status:** 132 done · 94 pending  
+**Last updated:** 2026-03-14
 
 ---
 
@@ -335,6 +335,14 @@
 | 221 | --resume flag for interrupted scan checkpoint | MEDIUM | done |
 | 222 | Test coverage expansion (pytest, >80%) | LOW | done |
 
+## L28 — New CLI Commands + Infrastructure (4 items)
+| # | Item | Priority | Status |
+|---|------|----------|---------|
+| 223 | `fray crawl` — injection point discovery (HTML forms, URL params, XHR/fetch JSON keys, API routes from robots.txt/sitemap/JS, GraphQL introspection → discovered_endpoints.json → `fray test --from-crawl`) | HIGH | pending |
+| 224 | `fray mutate` — AI feedback loop (blocked payload → CF Worker AI analyzes block reason → suggests 5 mutations → auto-tests → logs successful bypasses to payload DB) | MEDIUM | pending |
+| 225 | `fray intel` — CF Worker AI pipeline (daily cron pulls NVD/CISA/GitHub/PortSwigger → Worker AI extracts payloads → D1 payload_staging → `fray intel sync/approve`) | MEDIUM | pending |
+| 226 | Cloudflare Workers KV shared recon cache (cross-user cache at cache.dalisec.io, GET/PUT subdomain data, second user scanning same domain gets cached data in <1s) | MEDIUM | pending |
+
 ---
 
 ## Summary
@@ -368,4 +376,5 @@
 | L25 AI Intelligence | 5 | 0 | 5 |
 | L26 CF Workers AI Gateway | 7 | 0 | 7 |
 | L27 Architecture + Quality | 5 | 5 | 0 |
-| **TOTAL** | **222** | **132** | **90** |
+| L28 New CLI + Infra | 4 | 0 | 4 |
+| **TOTAL** | **226** | **132** | **94** |

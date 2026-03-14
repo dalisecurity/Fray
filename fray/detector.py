@@ -235,8 +235,14 @@ class WAFDetector:
             }
         }
     
-    def detect_waf(self, target: str, timeout: int = 8, verify_ssl: bool = True) -> Dict:
-        """Detect WAF vendor for a target"""
+    def detect_waf(self, target: str, timeout: int = 8, verify_ssl: bool = True,
+                   impersonate: str = None) -> Dict:
+        """Detect WAF vendor for a target.
+
+        Args:
+            impersonate: Browser to impersonate TLS fingerprint (e.g. "chrome").
+                         When set, uses curl_cffi instead of raw sockets.
+        """
         
         # Parse target URL
         if not target.startswith('http'):
@@ -261,6 +267,17 @@ class WAFDetector:
             'status_code': None,
             'response_snippet': None
         }
+
+        # ── Impersonated detection path (curl_cffi) ──
+        if impersonate:
+            try:
+                from fray.impersonate import ImpersonatedSession, AVAILABLE
+                if AVAILABLE:
+                    return self._detect_waf_impersonated(
+                        target, host, port, use_ssl, path, timeout,
+                        verify_ssl, impersonate, results)
+            except ImportError:
+                pass
         
         try:
             # Create connection
@@ -451,6 +468,96 @@ class WAFDetector:
         
         return results
     
+    def _detect_waf_impersonated(self, target, host, port, use_ssl, path,
+                                  timeout, verify_ssl, browser, results):
+        """WAF detection using curl_cffi browser impersonation.
+
+        Uses real browser TLS fingerprint so WAFs that gate on JA3/JA4
+        won't block us at the TLS layer.
+        """
+        from fray.impersonate import ImpersonatedSession
+
+        with ImpersonatedSession(browser=browser, verify=verify_ssl, timeout=timeout) as sess:
+            # Send suspicious payload to trigger WAF (same as raw path)
+            test_payload = "' OR '1'='1' --"
+            enc = urllib.parse.quote(test_payload, safe='')
+            scheme = 'https' if use_ssl else 'http'
+            port_s = '' if (use_ssl and port == 443) or (not use_ssl and port == 80) else f':{port}'
+            url = f"{scheme}://{host}{port_s}{path}?test={enc}"
+
+            try:
+                r = sess.get(url)
+                results['status_code'] = r.status_code
+                results['response_snippet'] = r.text[:500] if r.text else None
+                results['impersonated'] = sess.browser
+
+                # Parse headers
+                for k, v in r.headers.items():
+                    results['headers'][k.lower()] = v
+                results['server'] = results['headers'].get('server', None)
+
+                # Extract cookies from set-cookie headers
+                sc = r.headers.get('set-cookie', '')
+                if sc:
+                    for part in sc.split(','):
+                        cookie_name = part.strip().split('=')[0].strip()
+                        if cookie_name:
+                            results['cookies'].append(cookie_name)
+
+                # TLS cert info (curl_cffi doesn't expose cert, skip)
+                # Run signature analysis
+                detection_results = self._analyze_signatures(results)
+                results.update(detection_results)
+
+                # Canary probes via impersonated session
+                _all_dets = results.get('all_detections', [])
+                _CANARY_PROBES = {
+                    'cloudflare': ('?fray_canary=<script>cf_canary</script>',
+                                   [r'cloudflare', r'cf-error', r'attention required', r'ray id']),
+                    'aws_waf': ("?fray_canary=' OR 1=1--",
+                                [r'x-amzn-requestid', r'aws-waf', r'request blocked']),
+                    'akamai': ('?fray_canary=../../etc/passwd',
+                               [r'reference\s*#[\d.]+', r'akamai']),
+                    'imperva': ('?fray_canary=|id',
+                                [r'incapsula', r'incident\s*id', r'imperva']),
+                    'f5_bigip': ('?fray_canary=<script>alert(1)</script>',
+                                 [r'the requested url was rejected', r'support id']),
+                }
+                _candidates = [d for d in _all_dets if 20 <= d.get('confidence', 0) <= 80]
+                _canary_results = []
+                for _cand in _candidates[:3]:
+                    _v = _cand['vendor'].lower().replace(' ', '_')
+                    for _ck, (_cp, _cc) in _CANARY_PROBES.items():
+                        if _ck in _v or _v in _ck:
+                            try:
+                                _curl = f"{scheme}://{host}{port_s}{path}{_cp}"
+                                _cr = sess.get(_curl)
+                                _ctext = _cr.text.lower() if _cr.text else ""
+                                _confirmed = any(re.search(p, _ctext, re.I) for p in _cc)
+                                if _confirmed:
+                                    _cand['confidence'] = min(_cand['confidence'] + 25, 100)
+                                    _cand['signatures'].append(f"Canary probe confirmed: {_ck}")
+                                    _cand['signature_count'] += 1
+                                    _canary_results.append({'vendor': _ck, 'confirmed': True})
+                                else:
+                                    _canary_results.append({'vendor': _ck, 'confirmed': False})
+                            except Exception:
+                                pass
+                            break
+                if _canary_results:
+                    results['canary_probes'] = _canary_results
+                    _all_dets.sort(key=lambda x: (x['confidence'], x['signature_count']), reverse=True)
+                    if _all_dets:
+                        _top = _all_dets[0]
+                        results['waf_vendor'] = _top['vendor']
+                        results['confidence'] = _top['confidence']
+                        results['signatures_found'] = _top['signatures']
+
+            except Exception as e:
+                results['error'] = str(e)
+
+        return results
+
     def _analyze_signatures(self, results: Dict) -> Dict:
         """Analyze response for WAF signatures"""
         

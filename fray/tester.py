@@ -97,7 +97,9 @@ class WAFTester:
                  custom_headers: Optional[Dict[str, str]] = None,
                  verify_ssl: bool = True, verbose: bool = False,
                  max_redirects: int = 5, jitter: float = 0.0,
-                 stealth: bool = False, rate_limit: float = 0.0):
+                 stealth: bool = False, rate_limit: float = 0.0,
+                 impersonate: Optional[str] = None,
+                 solve_challenge: bool = False):
         self.target = target
         self.timeout = timeout
         self.delay = delay
@@ -114,6 +116,29 @@ class WAFTester:
         self._baseline = None  # Cached baseline for confidence scoring
         self._consecutive_429s = 0  # Adaptive throttle: consecutive 429 counter
         self._backoff_until = 0.0   # Adaptive throttle: don't send before this time
+        self._challenge_cookies: Dict[str, str] = {}  # Cookies from JS challenge solver
+        self._solve_challenge = solve_challenge
+
+        # TLS fingerprint impersonation
+        # --stealth auto-enables impersonation; explicit --impersonate overrides browser choice
+        self._impersonate_browser = impersonate  # e.g. "chrome", "firefox", "safari", "random"
+        self._imp_session = None
+        if self.stealth and not self._impersonate_browser:
+            self._impersonate_browser = "chrome"
+        if self._impersonate_browser:
+            try:
+                from fray.impersonate import ImpersonatedSession, AVAILABLE
+                if AVAILABLE:
+                    self._imp_session = ImpersonatedSession(
+                        browser=self._impersonate_browser,
+                        verify=verify_ssl,
+                        timeout=timeout,
+                        headers=custom_headers,
+                    )
+                    if verbose:
+                        print(f"  {Colors.GREEN}TLS impersonation: {self._imp_session.browser}{Colors.END}")
+            except Exception:
+                pass
 
         # Stealth mode defaults: if --stealth is on, apply sane defaults
         if self.stealth:
@@ -135,7 +160,55 @@ class WAFTester:
         self.use_ssl = parsed.scheme == 'https'
         self.path = parsed.path or '/'
         self.query = parsed.query
+
+        # Auto-solve JS challenges before testing (requires Playwright)
+        if self._solve_challenge:
+            self._try_solve_challenge(target)
     
+    def _try_solve_challenge(self, target_url: str) -> None:
+        """Attempt to solve JS challenges (Cloudflare, Akamai, etc.) via Playwright.
+
+        Populates self._challenge_cookies with session cookies (e.g. cf_clearance)
+        that bypass JS challenges on subsequent raw-socket requests.
+        """
+        try:
+            from fray.headless import HeadlessEngine
+            engine = HeadlessEngine(headless=True, timeout=30000)
+            if not engine._use_playwright:
+                if self.verbose:
+                    sys.stderr.write(f"  {Colors.YELLOW}JS challenge solver: Playwright not installed"
+                                     f" (pip install 'fray[browser]'){Colors.END}\n")
+                return
+
+            if self.verbose:
+                sys.stderr.write(f"  {Colors.CYAN}Solving JS challenge for {self.host}...{Colors.END}\n")
+
+            result = engine.solve_js_challenge(target_url, max_wait=20)
+            engine.close()
+
+            if result.get("solved") and result.get("cookies"):
+                self._challenge_cookies = result["cookies"]
+                ctype = result.get("challenge_type", "unknown")
+                n_cookies = len(self._challenge_cookies)
+                if self.verbose:
+                    sys.stderr.write(f"  {Colors.GREEN}Challenge solved ({ctype}): "
+                                     f"{n_cookies} cookies acquired{Colors.END}\n")
+            elif result.get("challenge_type") == "none":
+                if self.verbose:
+                    sys.stderr.write(f"  {Colors.DIM}No JS challenge detected{Colors.END}\n")
+            else:
+                err = result.get("error", "timeout")
+                if self.verbose:
+                    sys.stderr.write(f"  {Colors.YELLOW}JS challenge not solved: "
+                                     f"{err}{Colors.END}\n")
+        except ImportError:
+            if self.verbose:
+                sys.stderr.write(f"  {Colors.YELLOW}JS challenge solver unavailable "
+                                 f"(pip install 'fray[browser]'){Colors.END}\n")
+        except Exception as e:
+            if self.verbose:
+                sys.stderr.write(f"  {Colors.YELLOW}JS challenge solver error: {e}{Colors.END}\n")
+
     def _stealth_delay(self):
         """Apply delay + jitter + rate limit between requests."""
         # Adaptive backoff: respect 429 cooldown
@@ -184,6 +257,10 @@ class WAFTester:
             lines += "DNT: 1\r\n"
             lines += "Upgrade-Insecure-Requests: 1\r\n"
             lines += f"Cache-Control: max-age=0\r\n"
+        # Inject JS challenge cookies (cf_clearance, etc.) if solved
+        if self._challenge_cookies:
+            cookie_str = "; ".join(f"{k}={v}" for k, v in self._challenge_cookies.items())
+            lines += f"Cookie: {cookie_str}\r\n"
         return lines
 
     def _build_post_body(self, payload: str, param: str, enc: str,
@@ -245,6 +322,37 @@ class WAFTester:
         if ip.is_private or ip.is_loopback or ip.is_link_local:
             raise ValueError(f"Resolved to private/internal IP: {ip_str}")
         return ip_str
+
+    def _impersonated_request(self, method: str, url: str,
+                              headers: Optional[Dict] = None,
+                              data: Optional[str] = None) -> tuple:
+        """Send request via curl_cffi with browser TLS fingerprint.
+
+        Returns same tuple as _raw_request: (status, response_str, headers_dict, elapsed_ms).
+        """
+        kwargs = {}
+        if headers:
+            kwargs['headers'] = headers
+        if data:
+            kwargs['data'] = data
+        kwargs['allow_redirects'] = False  # We handle redirects ourselves
+
+        r = self._imp_session.request(method, url, **kwargs)
+
+        # Build headers dict (lowercase keys)
+        resp_headers = {k.lower(): v for k, v in r.headers.items()} if r.headers else {}
+
+        # Reconstruct response string for compatibility with downstream code
+        header_lines = "\r\n".join(f"{k}: {v}" for k, v in r.headers.items()) if r.headers else ""
+        resp_str = f"HTTP/1.1 {r.status_code} OK\r\n{header_lines}\r\n\r\n{r.text}"
+
+        if self.verbose:
+            print(f"\n{Colors.GREEN}>>> IMPERSONATED REQUEST ({self._imp_session.browser}) >>>{Colors.END}")
+            print(f"  {method} {url}")
+            print(f"{Colors.GREEN}<<< RESPONSE (status={r.status_code}, {len(r.text)} bytes, {r.elapsed_ms:.0f}ms) <<<{Colors.END}")
+            print(r.text[:500])
+
+        return r.status_code, resp_str, resp_headers, r.elapsed_ms
 
     def _raw_request(self, host: str, port: int, use_ssl: bool,
                      request: str) -> tuple:
@@ -658,8 +766,48 @@ class WAFTester:
                            f"{extra_hdrs}"
                            f"Connection: close\r\n\r\n{body}")
 
-                status, resp_str, headers, elapsed_ms = self._raw_request(
-                    current_host, current_port, current_ssl, req)
+                # Use impersonated request (curl_cffi) when available — real browser TLS fingerprint
+                if self._imp_session and hop == 0:
+                    _scheme = 'https' if current_ssl else 'http'
+                    _port_s = '' if (current_ssl and current_port == 443) or (not current_ssl and current_port == 80) else f':{current_port}'
+                    _imp_headers = dict(self.custom_headers)
+
+                    if injection_context == 'header':
+                        _safe_val = payload.replace('\r', '').replace('\n', '')
+                        _qs = current_query if current_query else ''
+                        _imp_url = f"{_scheme}://{current_host}{_port_s}{current_path}"
+                        if _qs:
+                            _imp_url += f"?{_qs}"
+                        _imp_headers['X-Custom-Input'] = _safe_val
+                        _imp_headers['X-Search'] = _safe_val
+                        status, resp_str, headers, elapsed_ms = self._impersonated_request(
+                            'GET', _imp_url, headers=_imp_headers)
+                    elif injection_context == 'cookie':
+                        _qs = current_query if current_query else ''
+                        _imp_url = f"{_scheme}://{current_host}{_port_s}{current_path}"
+                        if _qs:
+                            _imp_url += f"?{_qs}"
+                        _imp_headers['Cookie'] = f"{param}={enc}"
+                        status, resp_str, headers, elapsed_ms = self._impersonated_request(
+                            'GET', _imp_url, headers=_imp_headers)
+                    elif injection_context == 'path':
+                        _imp_url = f"{_scheme}://{current_host}{_port_s}{current_path}/{enc}"
+                        status, resp_str, headers, elapsed_ms = self._impersonated_request(
+                            'GET', _imp_url, headers=_imp_headers)
+                    elif method == 'GET':
+                        _qs = f"{current_query}&{param}={enc}" if current_query else f"{param}={enc}"
+                        _imp_url = f"{_scheme}://{current_host}{_port_s}{current_path}?{_qs}"
+                        status, resp_str, headers, elapsed_ms = self._impersonated_request(
+                            'GET', _imp_url, headers=_imp_headers)
+                    else:
+                        ct, body = self._build_post_body(payload, param, enc, content_type)
+                        _imp_url = f"{_scheme}://{current_host}{_port_s}{current_path}"
+                        _imp_headers['Content-Type'] = ct
+                        status, resp_str, headers, elapsed_ms = self._impersonated_request(
+                            'POST', _imp_url, headers=_imp_headers, data=body)
+                else:
+                    status, resp_str, headers, elapsed_ms = self._raw_request(
+                        current_host, current_port, current_ssl, req)
 
                 # Follow redirects
                 if status in (301, 302, 303, 307, 308) and 'location' in headers:

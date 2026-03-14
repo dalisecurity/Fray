@@ -55,14 +55,35 @@ class _ReconProgress:
             run_str += f" +{len(running) - 3}"
         done_mark = f"✓ {last_done}" if last_done else ""
 
+        # ETA + speed calculation
+        speed_str = ""
+        eta_str = ""
+        if self._done > 0 and elapsed > 0:
+            speed = self._done / elapsed
+            speed_str = f"{speed:.1f} checks/s"
+            remaining = self._total - self._done
+            if remaining > 0 and speed > 0:
+                eta_secs = remaining / speed
+                if eta_secs < 60:
+                    eta_str = f"ETA {eta_secs:.0f}s"
+                else:
+                    eta_str = f"ETA {eta_secs / 60:.1f}m"
+            elif remaining <= 0:
+                eta_str = "done"
+
         # Clear previous output (bar + running + feed lines)
         clear_n = 1 + self._feed_lines + (1 if self._done < self._total else 0)
         for _ in range(clear_n):
             sys.stderr.write("\033[A\033[2K")
 
-        # Progress bar line
+        # Progress bar line with ETA and speed
+        timing = f"{elapsed:5.1f}s"
+        if speed_str:
+            timing += f"  \033[90m{speed_str}\033[0m"
+        if eta_str:
+            timing += f"  \033[36m{eta_str}\033[0m"
         line = (f"  [{self._bar()}] {pct:3d}% ({self._done}/{self._total}) "
-                f"{elapsed:5.1f}s  {done_mark}")
+                f"{timing}  {done_mark}")
         sys.stderr.write(f"\033[2K{line}\n")
 
         # Currently running line

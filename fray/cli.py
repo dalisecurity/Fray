@@ -1086,6 +1086,7 @@ def cmd_test(args):
         jitter=getattr(args, 'jitter', 0.0),
         stealth=getattr(args, 'stealth', False),
         rate_limit=rl,
+        impersonate=getattr(args, 'impersonate', None),
     )
 
     all_payloads = []
@@ -2712,6 +2713,7 @@ def cmd_bypass(args):
         jitter=getattr(args, 'jitter', 0.0),
         stealth=getattr(args, 'stealth', False),
         rate_limit=getattr(args, 'rate_limit', 0.0),
+        impersonate=getattr(args, 'impersonate', None),
     )
 
     # Load payloads
@@ -2873,6 +2875,7 @@ def cmd_ai_bypass(args):
         jitter=getattr(args, 'jitter', 0.0),
         stealth=getattr(args, 'stealth', False),
         rate_limit=getattr(args, 'rate_limit', 0.0),
+        impersonate=getattr(args, 'impersonate', None),
     )
 
     json_mode = getattr(args, 'json', False)
@@ -2934,6 +2937,7 @@ def cmd_agent(args):
         jitter=getattr(args, 'jitter', 0.0),
         stealth=getattr(args, 'stealth', False),
         rate_limit=getattr(args, 'rate_limit', 0.0),
+        impersonate=getattr(args, 'impersonate', None),
     )
 
     # Load payloads
@@ -3547,6 +3551,7 @@ def cmd_go(args):
         headers=auth_headers,
         stealth=getattr(args, 'stealth', False),
         quiet=json_mode,
+        impersonate=getattr(args, 'impersonate', None),
     )
 
     summary = pipeline.run()
@@ -5115,7 +5120,9 @@ GitHub: https://github.com/dalisecurity/fray
     p_test.add_argument("--jitter", type=float, default=0.0,
                          help="Random delay variance in seconds added to --delay (e.g. --jitter 1.0)")
     p_test.add_argument("--stealth", action="store_true",
-                         help="Stealth mode: randomize User-Agent, add jitter, throttle requests — evade rate limiting")
+                         help="Stealth mode: randomize User-Agent, add jitter, throttle requests, TLS impersonation — evade rate limiting")
+    p_test.add_argument("--impersonate", default=None, metavar="BROWSER",
+                         help="TLS fingerprint spoofing via curl_cffi (chrome, firefox, safari, random). Auto-enabled with --stealth.")
     p_test.add_argument("--rate-limit", type=float, default=0.0,
                          help="Max requests per second (e.g. --rate-limit 2 = max 2 req/s)")
     p_test.add_argument("--auto-throttle", action="store_true", dest="auto_throttle",
@@ -5137,6 +5144,8 @@ GitHub: https://github.com/dalisecurity/fray
                          help="Load a saved session from ~/.fray/sessions/NAME.json")
     p_test.add_argument("--resume", action="store_true",
                          help="Resume an interrupted scan from checkpoint (~/.fray/checkpoints/)")
+    p_test.add_argument("--solve-challenge", action="store_true", dest="solve_challenge",
+                         help="Auto-solve JS challenges (Cloudflare Turnstile, Akamai) via Playwright before testing (requires: pip install 'fray[browser]')")
     p_test.add_argument("-q", "--quiet", action="store_true",
                          help="Suppress all non-essential output (only errors and JSON)")
     p_test.add_argument("--notify", default=None, metavar="WEBHOOK_URL",
@@ -5173,7 +5182,9 @@ GitHub: https://github.com/dalisecurity/fray
     p_bypass.add_argument("--jitter", type=float, default=0.0,
                           help="Random delay variance in seconds")
     p_bypass.add_argument("--stealth", action="store_true",
-                          help="Stealth mode: UA rotation + jitter + throttle")
+                          help="Stealth mode: UA rotation + jitter + throttle + TLS impersonation")
+    p_bypass.add_argument("--impersonate", default=None, metavar="BROWSER",
+                          help="TLS fingerprint spoofing (chrome, firefox, safari, random)")
     p_bypass.add_argument("--rate-limit", type=float, default=0.0,
                           help="Max requests per second")
     p_bypass.add_argument("--burp", default=None, metavar="FILE",
@@ -5236,7 +5247,9 @@ GitHub: https://github.com/dalisecurity/fray
     p_agent.add_argument("--bearer", default=None, help="Bearer token")
     p_agent.add_argument("-H", "--header", action="append",
                          help="Custom header (repeatable, format: 'Name: Value')")
-    p_agent.add_argument("--stealth", action="store_true", help="Stealth mode")
+    p_agent.add_argument("--stealth", action="store_true", help="Stealth mode + TLS impersonation")
+    p_agent.add_argument("--impersonate", default=None, metavar="BROWSER",
+                          help="TLS fingerprint spoofing (chrome, firefox, safari, random)")
     p_agent.add_argument("--rate-limit", type=float, default=0.0, help="Max requests per second")
     p_agent.add_argument("--jitter", type=float, default=0.0, help="Random delay variance")
     p_agent.add_argument("--scope", default=None, help="Scope file")
@@ -5354,7 +5367,9 @@ GitHub: https://github.com/dalisecurity/fray
     p_go.add_argument("target", nargs="?", default=None, help="Target URL (e.g. example.com)")
     p_go.add_argument("-t", "--timeout", type=int, default=8, help="Request timeout (default: 8)")
     p_go.add_argument("--deep", action="store_true", help="Deep mode: extended DNS, 300 subdomains, Wayback 500")
-    p_go.add_argument("--stealth", action="store_true", help="Stealth mode: slower, randomized requests")
+    p_go.add_argument("--stealth", action="store_true", help="Stealth mode: slower, randomized requests, TLS impersonation")
+    p_go.add_argument("--impersonate", default=None, metavar="BROWSER",
+                       help="TLS fingerprint spoofing (chrome, firefox, safari, random). Auto-enabled with --stealth.")
     p_go.add_argument("-o", "--output", default=None, help="Save pipeline summary JSON to file")
     p_go.add_argument("--output-dir", dest="output_dir", default=None, help="Output directory for report + JSON")
     p_go.add_argument("--json", action="store_true", help="Output pipeline summary as JSON")
@@ -5464,6 +5479,8 @@ GitHub: https://github.com/dalisecurity/fray
                          help="Custom header (repeatable, format: 'Name: Value')")
     p_scan.add_argument("--jitter", type=float, default=0.0,
                          help="Random delay variance (default: 0)")
+    p_scan.add_argument("--impersonate", default=None, metavar="BROWSER",
+                         help="TLS fingerprint spoofing (chrome, firefox, safari, random)")
     p_scan.add_argument("--stealth", action="store_true",
                          help="Stealth mode: randomize UA, add jitter, throttle")
     p_scan.add_argument("--rate-limit", type=float, default=0.0,

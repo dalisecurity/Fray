@@ -747,7 +747,8 @@ class GuidedPipeline:
 
     def __init__(self, target: str, *, timeout: int = 8, deep: bool = False,
                  output_dir: str = "", headers: dict = None,
-                 stealth: bool = False, quiet: bool = False):
+                 stealth: bool = False, quiet: bool = False,
+                 impersonate: str = None):
         self.target = target
         self.timeout = timeout
         self.deep = deep
@@ -755,6 +756,7 @@ class GuidedPipeline:
         self.headers = headers
         self.stealth = stealth
         self.quiet = quiet
+        self.impersonate = impersonate
         self.recon_result = None
         self.test_results = []
         self.report_path = ""

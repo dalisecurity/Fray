@@ -341,6 +341,158 @@ class HeadlessEngine:
 
         return results
 
+    def solve_js_challenge(self, url: str, max_wait: int = 30,
+                           cookie_jar: Optional[Dict[str, str]] = None,
+                           ) -> Dict[str, Any]:
+        """Solve JavaScript challenges (Cloudflare, Akamai, etc.) using Playwright.
+
+        Navigates to the URL in a real browser, waits for JS challenges to
+        auto-solve (most are timer-based), then extracts the resulting cookies
+        and page content.
+
+        Args:
+            url:        Target URL behind a JS challenge.
+            max_wait:   Maximum seconds to wait for challenge to resolve.
+            cookie_jar: Optional initial cookies to set before navigation.
+
+        Returns:
+            Dict with 'solved', 'cookies', 'headers', 'body', 'challenge_type',
+            'elapsed_ms', 'status'.
+        """
+        result: Dict[str, Any] = {
+            "solved": False,
+            "cookies": {},
+            "headers": {},
+            "body": "",
+            "challenge_type": "unknown",
+            "elapsed_ms": 0,
+            "status": 0,
+            "error": "",
+        }
+
+        if not self._use_playwright:
+            result["error"] = "Playwright not installed (pip install playwright && playwright install chromium)"
+            return result
+
+        self._ensure_browser()
+        page = self._context.new_page()
+        t0 = time.monotonic()
+
+        # Challenge detection patterns
+        _CF_PATTERNS = [
+            "Checking if the site connection is secure",
+            "Enable JavaScript and cookies to continue",
+            "Just a moment...",
+            "cf-browser-verification",
+            "cf_chl_opt",
+            "_cf_chl_tk",
+        ]
+        _AKAMAI_PATTERNS = [
+            "akam-sw.js",
+            "_abck",
+            "AkamaiGlobalHost",
+        ]
+        _DDOS_GUARD_PATTERNS = [
+            "DDoS-Guard",
+            "__ddg1",
+            "__ddg2",
+        ]
+
+        try:
+            # Set initial cookies if provided
+            if cookie_jar:
+                import urllib.parse as _up
+                parsed = _up.urlparse(url)
+                cookie_list = [
+                    {"name": k, "value": v, "domain": parsed.hostname,
+                     "path": "/", "httpOnly": False, "secure": parsed.scheme == "https"}
+                    for k, v in cookie_jar.items()
+                ]
+                self._context.add_cookies(cookie_list)
+
+            # Navigate — use 'commit' to get initial response quickly
+            resp = page.goto(url, wait_until="commit", timeout=self.timeout)
+            result["status"] = resp.status if resp else 0
+
+            # Check initial page for challenge indicators
+            body = page.content()
+
+            # Detect challenge type
+            challenge_type = "none"
+            for pat in _CF_PATTERNS:
+                if pat in body:
+                    challenge_type = "cloudflare"
+                    break
+            if challenge_type == "none":
+                for pat in _AKAMAI_PATTERNS:
+                    if pat in body:
+                        challenge_type = "akamai"
+                        break
+            if challenge_type == "none":
+                for pat in _DDOS_GUARD_PATTERNS:
+                    if pat in body:
+                        challenge_type = "ddos_guard"
+                        break
+
+            result["challenge_type"] = challenge_type
+
+            if challenge_type == "none":
+                # No challenge detected — page loaded directly
+                result["solved"] = True
+                result["body"] = body
+            else:
+                # Wait for challenge to resolve (most are timer-based 3-5s)
+                # Poll every 500ms for up to max_wait seconds
+                deadline = time.monotonic() + max_wait
+                solved = False
+                while time.monotonic() < deadline:
+                    page.wait_for_timeout(500)
+                    body = page.content()
+
+                    # Check if challenge is gone
+                    still_challenging = False
+                    if challenge_type == "cloudflare":
+                        still_challenging = any(p in body for p in _CF_PATTERNS[:3])
+                    elif challenge_type == "akamai":
+                        still_challenging = resp and resp.status in (403, 429)
+                    elif challenge_type == "ddos_guard":
+                        still_challenging = "DDoS-Guard" in body and len(body) < 5000
+
+                    if not still_challenging:
+                        solved = True
+                        break
+
+                    # Check for Turnstile iframe and try to interact
+                    try:
+                        turnstile = page.query_selector("iframe[src*='challenges.cloudflare.com']")
+                        if turnstile:
+                            # Turnstile auto-solves if browser looks real;
+                            # just wait for it
+                            pass
+                    except Exception:
+                        pass
+
+                result["solved"] = solved
+                result["body"] = page.content() if solved else body
+                result["status"] = 200 if solved else result["status"]
+
+            # Extract cookies (the valuable part — contains cf_clearance, etc.)
+            all_cookies = self._context.cookies()
+            result["cookies"] = {
+                c["name"]: c["value"] for c in all_cookies
+            }
+
+            # Extract response headers from the last navigation
+            result["headers"] = {}
+
+        except Exception as e:
+            result["error"] = str(e)
+        finally:
+            result["elapsed_ms"] = int((time.monotonic() - t0) * 1000)
+            page.close()
+
+        return result
+
     def close(self):
         """Clean up browser resources."""
         if self._browser:
