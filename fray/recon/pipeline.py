@@ -672,6 +672,16 @@ def run_recon(url: str, timeout: int = 8,
         result["robots"]        = await _safe(t_robots, {})
         result["cors"]          = await _safe(t_cors, {}); _feed("cors", result["cors"])
         result["subdomains"]    = await _safe(t_subs, {}); _feed("subdomains", result["subdomains"])
+        result["ct_monitor"]    = await _safe(t_ct_monitor, {})
+        # Feed CT alerts to live progress
+        _ct = result.get("ct_monitor", {})
+        _ct_alerts = _ct.get("alerts", [])
+        if _ct_alerts:
+            _ct_high = [a for a in _ct_alerts if a.get("severity") in ("critical", "high")]
+            if _ct_high:
+                prog.finding(f"{len(_ct_high)} CT alert(s): {_ct_high[0]['message']}", "high")
+            else:
+                prog.finding(f"{len(_ct_alerts)} CT alert(s)", "medium")
         result["favicon"]       = await _safe(t_favicon, {})
         result["exposed_files"] = await _safe(t_exposed, {}); _feed("exposed_files", result["exposed_files"])
         result["http_methods"]  = await _safe(t_methods, {}); _feed("http_methods", result["http_methods"])

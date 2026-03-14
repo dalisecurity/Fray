@@ -1,6 +1,6 @@
 # Fray Full Roadmap — 226 Items Across 28 Layers
 
-**Status:** 137 done · 89 pending  
+**Status:** 138 done · 88 pending  
 **Last updated:** 2026-03-14
 
 ---
@@ -195,7 +195,7 @@
 | 125 | Paste site monitoring (Pastebin, etc.) | MEDIUM | pending |
 | 126 | Telegram channel monitoring | LOW | pending |
 | 127 | Dark web mention check (via API) | LOW | pending |
-| 128 | Certificate transparency log monitoring | MEDIUM | pending |
+| 128 | Certificate transparency log monitoring | MEDIUM | done |
 | 129 | Exposed database detection (Shodan-like) | MEDIUM | pending |
 | 130 | S3 bucket permission check | MEDIUM | done |
 | 131 | Azure Blob public access check | MEDIUM | done |
@@ -364,7 +364,7 @@
 | L13 GitHub Repos | 12 | 8 | 4 |
 | L14 Growth / Stars | 16 | 3 | 13 |
 | L15 Bug Bounty | 11 | 6 | 5 |
-| L16 Credential OSINT | 13 | 5 | 8 |
+| L16 Credential OSINT | 13 | 6 | 7 |
 | L17 Interactive + Self-Learning | 18 | 10 | 8 |
 | L18 Competitive Parity | 16 | 12 | 4 |
 | L19 Recent Session | 10 | 10 | 0 |
@@ -377,4 +377,4 @@
 | L26 CF Workers AI Gateway | 7 | 0 | 7 |
 | L27 Architecture + Quality | 5 | 5 | 0 |
 | L28 New CLI + Infra | 4 | 0 | 4 |
-| **TOTAL** | **226** | **137** | **89** |
+| **TOTAL** | **226** | **138** | **88** |
