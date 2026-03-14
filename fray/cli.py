@@ -1092,6 +1092,68 @@ def cmd_test(args):
 
     all_payloads = []
 
+    # --from-crawl: load endpoints from crawl JSON and test each param
+    _from_crawl = getattr(args, 'from_crawl', None)
+    if _from_crawl:
+        _crawl_data = json.loads(Path(_from_crawl).read_text(encoding='utf-8'))
+        _endpoints = _crawl_data.get('endpoints', [])
+        _eps_with_params = [e for e in _endpoints if e.get('params')]
+        if not _eps_with_params:
+            print(f"  No injectable params found in {_from_crawl}")
+            sys.exit(0)
+
+        # Load payloads for the category
+        _cat = args.category or 'xss'
+        _cat_dir = PAYLOADS_DIR / _cat
+        if _cat_dir.exists():
+            for _pf in sorted(_cat_dir.glob("*.json")):
+                all_payloads.extend(tester.load_payloads(str(_pf)))
+        if not all_payloads:
+            print(f"  No payloads for category '{_cat}'")
+            sys.exit(1)
+
+        _max = args.max if hasattr(args, 'max') else 10
+        _payloads_subset = all_payloads[:_max]
+        _total_eps = sum(len(e['params']) for e in _eps_with_params)
+        print(f"\n  ⚔  Testing {_total_eps} param(s) across {len(_eps_with_params)} endpoint(s)")
+        print(f"  Payloads: {len(_payloads_subset)} ({_cat}) | From: {_from_crawl}\n")
+
+        _all_results = []
+        for _ep in _eps_with_params:
+            for _param in _ep['params']:
+                _orig_target = tester.target
+                _orig_host = tester.host
+                # Re-target tester to this endpoint
+                _parsed = urllib.parse.urlparse(_ep['url'])
+                tester.host = _parsed.hostname or tester.host
+                tester.path = _parsed.path or '/'
+                tester.query = _parsed.query or ''
+                tester.use_ssl = _parsed.scheme == 'https'
+                tester.port = _parsed.port or (443 if tester.use_ssl else 80)
+
+                for _pl in _payloads_subset:
+                    _ps = _pl.get('payload', _pl) if isinstance(_pl, dict) else _pl
+                    r = tester.test_payload(_ps, param=_param, method=_ep.get('method', 'GET'))
+                    r['endpoint'] = _ep['url']
+                    r['source'] = _ep.get('source', '')
+                    _all_results.append(r)
+
+                # Restore original
+                tester.host = _orig_host
+
+        _bypasses = [r for r in _all_results if not r.get('blocked')]
+        print(f"\n  ✔ Tested {len(_all_results)} requests")
+        print(f"  Bypasses: {len(_bypasses)}")
+        if _bypasses:
+            for _b in _bypasses[:10]:
+                print(f"    {Colors.GREEN}BYPASS{Colors.END} {_b.get('endpoint', '')[:50]} "
+                      f"param={_b.get('param', '')} payload={_b.get('payload', '')[:40]}")
+
+        if getattr(args, 'json', False):
+            _json_print({"target": args.target, "from_crawl": _from_crawl,
+                         "results": _all_results, "bypasses": len(_bypasses)})
+        sys.exit(0)
+
     if args.category:
         category_dir = PAYLOADS_DIR / args.category
         if not category_dir.exists():
@@ -1570,6 +1632,30 @@ def cmd_scan(args):
     custom_headers = build_auth_headers(args)
     json_mode = getattr(args, 'json', False)
 
+    # Fray Crawler pre-crawl: discover forms, JS API routes, GraphQL before scanner
+    _crawl_endpoints = []
+    try:
+        from fray.crawler import Crawler
+        if not json_mode:
+            sys.stderr.write(f"  Crawling for injection points...\n")
+        with Crawler(
+            args.target,
+            max_pages=getattr(args, 'max_pages', 20),
+            max_depth=getattr(args, 'depth', 3),
+            timeout=getattr(args, 'timeout', 8),
+            verify_ssl=not getattr(args, 'insecure', False),
+            delay=0.1,
+            headers=custom_headers,
+            impersonate=getattr(args, 'impersonate', None),
+        ) as crawler:
+            _crawl_result = crawler.crawl()
+            _crawl_endpoints = _crawl_result.get("endpoints", [])
+            if not json_mode:
+                sys.stderr.write(f"  Found {len(_crawl_endpoints)} endpoint(s) "
+                                 f"({_crawl_result.get('total_params', 0)} params)\n\n")
+    except Exception:
+        pass
+
     # Browser pre-crawl: discover JS-rendered endpoints before static scan
     browser_result = None
     if getattr(args, 'browser', False):
@@ -1604,6 +1690,22 @@ def cmd_scan(args):
         workers=getattr(args, 'workers', 1),
         use_auto_throttle=getattr(args, 'auto_throttle', False),
     )
+
+    # Merge Crawler-discovered injection points into scan results
+    if _crawl_endpoints and scan.crawl:
+        existing = {(ip.url, ip.param, ip.method) for ip in scan.crawl.injection_points}
+        _crawl_added = 0
+        for _ep in _crawl_endpoints:
+            for _p in _ep.get("params", []):
+                key = (_ep["url"], _p, _ep["method"])
+                if key not in existing:
+                    scan.crawl.injection_points.append(
+                        InjectionPoint(url=_ep["url"], param=_p,
+                                       method=_ep["method"], source=_ep.get("source", "crawl")))
+                    existing.add(key)
+                    _crawl_added += 1
+        if _crawl_added > 0 and not json_mode:
+            print(f"\n  🔍 Crawler added {_crawl_added} extra injection point(s)")
 
     # Merge browser-discovered injection points into scan results
     if browser_result and not browser_result.get("error") and scan.crawl:
@@ -3597,6 +3699,58 @@ def cmd_harden(args):
             pass
 
 
+def cmd_diff(args):
+    """Compare two recon reports and highlight attack surface changes."""
+    from fray.recon_diff import diff_reports, print_diff
+
+    old_data = json.loads(Path(args.old_report).read_text(encoding='utf-8'))
+    new_data = json.loads(Path(args.new_report).read_text(encoding='utf-8'))
+
+    diff = diff_reports(old_data, new_data)
+
+    if getattr(args, 'json', False):
+        _json_print(diff)
+    else:
+        print_diff(diff)
+
+
+def cmd_export_nuclei(args):
+    """Generate Nuclei YAML templates from Fray bypass/test results."""
+    from fray.nuclei_export import export_templates
+
+    data = json.loads(Path(args.input).read_text(encoding='utf-8'))
+
+    # Support both bypass results and test results format
+    bypasses = []
+    if isinstance(data, list):
+        bypasses = [r for r in data if not r.get("blocked")]
+    elif isinstance(data, dict):
+        bypasses = data.get("bypasses", [])
+        if not bypasses:
+            bypasses = [r for r in data.get("results", []) if not r.get("blocked")]
+        # Also check all_bypasses from agent output
+        if not bypasses:
+            bypasses = data.get("all_bypasses", [])
+
+    if not bypasses:
+        print("  No bypasses found in input file.")
+        sys.exit(0)
+
+    target = data.get("target", "") if isinstance(data, dict) else ""
+    waf = getattr(args, 'waf', None) or (data.get("waf_vendor", "") if isinstance(data, dict) else "")
+
+    written = export_templates(
+        bypasses, output_dir=args.output,
+        category=args.category, target=target, waf_vendor=waf)
+
+    print(f"\n  ✔ Exported {len(written)} Nuclei template(s) to {args.output}/")
+    for p in written[:5]:
+        print(f"    {p}")
+    if len(written) > 5:
+        print(f"    ... and {len(written) - 5} more")
+    print(f"\n  Run: nuclei -t {args.output}/ -u <target>")
+
+
 def cmd_go(args):
     """Zero-knowledge guided pipeline: recon → smart test → report.
 
@@ -5215,6 +5369,8 @@ GitHub: https://github.com/dalisecurity/fray
                          help="Save session cookies/tokens to ~/.fray/sessions/NAME.json for reuse")
     p_test.add_argument("--load-session", dest="load_session", default=None, metavar="NAME",
                          help="Load a saved session from ~/.fray/sessions/NAME.json")
+    p_test.add_argument("--from-crawl", dest="from_crawl", default=None, metavar="FILE",
+                         help="Load endpoints from fray crawl JSON output and test all discovered params")
     p_test.add_argument("--resume", action="store_true",
                          help="Resume an interrupted scan from checkpoint (~/.fray/checkpoints/)")
     p_test.add_argument("--solve-challenge", action="store_true", dest="solve_challenge",
@@ -5456,6 +5612,23 @@ GitHub: https://github.com/dalisecurity/fray
                        help="Save session cookies/tokens after pipeline")
     p_go.set_defaults(func=cmd_go)
 
+    # diff — compare two recon reports
+    p_diff = subparsers.add_parser("diff",
+        help="Compare two recon reports and highlight attack surface changes")
+    p_diff.add_argument("old_report", help="Path to older recon JSON report")
+    p_diff.add_argument("new_report", help="Path to newer recon JSON report")
+    p_diff.add_argument("--json", action="store_true", help="Output as JSON")
+    p_diff.set_defaults(func=cmd_diff)
+
+    # export-nuclei — generate Nuclei templates from bypass results
+    p_nuclei = subparsers.add_parser("export-nuclei",
+        help="Generate Nuclei YAML templates from Fray bypass/test results JSON")
+    p_nuclei.add_argument("input", help="Fray results JSON file (from fray bypass/test --json)")
+    p_nuclei.add_argument("-o", "--output", default="./nuclei", help="Output directory (default: ./nuclei)")
+    p_nuclei.add_argument("-c", "--category", default="xss", help="Payload category (default: xss)")
+    p_nuclei.add_argument("--waf", default=None, help="WAF vendor name")
+    p_nuclei.set_defaults(func=cmd_export_nuclei)
+
     # auto — full pipeline (legacy, more flags)
     p_auto = subparsers.add_parser("auto",
         help="Full pipeline: recon → scan → ai-bypass in one command")
@@ -5483,15 +5656,6 @@ GitHub: https://github.com/dalisecurity/fray
     p_auto.add_argument("--skip-bypass", action="store_true", dest="skip_bypass",
                         help="Skip ai-bypass phase")
     p_auto.set_defaults(func=cmd_auto)
-
-    # diff
-    p_diff = subparsers.add_parser("diff",
-        help="Compare two scan results — surface regressions and improvements")
-    p_diff.add_argument("before", help="Baseline scan results JSON (before WAF change)")
-    p_diff.add_argument("after", help="New scan results JSON (after WAF change)")
-    p_diff.add_argument("-o", "--output", default=None, help="Save diff report JSON to file")
-    p_diff.add_argument("--json", action="store_true", help="Output diff as JSON to stdout")
-    p_diff.set_defaults(func=cmd_diff)
 
     # smuggle
     p_smuggle = subparsers.add_parser("smuggle",

@@ -96,13 +96,18 @@ class ImpersonatedSession:
 
     def __init__(self, browser: str = "chrome", verify: bool = True,
                  timeout: int = 10, proxy: Optional[str] = None,
-                 headers: Optional[Dict[str, str]] = None):
+                 headers: Optional[Dict[str, str]] = None,
+                 rotate: bool = False, rotate_every: int = 5):
         self.browser = pick_browser(browser)
+        self._browser_pref = browser  # Original preference for rotation
         self.verify = verify
         self.timeout = timeout
         self.proxy = proxy
         self.extra_headers = headers or {}
         self._session = None
+        self._rotate = rotate
+        self._rotate_every = max(1, rotate_every)
+        self._request_count = 0
 
         if _HAS_CURL_CFFI:
             self._session = _CffiSession(impersonate=self.browser)
@@ -128,6 +133,28 @@ class ImpersonatedSession:
                 pass
             self._session = None
 
+    def _rotate_session(self):
+        """Rotate to a different browser profile to look like multiple users."""
+        if not _HAS_CURL_CFFI or not self._rotate:
+            return
+        self._request_count += 1
+        if self._request_count % self._rotate_every != 0:
+            return
+        # Pick a different profile family each rotation
+        _families = ["chrome", "firefox", "safari"]
+        _current = self.browser.rstrip('0123456789_')
+        _others = [f for f in _families if f != _current]
+        _next_family = random.choice(_others) if _others else "chrome"
+        new_browser = pick_browser(_next_family)
+        if new_browser != self.browser:
+            try:
+                if self._session:
+                    self._session.close()
+            except Exception:
+                pass
+            self.browser = new_browser
+            self._session = _CffiSession(impersonate=self.browser)
+
     def request(self, method: str, url: str, **kwargs) -> ImpersonateResponse:
         """Send an HTTP request with browser impersonation.
 
@@ -143,6 +170,9 @@ class ImpersonatedSession:
             kwargs.setdefault('proxies', {'https': self.proxy, 'http': self.proxy})
 
         t0 = time.monotonic()
+
+        # Rotate browser profile periodically in stealth mode
+        self._rotate_session()
 
         if self._session:
             # curl_cffi path — real TLS fingerprint spoofing

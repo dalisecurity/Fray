@@ -134,6 +134,8 @@ class WAFTester:
                         verify=verify_ssl,
                         timeout=timeout,
                         headers=custom_headers,
+                        rotate=self.stealth,  # Rotate profiles in stealth mode
+                        rotate_every=5,
                     )
                     if verbose:
                         print(f"  {Colors.GREEN}TLS impersonation: {self._imp_session.browser}{Colors.END}")

@@ -775,6 +775,7 @@ def fetch_cisa_kev(since_days: int = 30,
 # ── 3. GitHub Security Advisories ─────────────────────────────────────────────
 
 def fetch_github_advisories(since_days: int = 7, max_results: int = 30,
+                            enrich_poc: bool = True,
                             verbose: bool = True) -> List[ThreatPayload]:
     """Fetch from GitHub Security Advisories (REST API)."""
     token = os.environ.get("GITHUB_TOKEN", "")
@@ -820,6 +821,21 @@ def fetch_github_advisories(since_days: int = 7, max_results: int = 30,
         full_text = f"{summary} {description}"
         cat = classify_category(full_text)
 
+        # Extract real PoC payloads from GitHub/ExploitDB/Nuclei/Metasploit
+        extra_poc = []
+        if enrich_poc and cve_id:
+            try:
+                from fray.poc_extractor import extract_poc_payloads
+                poc_result = extract_poc_payloads(
+                    cve_id=cve_id, max_sources=3, timeout=12, delay=0.5,
+                )
+                for ep in poc_result.extracted_payloads:
+                    extra_poc.append(ep.get("payload", "")[:500])
+                if verbose and extra_poc:
+                    print(f"    {_C.G}PoC: {cve_id} — {len(extra_poc)} real payloads extracted{_C.E}")
+            except Exception:
+                pass
+
         payloads = cve_to_payloads(
             cve_id=cve_id or adv.get("ghsa_id", "GHSA-unknown"),
             description=summary[:200],
@@ -827,6 +843,7 @@ def fetch_github_advisories(since_days: int = 7, max_results: int = 30,
             severity=severity,
             source="GitHub Security Advisory",
             reference=html_url,
+            extra_payloads=extra_poc if extra_poc else None,
         )
 
         # Also extract any payloads from description text
@@ -845,6 +862,7 @@ def fetch_github_advisories(since_days: int = 7, max_results: int = 30,
 # ── 4. ExploitDB (via public search) ─────────────────────────────────────────
 
 def fetch_exploitdb(since_days: int = 7, category_filter: str = "",
+                    enrich_poc: bool = True,
                     verbose: bool = True) -> List[ThreatPayload]:
     """Fetch from ExploitDB via their public RSS feed."""
     url = "https://www.exploit-db.com/rss.xml"

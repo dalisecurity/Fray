@@ -770,6 +770,14 @@ class GuidedPipeline:
         out = sys.stderr
         summary = {"target": self.target, "phases": []}
 
+        # ── Dashboard (optional live TUI) ──────────────────────────────
+        _dash = None
+        try:
+            from fray.dashboard import Dashboard
+            _dash = Dashboard(target=self.target, quiet=self.quiet)
+        except Exception:
+            pass
+
         # ── Banner ─────────────────────────────────────────────────────
         if not self.quiet:
             out.write(banner("⚔  Fray — Guided Security Pipeline", self.target))
@@ -801,6 +809,15 @@ class GuidedPipeline:
             "waf": waf,
             "findings": len(findings),
         })
+
+        # Feed dashboard with recon results
+        if _dash:
+            _dash.set_risk(risk)
+            _dash.update_stat("subdomains", len(self.recon_result.get("subdomains", {}).get("subdomains", [])))
+            _dash.update_stat("vectors", len(atk.get("attack_vectors", [])))
+            for f in findings[:20]:
+                _dash.add_finding(f.get("title", f.get("type", ""))[:60],
+                                  f.get("severity", "info"))
 
         if not self.quiet:
             # Severity summary
