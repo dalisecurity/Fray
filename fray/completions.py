@@ -62,6 +62,7 @@ _SUBCOMMANDS = {
     "bounty": "Bug bounty platform integration",
     "ci": "Generate GitHub Actions workflow for WAF testing",
     "init-config": "Create sample .fray.toml config file",
+    "init": "Initialize project: .fray.toml + auth template + scope file",
     "explain": "Explain a CVE or scan results",
     "scope": "Inspect or validate a scope file",
     "leak": "Search for leaked credentials on GitHub and HIBP",
@@ -76,6 +77,8 @@ _NAMESPACE_SUBS = {
     "intel": ["feed", "cve", "poc-recheck", "leak", "osint", "ct"],
     "auth": ["session", "solve", "cred"],
     "export": ["nuclei", "ci"],
+    "cache": ["show", "clear", "stats", "export", "import"],
+    "config": ["init", "show", "validate", "set", "get"],
 }
 
 # ── Common flags per subcommand ─────────────────────────────────────────────
@@ -185,12 +188,12 @@ _COMMON_FLAGS = {
         "--json", "--timeout", "--delay", "--cookie", "--bearer", "--header",
         "--sarif", "--fail-on", "--solve-challenge", "--impersonate",
     ],
-    "dashboard": ["--port", "--no-open", "--json"],
+    "dashboard": ["--port", "--no-open", "--json", "--summary"],
     "ask": ["--json"],
-    "help": ["--all"],
+    "help": ["--all", "--man"],
     "update": ["--source", "--json"],
     "sync": ["--push", "--pull", "--source", "--tag", "--configure", "--status", "--json"],
-    "doctor": ["--fix", "--verbose"],
+    "doctor": ["--fix", "--verbose", "--json"],
     "ci": ["--target", "--categories", "--max", "--notify", "--fail-on-bypass", "--no-comment", "--minimal", "--output-dir"],
     "learn": ["--level", "--list", "--reset"],
     "explain": ["--max", "--json", "--output"],

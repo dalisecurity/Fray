@@ -3525,6 +3525,21 @@ def cmd_compare(args):
     else:
         print_compare(result)
 
+    # Persist to ~/.fray/compare/ for dashboard
+    compare_data = {
+        "target": args.target,
+        "timestamp": __import__("datetime").datetime.now().isoformat(),
+        "command": "compare",
+        "category": getattr(args, 'category', 'xss'),
+        "max_payloads": args.max,
+        "impersonate": getattr(args, 'impersonate', 'chrome'),
+        "results": result.to_dict(),
+    }
+    _save_to_fray("compare", args.target, compare_data)
+
+    if not json_mode and not getattr(args, 'quiet', False):
+        sys.stderr.write(f"\n  \033[2m💡 View in dashboard: \033[0mfray dashboard\n")
+
 
 def cmd_bypass(args):
     """WAF bypass scoring — evasion-optimized testing"""
@@ -6675,21 +6690,12 @@ def _help_to_manpage(topic: str, text: str) -> str:
             else:
                 roff.append(f'.B {stripped}')
         elif stripped.startswith('-'):
-            # Flag entries
-            parts = stripped.split(None, 1)
-            if len(parts) >= 2:
-                # Find where description starts (after flag + metavar)
-                flag_match = _re.match(r'([-\w, ]+(?:\s+<[^>]+>)?)\s+(.*)', stripped)
-                if flag_match:
-                    roff.append(f'.TP')
-                    roff.append(f'.B {flag_match.group(1)}')
-                    roff.append(flag_match.group(2))
-                else:
-                    roff.append(f'.TP')
-                    roff.append(f'.B {stripped}')
-            else:
-                roff.append(f'.TP')
-                roff.append(f'.B {stripped}')
+            # Flag entries: split on 2+ spaces (column alignment in help text)
+            flag_parts = _re.split(r'\s{2,}', stripped, maxsplit=1)
+            roff.append(f'.TP')
+            roff.append(f'.B {flag_parts[0].strip()}')
+            if len(flag_parts) > 1:
+                roff.append(flag_parts[1].strip())
         elif stripped.startswith('sub:'):
             roff.append(stripped)
         else:
