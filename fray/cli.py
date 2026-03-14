@@ -1087,6 +1087,7 @@ def cmd_test(args):
         stealth=getattr(args, 'stealth', False),
         rate_limit=rl,
         impersonate=getattr(args, 'impersonate', None),
+        solve_challenge=getattr(args, 'solve_challenge', False),
     )
 
     all_payloads = []
@@ -1488,6 +1489,78 @@ def cmd_payloads(args):
     print("-" * 70)
     print(f"  {'TOTAL':<28} {total_files}")
     print(f"\nUsage: fray test <url> -c <category>")
+
+
+def cmd_crawl(args):
+    """Injection point discovery — forms, URL params, JS API routes, GraphQL."""
+    from fray.crawler import Crawler
+
+    target = args.target
+    if not target.startswith("http"):
+        target = f"https://{target}"
+
+    custom_headers = build_auth_headers(args)
+    json_mode = getattr(args, 'json', False)
+    verbose = getattr(args, 'verbose', False)
+
+    if not json_mode:
+        print(f"\n  ⚔  Fray Crawler — Injection Point Discovery")
+        print(f"  Target: {target}")
+        print(f"  Max pages: {args.max_pages} | Depth: {args.depth}\n")
+
+    with Crawler(
+        target,
+        max_pages=args.max_pages,
+        max_depth=args.depth,
+        timeout=getattr(args, 'timeout', 8),
+        verify_ssl=not getattr(args, 'insecure', False),
+        delay=getattr(args, 'delay', 0.2),
+        headers=custom_headers,
+        impersonate=getattr(args, 'impersonate', None),
+        verbose=verbose,
+    ) as crawler:
+        result = crawler.crawl()
+
+    endpoints = result.get("endpoints", [])
+    sources = result.get("sources", {})
+
+    if json_mode:
+        _json_print(result)
+    else:
+        print(f"\n  ✔ Crawl complete: {result['pages_crawled']} pages, "
+              f"{result['elapsed_s']}s")
+        print(f"  Endpoints: {result['total_endpoints']} "
+              f"({result['total_params']} injectable params)")
+        if sources:
+            parts = [f"{v} {k}" for k, v in sorted(sources.items(), key=lambda x: -x[1])]
+            print(f"  Sources:   {', '.join(parts)}")
+
+        # Show top endpoints
+        if endpoints:
+            print(f"\n  {'Method':<7} {'Params':<6} {'Source':<10} URL")
+            print(f"  {'─'*7} {'─'*6} {'─'*10} {'─'*50}")
+            for ep in endpoints[:20]:
+                params = ep.get("params", [])
+                pcount = str(len(params)) if params else "—"
+                print(f"  {ep['method']:<7} {pcount:<6} {ep['source']:<10} {ep['url'][:70]}")
+                if params and verbose:
+                    print(f"  {'':>26}{', '.join(params[:8])}")
+            if len(endpoints) > 20:
+                print(f"  ... and {len(endpoints) - 20} more")
+
+        print(f"\n  ■ What's Next")
+        print(f"  ▸ fray test {target} -c xss --from-crawl  — Test discovered endpoints")
+        print(f"  ▸ fray scan {target}  — Full auto crawl + inject pipeline")
+        print()
+
+    # Save to file
+    output_file = getattr(args, 'output', None)
+    if output_file:
+        _validate_output_path(output_file)
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(result, f, indent=2, ensure_ascii=False)
+        if not json_mode:
+            print(f"  Saved: {output_file}")
 
 
 def cmd_scan(args):
@@ -5444,6 +5517,29 @@ GitHub: https://github.com/dalisecurity/fray
     # payloads
     p_payloads = subparsers.add_parser("payloads", help="List available payload categories")
     p_payloads.set_defaults(func=cmd_payloads)
+
+    # crawl
+    p_crawl = subparsers.add_parser("crawl",
+        help="Injection point discovery — forms, URL params, JS API routes, GraphQL")
+    p_crawl.add_argument("target", help="Target URL to crawl")
+    p_crawl.add_argument("-m", "--max", type=int, default=50, dest="max_pages",
+                          help="Max pages to crawl (default: 50)")
+    p_crawl.add_argument("--depth", type=int, default=3,
+                          help="Max crawl depth (default: 3)")
+    p_crawl.add_argument("-t", "--timeout", type=int, default=8, help="Request timeout")
+    p_crawl.add_argument("-d", "--delay", type=float, default=0.2, help="Delay between requests")
+    p_crawl.add_argument("--insecure", action="store_true", help="Skip SSL verification")
+    p_crawl.add_argument("--impersonate", default=None, metavar="BROWSER",
+                          help="TLS fingerprint spoofing (chrome, firefox, safari, random)")
+    p_crawl.add_argument("--cookie", default=None, help="Cookie header")
+    p_crawl.add_argument("--bearer", default=None, help="Bearer token")
+    p_crawl.add_argument("-H", "--header", action="append",
+                          help="Custom header (repeatable, format: 'Name: Value')")
+    p_crawl.add_argument("-o", "--output", default=None,
+                          help="Save discovered endpoints to JSON file")
+    p_crawl.add_argument("--json", action="store_true", help="Output as JSON to stdout")
+    p_crawl.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+    p_crawl.set_defaults(func=cmd_crawl)
 
     # scan
     p_scan = subparsers.add_parser("scan",

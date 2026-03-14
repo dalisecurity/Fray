@@ -164,12 +164,27 @@ def build(rd: Dict[str, Any]) -> str:
 
     hdrs = rd.get('headers', {}) or {}
     hdr_score = hdrs.get('score', 0)
+    hdr_value_issues = hdrs.get('value_issues', [])
     present_hdrs = hdrs.get('present', {})
     if not isinstance(present_hdrs, dict):
         present_hdrs = {h: {} for h in present_hdrs} if isinstance(present_hdrs, list) else {}
     missing_hdrs = hdrs.get('missing', {})
     if not isinstance(missing_hdrs, dict):
         missing_hdrs = {h: {} for h in missing_hdrs} if isinstance(missing_hdrs, list) else {}
+
+    # WAF mode (blocking/monitoring/no_waf) from differential analysis
+    _diff_data = rd.get('differential', {}) or {}
+    _waf_mode = _diff_data.get('waf_mode', '')
+
+    # CORS data
+    _cors_data = rd.get('cors', {}) or {}
+    _cors_issues = _cors_data.get('issues', [])
+    _cors_misconfigured = _cors_data.get('misconfigured', False)
+
+    # TLS cert org from detector
+    _tls_cert = rd.get('tls_cert', {}) or {}
+    _tls_cert_issuer = _tls_cert.get('issuer_org', '')
+    _tls_cert_waf_hint = _tls_cert.get('waf_hint', '')
 
     subs_data = rd.get('subdomains', {}) or {}
     sub_list = subs_data.get('subdomains', []) if isinstance(subs_data, dict) else []
@@ -322,7 +337,7 @@ def build(rd: Dict[str, Any]) -> str:
     <div style="display:flex;flex-direction:column;gap:6px;">{legend}</div>
   </div>
   <div style="flex:1;min-width:300px;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;">
-    <div class="mc"><div class="l">WAF</div><div class="v" style="font-size:0.85em;word-break:break-word;">{_esc(str(waf_vendor))[:120]}</div></div>
+    <div class="mc"><div class="l">WAF{' <span style="font-size:0.6em;padding:2px 6px;border-radius:4px;background:' + ('var(--red)' if _waf_mode == 'monitoring' else 'var(--green)' if _waf_mode == 'blocking' else 'var(--surface2)') + ';color:white;vertical-align:middle;margin-left:4px;">' + _esc(_waf_mode or 'unknown') + '</span>' if _waf_mode else ''}</div><div class="v" style="font-size:0.85em;word-break:break-word;">{_esc(str(waf_vendor))[:120]}</div></div>
     <div class="mc"><div class="l">CDN</div><div class="v" style="font-size:0.85em;word-break:break-word;">{_esc(str(cdn_vendor))[:120]}</div></div>
     <div class="mc"><div class="l">TLS</div><div class="v">{_esc(str(tls_ver))}</div></div>
     <div class="mc"><div class="l">Headers Score</div><div class="v" style="color:{hdr_color};">{hdr_score}/100</div></div>
@@ -635,12 +650,45 @@ def build(rd: Dict[str, Any]) -> str:
   <p style="font-size:0.9em;font-weight:600;color:var(--red);margin-bottom:8px;">Risks from missing headers:</p>
   <ul style="padding-left:18px;font-size:0.85em;line-height:1.9;color:var(--text);">{risk_items}</ul>
 </div>'''
+    # Header value quality badges
+    _hdr_quality_html = ''
+    if hdr_value_issues:
+        _qi = ''
+        _QUALITY_COLORS = {'STRONG': 'var(--green)', 'MODERATE': 'var(--yellow)', 'WEAK': 'var(--orange)', 'MISCONFIGURED': 'var(--red)'}
+        for _vi in hdr_value_issues[:8]:
+            _h = _esc(_vi.get('header', ''))
+            _q = _vi.get('quality', 'WEAK')
+            _qc = _QUALITY_COLORS.get(_q, 'var(--muted)')
+            _iss = _esc(_vi.get('issue', ''))
+            _qi += f'<tr><td><strong>{_h}</strong></td><td><span style="color:{_qc};font-weight:600;">{_q}</span></td><td class="muted" style="font-size:0.85em;">{_iss}</td></tr>'
+        _hdr_quality_html = f'''<div style="margin-top:14px;">
+  <p style="font-size:0.9em;font-weight:600;margin-bottom:8px;">Header Value Analysis:</p>
+  <table><tr><th>Header</th><th>Quality</th><th>Issue</th></tr>{_qi}</table>
+</div>'''
+
+    # CORS section
+    _cors_html = ''
+    if _cors_issues:
+        _ci = ''
+        for _c in _cors_issues[:6]:
+            _ct = _esc(_c.get('test', ''))
+            _cs = _c.get('severity', 'medium')
+            _csc = SEV_COLORS.get(_cs, '#64748b')
+            _cr = _esc(_c.get('risk', ''))
+            _ci += f'<tr><td>{_ct}</td><td><span class="sev-badge" style="background:{_csc}20;color:{_csc};">{_cs.upper()}</span></td><td class="muted" style="font-size:0.85em;">{_cr}</td></tr>'
+        _cors_html = f'''<div style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px;">
+  <p style="font-size:0.9em;font-weight:600;color:var(--orange);margin-bottom:8px;">CORS Misconfiguration ({len(_cors_issues)} issue{"s" if len(_cors_issues) != 1 else ""}):</p>
+  <table><tr><th>Test</th><th>Severity</th><th>Risk</th></tr>{_ci}</table>
+</div>'''
+
     parts.append(f'''
 <div class="sec" id="headers">
   <h2>Security Headers <span class="count">({hdr_score}/100)</span></h2>
   <p style="margin-bottom:10px;"><strong>Present:</strong> {pt or '<span class="muted">None</span>'}</p>
   <p><strong>Missing:</strong> {mt or '<span style="color:var(--green);">None — all present</span>'}</p>
   {hdr_risk_html}
+  {_hdr_quality_html}
+  {_cors_html}
 </div>''')
 
     # Technologies

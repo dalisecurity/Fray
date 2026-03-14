@@ -1,6 +1,6 @@
 # Fray Full Roadmap — 226 Items Across 28 Layers
 
-**Status:** 132 done · 94 pending  
+**Status:** 136 done · 90 pending  
 **Last updated:** 2026-03-14
 
 ---
@@ -45,7 +45,7 @@
 | 23 | GraphQL-specific attacks (batching, introspection abuse) | MEDIUM | done |
 | 24 | Race condition testing (TOCTOU) | MEDIUM | done |
 | 25 | Business logic bypass templates | MEDIUM | done |
-| 26 | HTTP/2 specific attacks (HPACK bomb, etc.) | LOW | pending |
+| 26 | HTTP/2 specific attacks (HPACK bomb, etc.) | LOW | done |
 | 27 | Cache poisoning via headers | MEDIUM | done |
 | 28 | Web cache deception | MEDIUM | done |
 | 29 | Client-side prototype pollution verification | LOW | done |
@@ -77,7 +77,7 @@
 | 43 | Cache size limits + eviction policy | LOW | done |
 | 44 | Cache export/import for offline use | LOW | done |
 | 45 | Community leaderboard from D1 data | MEDIUM | pending |
-| 46 | Cache warming from threat intel feed | LOW | pending |
+| 46 | Cache warming from threat intel feed | LOW | done |
 
 ## L8 — DNS Recon Phase 2 (5 items)
 | # | Item | Priority | Status |
@@ -94,7 +94,7 @@
 | 52 | Cloudflare Turnstile detection | MEDIUM | done |
 | 53 | reCAPTCHA v2/v3 detection | MEDIUM | done |
 | 54 | Browser fingerprint challenge detection | MEDIUM | done |
-| 55 | JavaScript challenge solver integration | LOW | pending |
+| 55 | JavaScript challenge solver integration | LOW | done |
 | 56 | Anti-bot header rotation (Sec-Fetch-*, etc.) | HIGH | done |
 
 ## L10 — Dashboard / Web UI (13 items)
@@ -147,7 +147,7 @@
 | 89 | docs.dalisec.io hosted documentation | HIGH | pending |
 | 90 | Demo video/GIF refresh | MEDIUM | pending |
 | 91 | Docker image (Dockerfile) | HIGH | done |
-| 92 | PyPI package optimization | LOW | pending |
+| 92 | PyPI package optimization | LOW | done |
 | 93 | Kali Linux package (apt) | MEDIUM | pending |
 | 94 | CONTRIBUTING.md + AGENTS.md | LOW | done |
 | 95 | SECURITY.md + .well-known/security.txt | LOW | done |
@@ -266,7 +266,7 @@
 | 180 | Fast mode optimization (42s→28s) | HIGH | done |
 | 181 | Shell completions (bash/zsh/fish) | MEDIUM | done |
 | 182 | Parallel multi-target recon | MEDIUM | done |
-| 183 | Progress bar improvements (ETA, speed) | LOW | pending |
+| 183 | Progress bar improvements (ETA, speed) | LOW | done |
 | 184 | Color theme customization | LOW | done |
 | 185 | Config file validation (JSON Schema) | LOW | done |
 
@@ -352,23 +352,23 @@
 | L1 Core Discovery | 5 | 5 | 0 |
 | L2 Endpoint Classification | 8 | 8 | 0 |
 | L3 Secret/Credential Detection | 6 | 6 | 0 |
-| L4 New Attack Classes | 10 | 9 | 1 |
+| L4 New Attack Classes | 10 | 10 | 0 |
 | L5 Supply Chain | 3 | 3 | 0 |
 | L6 OSINT | 6 | 6 | 0 |
-| L7 Cache + D1 Sync | 8 | 6 | 2 |
+| L7 Cache + D1 Sync | 8 | 7 | 1 |
 | L8 DNS Recon Phase 2 | 5 | 5 | 0 |
-| L9 Bot Detection | 5 | 4 | 1 |
+| L9 Bot Detection | 5 | 5 | 0 |
 | L10 Dashboard / Web UI | 13 | 0 | 13 |
 | L11 Nikkei 225 | 10 | 10 | 0 |
 | L12 Integrations | 4 | 4 | 0 |
-| L13 GitHub Repos | 12 | 7 | 5 |
+| L13 GitHub Repos | 12 | 8 | 4 |
 | L14 Growth / Stars | 16 | 3 | 13 |
 | L15 Bug Bounty | 11 | 6 | 5 |
 | L16 Credential OSINT | 13 | 5 | 8 |
 | L17 Interactive + Self-Learning | 18 | 10 | 8 |
 | L18 Competitive Parity | 16 | 12 | 4 |
 | L19 Recent Session | 10 | 10 | 0 |
-| L20 Performance + UX | 6 | 5 | 1 |
+| L20 Performance + UX | 6 | 6 | 0 |
 | L21 Packaging | 6 | 2 | 4 |
 | L22 Docs + Marketing | 6 | 0 | 6 |
 | L23 Extensions | 5 | 1 | 4 |
@@ -377,4 +377,4 @@
 | L26 CF Workers AI Gateway | 7 | 0 | 7 |
 | L27 Architecture + Quality | 5 | 5 | 0 |
 | L28 New CLI + Infra | 4 | 0 | 4 |
-| **TOTAL** | **226** | **132** | **94** |
+| **TOTAL** | **226** | **136** | **90** |

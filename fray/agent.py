@@ -415,6 +415,35 @@ def run_agent(tester, payloads: List[Dict], *,
             msg += f" (skipped {', '.join(parts)})"
         print(msg)
 
+    # ── Phase 2.5: Cluster payloads by technique family ─────────────────
+    # Skip entire families when representative is blocked — saves 60-70% requests
+    _use_clustering = len(ranked) > 10
+    _blocked_families = set()
+    if _use_clustering:
+        try:
+            from fray.evolve import cluster_payloads
+            _clusters = cluster_payloads(
+                [p.get("payload", p) if isinstance(p, dict) else p for p in ranked]
+            )
+            # Reorder: one representative per family first, then rest
+            _representatives = []
+            _others = []
+            _seen_families = set()
+            for p in ranked:
+                _ps = p.get("payload", p) if isinstance(p, dict) else p
+                _fam = _clusters.get(_ps, "other")
+                if _fam not in _seen_families:
+                    _seen_families.add(_fam)
+                    _representatives.append(p)
+                else:
+                    _others.append(p)
+            ranked = _representatives + _others
+            if verbose:
+                print(f"    Clustered into {_C.B}{len(_seen_families)}{_C.E} technique families "
+                      f"({len(_representatives)} representatives)")
+        except Exception:
+            _use_clustering = False
+
     # ── Phase 3+: Iterative test → analyze → mutate rounds ──────────────
     round_size = min(20, requests_remaining // max(max_rounds, 1))
 
@@ -589,6 +618,21 @@ def _build_mutation_pool(results: List[Dict], bypasses: List[Dict],
             continue
         mutations = mutator.mutate(payload_str, max_mutations=3)
         pool.extend(mutations)
+
+    # ── Vendor-specific mutations (try WAF-tailored evasions first) ─────
+    _waf_vendor = profile.waf_vendor or ""
+    if _waf_vendor:
+        try:
+            from fray.mutator import mutate_payload as _mp_vendor
+            # Pick a few recent blocked payloads and apply vendor mutations
+            _recent_blocked = [r for r in results[-10:] if r.get("blocked")]
+            for _rb in _recent_blocked[:4]:
+                _rp = _rb.get("payload", "")
+                if _rp:
+                    _vm = _mp_vendor(_rp, max_variants=2, waf_vendor=_waf_vendor)
+                    pool.extend(_vm)
+        except Exception:
+            pass
 
     # ── Analyze blocked payloads → targeted mutations ────────────────────
     blocked = [r for r in results[-20:] if r.get("blocked")]

@@ -868,6 +868,75 @@ class GuidedPipeline:
                 if res:
                     module_results.append(res)
 
+        # ── Smart payload testing (WAFTester + clustering + vendor mutations) ──
+        # If recon found a WAF and recommended xss/sqli categories, run an
+        # adaptive clustered test using WAFTester with impersonation.
+        _smart_results = []
+        _smart_cats = [c for c in (recs[:2] if recs else ["xss"]) if isinstance(c, str)]
+        if not _smart_cats:
+            _smart_cats = [c.get("category", "") for c in recs[:2] if isinstance(c, dict)]
+        _smart_cats = [c for c in _smart_cats if c][:2]
+        if _smart_cats:
+            try:
+                from fray.tester import WAFTester
+                from fray.evolve import cluster_payloads, test_clustered
+                from pathlib import Path as _P
+
+                _payloads_dir = _P(__file__).parent / "payloads"
+                _waf_vendor = waf.split("(")[0].strip() if waf else None
+                _imp = self.impersonate
+
+                for _sc in _smart_cats:
+                    _cat_dir = _payloads_dir / _sc
+                    if not _cat_dir.exists():
+                        continue
+                    _payloads = []
+                    for _pf in sorted(_cat_dir.glob("*.json"))[:3]:
+                        try:
+                            import json as _jmod
+                            _payloads.extend(_jmod.loads(_pf.read_text(encoding="utf-8")))
+                        except Exception:
+                            pass
+                    if not _payloads or len(_payloads) < 2:
+                        continue
+
+                    if not self.quiet:
+                        out.write(f"  \u25B6 Smart {_sc.upper()} test ({len(_payloads)} payloads")
+                        if _waf_vendor:
+                            out.write(f", vendor: {_waf_vendor}")
+                        out.write(f")...")
+                        out.flush()
+
+                    _t = WAFTester(
+                        self.target, timeout=6, delay=0.1,
+                        verify_ssl=False, stealth=self.stealth,
+                        impersonate=_imp,
+                    )
+                    _cluster_res = test_clustered(_t, _payloads[:100], param="q")
+                    _bypasses = [r for r in _cluster_res if not r.get("blocked", True)]
+                    _n_req = sum(1 for r in _cluster_res if not r.get("skipped_by_cluster"))
+                    _n_skip = sum(1 for r in _cluster_res if r.get("skipped_by_cluster"))
+
+                    _result = {
+                        "module": f"smart_{_sc}",
+                        "target": self.target,
+                        "vulnerable": len(_bypasses) > 0,
+                        "findings": len(_bypasses),
+                        "requests": _n_req,
+                        "skipped_by_cluster": _n_skip,
+                        "bypasses": [{"payload": b.get("payload", ""), "family": b.get("family", "")} for b in _bypasses[:10]],
+                    }
+                    _smart_results.append(_result)
+
+                    if not self.quiet:
+                        _status = f"{S.error}{len(_bypasses)} bypass(es){S.reset}" if _bypasses else f"{S.success}clean{S.reset}"
+                        out.write(f" {_status} ({_n_req} reqs, {_n_skip} skipped by cluster)\n")
+                        out.flush()
+            except Exception:
+                pass
+
+        module_results.extend(_smart_results)
+
         total_vulns = sum(1 for r in module_results if r.get("vulnerable"))
         total_findings = sum(r.get("findings", 0) for r in module_results)
         total_requests = sum(r.get("requests", 0) for r in module_results)
