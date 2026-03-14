@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fray CLI Reference — Internal</title>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --surface2: #1a1a2e;
+    --border: #2a2a3e;
+    --text: #e4e4ef;
+    --muted: #8888a0;
+    --brand: #6366f1;
+    --brand2: #a78bfa;
+    --accent: #818cf8;
+    --target: #60a5fa;
+    --green: #34d399;
+    --red: #ef4444;
+    --orange: #f97316;
+    --yellow: #eab308;
+    --blue: #3b82f6;
+    --cyan: #22d3ee;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 0;
+  }
+  .container { max-width: 1200px; margin: 0 auto; padding: 40px 24px; }
+
+  /* Header */
+  .header {
+    text-align: center;
+    padding: 60px 0 40px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 48px;
+  }
+  .header h1 {
+    font-size: 42px;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--brand), var(--brand2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 8px;
+  }
+  .header .subtitle {
+    color: var(--muted);
+    font-size: 14px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+  .header .stats {
+    display: flex;
+    gap: 32px;
+    justify-content: center;
+    margin-top: 24px;
+  }
+  .stat {
+    text-align: center;
+  }
+  .stat .num {
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--brand);
+  }
+  .stat .label {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  /* Navigation */
+  .nav {
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 0;
+    z-index: 100;
+    margin-bottom: 40px;
+  }
+  .nav-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 24px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .nav a {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 12px;
+    padding: 4px 12px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    transition: all 0.15s;
+  }
+  .nav a:hover {
+    color: var(--brand);
+    border-color: var(--border);
+    background: var(--surface);
+  }
+
+  /* Sections */
+  h2 {
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--brand2);
+    margin: 48px 0 20px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--accent);
+    margin: 24px 0 12px;
+  }
+
+  /* Command tree */
+  .tree {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px 32px;
+    font-size: 13px;
+    line-height: 1.8;
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .tree .cmd { color: var(--green); font-weight: 600; }
+  .tree .desc { color: var(--muted); }
+  .tree .emoji { font-size: 14px; }
+  .tree .star { color: var(--yellow); }
+  .tree .category {
+    color: var(--brand2);
+    font-weight: 700;
+    font-size: 14px;
+  }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0 24px;
+    font-size: 13px;
+  }
+  thead th {
+    text-align: left;
+    padding: 10px 16px;
+    background: var(--surface2);
+    color: var(--brand2);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    border-bottom: 2px solid var(--border);
+  }
+  tbody td {
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tbody tr:hover { background: var(--surface); }
+  .flag { color: var(--green); font-weight: 600; }
+  .default { color: var(--muted); font-style: italic; }
+  .deprecated { color: var(--red); font-weight: 600; }
+  .keep { color: var(--green); }
+  .merge { color: var(--yellow); }
+  .absorb { color: var(--orange); }
+
+  /* Command cards */
+  .cmd-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 16px;
+    margin: 20px 0;
+  }
+  .cmd-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    transition: border-color 0.15s;
+  }
+  .cmd-card:hover { border-color: var(--brand); }
+  .cmd-card .name {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--green);
+    margin-bottom: 4px;
+  }
+  .cmd-card .usage {
+    font-size: 12px;
+    color: var(--cyan);
+    margin-bottom: 8px;
+  }
+  .cmd-card .desc {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 12px;
+  }
+  .cmd-card .flags {
+    font-size: 11px;
+    color: var(--text);
+  }
+  .cmd-card .flags dt {
+    color: var(--green);
+    font-weight: 600;
+    float: left;
+    width: 180px;
+    clear: left;
+    padding: 2px 0;
+  }
+  .cmd-card .flags dd {
+    color: var(--muted);
+    margin-left: 180px;
+    padding: 2px 0;
+  }
+
+  /* Badge */
+  .badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+  .badge-star { background: var(--yellow); color: #000; }
+  .badge-new { background: var(--brand); color: #fff; }
+  .badge-dep { background: var(--red); color: #fff; }
+  .badge-internal { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+
+  /* Flow diagram */
+  .flow {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    margin: 16px 0;
+    font-size: 13px;
+    line-height: 2;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .flow .arrow { color: var(--brand); }
+  .flow .cmd { color: var(--green); font-weight: 600; }
+
+  /* Code blocks */
+  pre.code {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px 20px;
+    font-size: 13px;
+    overflow-x: auto;
+    margin: 12px 0;
+  }
+  code { color: var(--cyan); }
+
+  /* Proposal section */
+  .proposal {
+    background: linear-gradient(135deg, rgba(99,102,241,0.05), rgba(167,139,250,0.05));
+    border: 1px solid var(--brand);
+    border-radius: 8px;
+    padding: 24px;
+    margin: 24px 0;
+  }
+  .proposal h3 { color: var(--brand); margin-top: 0; }
+
+  /* Alert */
+  .alert {
+    padding: 12px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    margin: 12px 0;
+  }
+  .alert-warn { background: rgba(234,179,8,0.1); border: 1px solid var(--yellow); color: var(--yellow); }
+  .alert-info { background: rgba(99,102,241,0.1); border: 1px solid var(--brand); color: var(--accent); }
+  .alert-danger { background: rgba(239,68,68,0.1); border: 1px solid var(--red); color: var(--red); }
+
+  .cols-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 768px) { .cols-2 { grid-template-columns: 1fr; } }
+
+  .pill {
+    display: inline-block;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+  .pill-green { background: rgba(52,211,153,0.15); color: var(--green); }
+  .pill-red { background: rgba(239,68,68,0.15); color: var(--red); }
+  .pill-yellow { background: rgba(234,179,8,0.15); color: var(--yellow); }
+  .pill-blue { background: rgba(59,130,246,0.15); color: var(--blue); }
+  .pill-brand { background: rgba(99,102,241,0.15); color: var(--brand); }
+
+  /* Search */
+  .search-bar {
+    width: 100%;
+    padding: 12px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 14px;
+    margin-bottom: 24px;
+    outline: none;
+  }
+  .search-bar:focus { border-color: var(--brand); }
+  .search-bar::placeholder { color: var(--muted); }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Fray CLI Reference</h1>
+  <div class="subtitle">Internal Documentation &mdash; Not for Distribution</div>
+  <div class="stats">
+    <div class="stat"><div class="num">61</div><div class="label">Current Commands</div></div>
+    <div class="stat"><div class="num">20</div><div class="label">Visible in --help</div></div>
+    <div class="stat"><div class="num">12</div><div class="label">Categories</div></div>
+    <div class="stat"><div class="num">20</div><div class="label">Deprecated (hidden)</div></div>
+  </div>
+</div>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="#current">Current (61)</a>
+    <a href="#duplicates">Duplicates</a>
+    <a href="#proposal">Redesign Proposal</a>
+    <a href="#tree">Command Tree</a>
+    <a href="#workflows">Workflows</a>
+    <a href="#commands">Full Reference</a>
+    <a href="#global-flags">Global Flags</a>
+    <a href="#env">Environment</a>
+    <a href="#examples">Examples</a>
+  </div>
+</nav>
+
+<div class="container">
+
+<!-- CURRENT STATE -->
+<h2 id="current">Current State &mdash; 61 Commands</h2>
+<input type="text" class="search-bar" id="cmdSearch" placeholder="Search commands... (type to filter)" oninput="filterCmds()">
+
+<div class="cmd-grid" id="cmdGrid">
+
+  <div class="cmd-card" data-cmd="go">
+    <div class="name">fray go <span class="badge badge-star">recommended</span></div>
+    <div class="usage">fray go &lt;url&gt;</div>
+    <div class="desc">Guided pipeline: recon &rarr; smart test &rarr; report. Zero-knowledge, one command.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="recon">
+    <div class="name">fray recon</div>
+    <div class="usage">fray recon &lt;url&gt;</div>
+    <div class="desc">Full recon: HTTP, TLS, headers, fingerprinting, subdomains, DNS, attack surface.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="detect">
+    <div class="name">fray detect <span class="pill pill-yellow">absorb into recon</span></div>
+    <div class="usage">fray detect &lt;url&gt;</div>
+    <div class="desc">Detect WAF vendor with multi-signal confidence scoring. Becomes <code>recon --detect-only</code>.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="test">
+    <div class="name">fray test</div>
+    <div class="usage">fray test &lt;url&gt; -c xss</div>
+    <div class="desc">Core payload testing against WAF. Supports smart mode, mutations, blind detection.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="scan">
+    <div class="name">fray scan</div>
+    <div class="usage">fray scan &lt;url&gt;</div>
+    <div class="desc">Auto: crawl &rarr; param discovery &rarr; payload injection.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="bypass">
+    <div class="name">fray bypass <span class="pill pill-yellow">overlap with test</span></div>
+    <div class="usage">fray bypass &lt;url&gt;</div>
+    <div class="desc">WAF bypass scoring with evasion-optimized payload testing and scorecard.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="ai-bypass">
+    <div class="name">fray ai-bypass <span class="pill pill-yellow">absorb into test</span></div>
+    <div class="usage">fray ai-bypass &lt;url&gt;</div>
+    <div class="desc">AI-assisted WAF bypass with LLM-generated payloads and adaptive feedback.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="agent">
+    <div class="name">fray agent <span class="pill pill-yellow">absorb into test</span></div>
+    <div class="usage">fray agent &lt;url&gt; -c xss</div>
+    <div class="desc">Self-improving payload agent: iterative probe &rarr; mutate &rarr; learn loop. Becomes <code>test --agent</code>.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="auto">
+    <div class="name">fray auto <span class="badge badge-dep">deprecate</span></div>
+    <div class="usage">fray auto &lt;url&gt;</div>
+    <div class="desc">Full pipeline: recon &rarr; scan &rarr; ai-bypass. Superseded by 'go'.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="crawl">
+    <div class="name">fray crawl <span class="pill pill-yellow">absorb into scan</span></div>
+    <div class="usage">fray crawl &lt;url&gt;</div>
+    <div class="desc">Injection point discovery: forms, URL params, JS API routes, GraphQL. Becomes <code>scan --crawl-only</code>.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="smuggle">
+    <div class="name">fray smuggle <span class="pill pill-yellow">absorb into test</span></div>
+    <div class="usage">fray smuggle &lt;url&gt;</div>
+    <div class="desc">HTTP request smuggling detection (CL.TE / TE.CL / TE.TE).</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="race">
+    <div class="name">fray race <span class="pill pill-yellow">absorb into test</span></div>
+    <div class="usage">fray race &lt;url&gt;</div>
+    <div class="desc">Race condition (TOCTOU) testing with concurrent request divergence.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="proto">
+    <div class="name">fray proto <span class="pill pill-yellow">absorb into test</span></div>
+    <div class="usage">fray proto &lt;url&gt;</div>
+    <div class="desc">Multi-protocol testing: WebSocket, GraphQL, gRPC.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="compare">
+    <div class="name">fray compare <span class="pill pill-yellow">absorb into test</span></div>
+    <div class="usage">fray compare &lt;url&gt;</div>
+    <div class="desc">A/B bypass testing: raw vs impersonated TLS to classify WAF blocks.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="validate">
+    <div class="name">fray validate <span class="pill pill-yellow">absorb into test</span></div>
+    <div class="usage">fray validate &lt;url&gt;</div>
+    <div class="desc">Blue team WAF configuration validation report. Becomes <code>test --validate</code>.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="harden">
+    <div class="name">fray harden <span class="pill pill-yellow">absorb into recon</span></div>
+    <div class="usage">fray harden &lt;url&gt;</div>
+    <div class="desc">OWASP Top 10 misconfiguration checks + security header hardening audit.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="waf-reverse">
+    <div class="name">fray waf-reverse <span class="pill pill-yellow">absorb into recon</span></div>
+    <div class="usage">fray waf-reverse &lt;url&gt;</div>
+    <div class="desc">Reverse-engineer WAF rules: tags, events, keywords, encodings.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="graph">
+    <div class="name">fray graph <span class="pill pill-yellow">absorb into recon</span></div>
+    <div class="usage">fray graph &lt;url&gt;</div>
+    <div class="desc">Visualize attack surface: subdomains, DNS, tech, endpoints.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="session">
+    <div class="name">fray session <span class="pill pill-blue">move to auth</span></div>
+    <div class="usage">fray session list|login|delete</div>
+    <div class="desc">Manage saved authentication sessions.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="solve">
+    <div class="name">fray solve <span class="pill pill-blue">move to auth</span></div>
+    <div class="usage">fray solve &lt;url&gt;</div>
+    <div class="desc">Solve WAF challenges (Cloudflare Turnstile, reCAPTCHA, hCaptcha).</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="osint">
+    <div class="name">fray osint <span class="pill pill-blue">move to intel</span></div>
+    <div class="usage">fray osint &lt;domain&gt;</div>
+    <div class="desc">Offensive OSINT: whois, emails, typosquatting, GitHub org recon.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="leak">
+    <div class="name">fray leak <span class="pill pill-blue">move to intel</span></div>
+    <div class="usage">fray leak &lt;domain|email&gt;</div>
+    <div class="desc">Search for leaked credentials on GitHub and Have I Been Pwned.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="cred">
+    <div class="name">fray cred <span class="pill pill-blue">move to auth</span></div>
+    <div class="usage">fray cred &lt;login-url&gt;</div>
+    <div class="desc">Credential stuffing test against login endpoints.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="ct">
+    <div class="name">fray ct <span class="pill pill-blue">move to intel</span></div>
+    <div class="usage">fray ct &lt;domain&gt;</div>
+    <div class="desc">Certificate Transparency monitoring and subdomain discovery.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="feed">
+    <div class="name">fray feed <span class="pill pill-blue">move to intel</span></div>
+    <div class="usage">fray feed --since 7d</div>
+    <div class="desc">Threat intelligence feed: auto-discover and ingest new attack vectors.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="cve-payload">
+    <div class="name">fray cve-payload <span class="pill pill-blue">move to intel</span></div>
+    <div class="usage">fray cve-payload CVE-2024-12345</div>
+    <div class="desc">Generate payloads from CVE description or ID.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="poc-recheck">
+    <div class="name">fray poc-recheck <span class="pill pill-blue">move to intel</span></div>
+    <div class="usage">fray poc-recheck</div>
+    <div class="desc">Re-check CVEs for newly available PoC exploits.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="report">
+    <div class="name">fray report</div>
+    <div class="usage">fray report -i results.json</div>
+    <div class="desc">Generate HTML security report.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="company-report">
+    <div class="name">fray company-report <span class="pill pill-blue">move to report</span></div>
+    <div class="usage">fray company-report --company example.com</div>
+    <div class="desc">Automated security report per company/domain.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="waf-report">
+    <div class="name">fray waf-report <span class="pill pill-blue">move to report</span></div>
+    <div class="usage">fray waf-report</div>
+    <div class="desc">Corporate WAF coverage report: gaps, vendor distribution, scores.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="posture">
+    <div class="name">fray posture <span class="pill pill-blue">move to report</span></div>
+    <div class="usage">fray posture results.jsonl</div>
+    <div class="desc">Industry-level security posture comparison from batch results.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="diff">
+    <div class="name">fray diff <span class="pill pill-blue">move to report</span></div>
+    <div class="usage">fray diff old.json new.json</div>
+    <div class="desc">Compare two recon reports and highlight attack surface changes.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="explain">
+    <div class="name">fray explain <span class="pill pill-blue">move to report</span></div>
+    <div class="usage">fray explain CVE-2021-44228</div>
+    <div class="desc">Human-readable findings with impact and remediation.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="export-nuclei">
+    <div class="name">fray export-nuclei <span class="pill pill-blue">move to export</span></div>
+    <div class="usage">fray export-nuclei results.json</div>
+    <div class="desc">Generate Nuclei YAML templates from Fray bypass/test results.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="monitor">
+    <div class="name">fray monitor</div>
+    <div class="usage">fray monitor &lt;domain&gt;</div>
+    <div class="desc">Continuous monitoring: periodic recon + leak, diff, alert on changes.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="batch">
+    <div class="name">fray batch <span class="pill pill-yellow">absorb into recon</span></div>
+    <div class="usage">fray batch domains.txt</div>
+    <div class="desc">Batch recon across domain lists (Nikkei 225, custom).</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="bounty">
+    <div class="name">fray bounty <span class="pill pill-yellow">absorb into scan</span></div>
+    <div class="usage">fray bounty --platform hackerone</div>
+    <div class="desc">Bug bounty platform integration (HackerOne/Bugcrowd).</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="scope">
+    <div class="name">fray scope <span class="pill pill-blue">move to config</span></div>
+    <div class="usage">fray scope scope.txt</div>
+    <div class="desc">Inspect or validate a scope file for bug bounty testing.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="config">
+    <div class="name">fray config</div>
+    <div class="usage">fray config init|show|validate</div>
+    <div class="desc">Manage .fray.toml configuration.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="init-config">
+    <div class="name">fray init-config <span class="badge badge-dep">deprecate</span></div>
+    <div class="usage">fray init-config</div>
+    <div class="desc">Create .fray.toml. Redundant with 'config init'.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="plugin">
+    <div class="name">fray plugin</div>
+    <div class="usage">fray plugin list|init|install|hooks</div>
+    <div class="desc">Plugin / Extension API management.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="cache">
+    <div class="name">fray cache</div>
+    <div class="usage">fray cache show|clear|export|import</div>
+    <div class="desc">Adaptive payload cache management.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="ci">
+    <div class="name">fray ci <span class="pill pill-blue">move to export</span></div>
+    <div class="usage">fray ci init</div>
+    <div class="desc">Generate GitHub Actions workflow for WAF testing on PRs.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="mcp">
+    <div class="name">fray mcp</div>
+    <div class="usage">fray mcp</div>
+    <div class="desc">Start MCP server for AI assistant integration.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="dashboard">
+    <div class="name">fray dashboard</div>
+    <div class="usage">fray dashboard</div>
+    <div class="desc">Launch local web dashboard for browsing recon, scans, intel data.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="update">
+    <div class="name">fray update <span class="pill pill-yellow">merge with sync</span></div>
+    <div class="usage">fray update</div>
+    <div class="desc">Pull latest payload database from cloud.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="sync">
+    <div class="name">fray sync <span class="pill pill-yellow">merge with update</span></div>
+    <div class="usage">fray sync --push|--pull</div>
+    <div class="desc">Cloud sync: publish or pull payload database (R2 + GitHub).</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="ask">
+    <div class="name">fray ask</div>
+    <div class="usage">fray ask "what WAFs did we find?"</div>
+    <div class="desc">Natural language query over recon/scan/OSINT data.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="learn">
+    <div class="name">fray learn</div>
+    <div class="usage">fray learn xss</div>
+    <div class="desc">Interactive CTF-style security tutorial.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="doctor">
+    <div class="name">fray doctor</div>
+    <div class="usage">fray doctor --fix</div>
+    <div class="desc">Check environment and auto-fix common issues.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="version">
+    <div class="name">fray version <span class="pill pill-yellow">make --version flag</span></div>
+    <div class="usage">fray version</div>
+    <div class="desc">Show version.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="wizard">
+    <div class="name">fray wizard</div>
+    <div class="usage">fray wizard</div>
+    <div class="desc">Interactive scan wizard &mdash; guided mode.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="init">
+    <div class="name">fray init <span class="pill pill-green">alias for wizard</span></div>
+    <div class="usage">fray init</div>
+    <div class="desc">Alias for 'wizard'. Keep for convenience.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="demo">
+    <div class="name">fray demo <span class="pill pill-yellow">absorb into go</span></div>
+    <div class="usage">fray demo [url]</div>
+    <div class="desc">Quick showcase: detect WAF + XSS scan.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="stats">
+    <div class="name">fray stats <span class="pill pill-yellow">merge into cache/info</span></div>
+    <div class="usage">fray stats</div>
+    <div class="desc">Show payload database statistics.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="payloads">
+    <div class="name">fray payloads <span class="pill pill-yellow">merge into info</span></div>
+    <div class="usage">fray payloads</div>
+    <div class="desc">List available payload categories.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="submit-payload">
+    <div class="name">fray submit-payload <span class="pill pill-yellow">move to community</span></div>
+    <div class="usage">fray submit-payload -c xss</div>
+    <div class="desc">Submit payload to community database via GitHub PR.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="completions">
+    <div class="name">fray completions</div>
+    <div class="usage">fray completions zsh</div>
+    <div class="desc">Generate shell completion scripts.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="help">
+    <div class="name">fray help</div>
+    <div class="usage">fray help</div>
+    <div class="desc">Show friendly guide to all commands.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="smoke">
+    <div class="name">fray smoke <span class="badge badge-internal">internal</span></div>
+    <div class="usage">fray smoke --full</div>
+    <div class="desc">QA test against 10 hardcoded vulnerable targets.</div>
+  </div>
+
+  <div class="cmd-card" data-cmd="todo">
+    <div class="name">fray todo <span class="badge badge-internal">internal</span></div>
+    <div class="usage">fray todo</div>
+    <div class="desc">Internal TODO list stored in ~/.fray/todo.json.</div>
+  </div>
+
+</div>
+
+<!-- DUPLICATES -->
+<h2 id="duplicates">Duplicate &amp; Overlap Analysis</h2>
+
+<table>
+  <thead>
+    <tr><th>Issue</th><th>Commands</th><th>Action</th><th>Status</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Config init duplicate</td>
+      <td><code>init-config</code> vs <code>config init</code></td>
+      <td class="deprecated">Deprecate init-config</td>
+      <td><span class="pill pill-red">DEPRECATE</span></td>
+    </tr>
+    <tr>
+      <td>Pipeline superseded</td>
+      <td><code>auto</code> superseded by <code>go</code></td>
+      <td class="deprecated">Deprecate auto</td>
+      <td><span class="pill pill-red">DEPRECATE</span></td>
+    </tr>
+    <tr>
+      <td>Bypass overlap</td>
+      <td><code>bypass</code>, <code>ai-bypass</code> overlap <code>test</code></td>
+      <td class="absorb">Absorb as test --bypass, test --ai</td>
+      <td><span class="pill pill-yellow">ABSORB</span></td>
+    </tr>
+    <tr>
+      <td>Update subset</td>
+      <td><code>update</code> is subset of <code>sync</code></td>
+      <td class="merge">Merge: update --push becomes sync</td>
+      <td><span class="pill pill-yellow">MERGE</span></td>
+    </tr>
+    <tr>
+      <td>Report fragmentation</td>
+      <td><code>report</code>, <code>company-report</code>, <code>waf-report</code>, <code>posture</code>, <code>diff</code>, <code>explain</code></td>
+      <td class="absorb">Group under report namespace</td>
+      <td><span class="pill pill-blue">NAMESPACE</span></td>
+    </tr>
+    <tr>
+      <td>Intel fragmentation</td>
+      <td><code>feed</code>, <code>cve-payload</code>, <code>poc-recheck</code>, <code>leak</code>, <code>osint</code>, <code>ct</code></td>
+      <td class="absorb">Group under intel namespace</td>
+      <td><span class="pill pill-blue">NAMESPACE</span></td>
+    </tr>
+    <tr>
+      <td>Specialized tests</td>
+      <td><code>smuggle</code>, <code>race</code>, <code>proto</code>, <code>compare</code></td>
+      <td class="absorb">Absorb as test flags</td>
+      <td><span class="pill pill-yellow">ABSORB</span></td>
+    </tr>
+    <tr>
+      <td>Recon features</td>
+      <td><code>harden</code>, <code>waf-reverse</code>, <code>graph</code>, <code>batch</code></td>
+      <td class="absorb">Absorb as recon flags</td>
+      <td><span class="pill pill-yellow">ABSORB</span></td>
+    </tr>
+    <tr>
+      <td>Stats overlap</td>
+      <td><code>stats --waf-report</code> duplicates <code>waf-report</code></td>
+      <td class="deprecated">Remove flag from stats</td>
+      <td><span class="pill pill-red">REMOVE</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- PROPOSAL -->
+<h2 id="proposal">CLI Redesign: 61 &rarr; 20 Visible Commands <span class="pill pill-green">IMPLEMENTED</span></h2>
+
+<div class="alert alert-info" style="margin-bottom:16px;">
+  <strong>Status:</strong> Implemented in commit <code>ac1b1a8</code> on <code>hugo</code> branch.
+  All 61 old commands still work (backward compat) &mdash; deprecated ones print migration hints.
+  <code>fray --help</code> now shows 20 grouped commands instead of 61 flat ones.
+</div>
+
+<div class="proposal">
+  <h3>Design Principles</h3>
+  <p style="color:var(--text); margin-bottom: 12px;">
+    1. <strong>Progressive disclosure</strong> &mdash; Show 20 commands, not 61<br>
+    2. <strong>Verb-noun pattern</strong> &mdash; <code>fray report company</code>, not <code>fray company-report</code><br>
+    3. <strong>One obvious starting point</strong> &mdash; <code>fray go</code> or just <code>fray &lt;url&gt;</code><br>
+    4. <strong>Group by intent</strong> &mdash; Users think "I want to test", not "I need the agent module"<br>
+    5. <strong>Bare URL shortcut</strong> &mdash; <code>fray example.com</code> = <code>fray go example.com</code>
+  </p>
+</div>
+
+<div class="cols-2">
+  <div>
+    <h3>Proposed: fray --help</h3>
+<pre class="code" style="font-size:12px;">Fray &mdash; WAF Security Testing Toolkit
+
+USAGE
+  fray &lt;command&gt; [options]
+  fray &lt;url&gt;              Quick scan (= fray go)
+
+COMMANDS
+  go &lt;url&gt;       Full assessment (start here)
+  recon &lt;url&gt;    Reconnaissance
+  test &lt;url&gt;     Test WAF with payloads
+  scan &lt;url&gt;     Auto crawl &rarr; test
+  report         Generate reports
+  intel          Threat intelligence
+  monitor &lt;url&gt;  Continuous monitoring
+  auth           Sessions &amp; challenges
+  config         Configuration
+  plugin         Plugin management
+  export         Nuclei, Burp, SARIF, CI
+  ask &lt;query&gt;    Natural language query
+
+UTILITIES
+  doctor         Check environment
+  learn          Security tutorial
+  update         Update payloads
+  dashboard      Web dashboard
+  help           Command guide
+</pre>
+  </div>
+  <div>
+    <h3>Current: fray --help</h3>
+<pre class="code" style="font-size:12px; color: var(--muted);">61 commands listed flat:
+
+  recon          detect         test
+  bypass         ai-bypass      agent
+  auto           go             crawl
+  scan           smuggle        race
+  proto          compare        validate
+  harden         waf-reverse    graph
+  session        solve          osint
+  leak           cred           ct
+  feed           cve-payload    poc-recheck
+  report         company-report waf-report
+  posture        diff           explain
+  export-nuclei  monitor        batch
+  bounty         scope          config
+  init-config    plugin         cache
+  ci             mcp            dashboard
+  update         sync           ask
+  learn          doctor         version
+  wizard         init           demo
+  stats          payloads       submit-payload
+  completions    help           smoke
+  todo
+</pre>
+  </div>
+</div>
+
+<h3>Migration Map</h3>
+<table>
+  <thead>
+    <tr><th>Current Command</th><th>Proposed</th><th>Migration</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>go</code></td><td><code>go</code></td><td><span class="pill pill-green">KEEP</span></td></tr>
+    <tr><td><code>recon</code></td><td><code>recon</code></td><td><span class="pill pill-green">KEEP</span></td></tr>
+    <tr><td><code>detect</code></td><td><code>recon --detect</code></td><td><span class="pill pill-yellow">FLAG</span></td></tr>
+    <tr><td><code>test</code></td><td><code>test</code></td><td><span class="pill pill-green">KEEP</span></td></tr>
+    <tr><td><code>scan</code></td><td><code>scan</code></td><td><span class="pill pill-green">KEEP</span></td></tr>
+    <tr><td><code>bypass</code></td><td><code>test --bypass</code></td><td><span class="pill pill-yellow">FLAG</span></td></tr>
+    <tr><td><code>ai-bypass</code></td><td><code>test --ai</code></td><td><span class="pill pill-yellow">FLAG</span></td></tr>
+    <tr><td><code>agent</code></td><td><code>test --agent</code></td><td><span class="pill pill-yellow">FLAG</span></td></tr>
+    <tr><td><code>auto</code></td><td>deprecated &rarr; <code>go</code></td><td><span class="pill pill-red">DEPRECATE</span></td></tr>
+    <tr><td><code>crawl</code></td><td><code>scan --crawl-only</code></td><td><span class="pill pill-yellow">FLAG</span></td></tr>
+    <tr><td><code>smuggle</code></td><td><code>test --smuggle</code></td><td><span class="pill pill-yellow">FLAG</span></td></tr>
+    <tr><td><code>race</code></td><td><code>test --race</code></td><td><span class="pill pill-yellow">FLAG</span></td></tr>
+    <tr><td><code>proto</code></td><td><code>test --proto</code></td><td><span class="pill pill-yellow">FLAG</span></td></tr>
+    <tr><td><code>compare</code></td><td><code>test --compare</code></td><td><span class="pill pill-yellow">FLAG</span></td></tr>
+    <tr><td><code>validate</code></td><td><code>test --validate</code></td><td><span class="pill pill-yellow">FLAG</span></td></tr>
+    <tr><td><code>harden</code></td><td><code>recon --harden</code></td><td><span class="pill pill-yellow">FLAG</span></td></tr>
+    <tr><td><code>waf-reverse</code></td><td><code>recon --waf-reverse</code></td><td><span class="pill pill-yellow">FLAG</span></td></tr>
+    <tr><td><code>graph</code></td><td><code>recon --graph</code></td><td><span class="pill pill-yellow">FLAG</span></td></tr>
+    <tr><td><code>batch</code></td><td><code>recon --batch FILE</code></td><td><span class="pill pill-yellow">FLAG</span></td></tr>
+    <tr><td><code>session</code></td><td><code>auth session</code></td><td><span class="pill pill-blue">NAMESPACE</span></td></tr>
+    <tr><td><code>solve</code></td><td><code>auth solve</code></td><td><span class="pill pill-blue">NAMESPACE</span></td></tr>
+    <tr><td><code>cred</code></td><td><code>auth cred</code></td><td><span class="pill pill-blue">NAMESPACE</span></td></tr>
+    <tr><td><code>osint</code></td><td><code>intel osint</code></td><td><span class="pill pill-blue">NAMESPACE</span></td></tr>
+    <tr><td><code>leak</code></td><td><code>intel leak</code></td><td><span class="pill pill-blue">NAMESPACE</span></td></tr>
+    <tr><td><code>ct</code></td><td><code>intel ct</code></td><td><span class="pill pill-blue">NAMESPACE</span></td></tr>
+    <tr><td><code>feed</code></td><td><code>intel feed</code></td><td><span class="pill pill-blue">NAMESPACE</span></td></tr>
+    <tr><td><code>cve-payload</code></td><td><code>intel cve</code></td><td><span class="pill pill-blue">NAMESPACE</span></td></tr>
+    <tr><td><code>poc-recheck</code></td><td><code>intel poc-recheck</code></td><td><span class="pill pill-blue">NAMESPACE</span></td></tr>
+    <tr><td><code>report</code></td><td><code>report generate</code></td><td><span class="pill pill-blue">NAMESPACE</span></td></tr>
+    <tr><td><code>company-report</code></td><td><code>report company</code></td><td><span class="pill pill-blue">NAMESPACE</span></td></tr>
+    <tr><td><code>waf-report</code></td><td><code>report waf</code></td><td><span class="pill pill-blue">NAMESPACE</span></td></tr>
+    <tr><td><code>posture</code></td><td><code>report posture</code></td><td><span class="pill pill-blue">NAMESPACE</span></td></tr>
+    <tr><td><code>diff</code></td><td><code>report diff</code></td><td><span class="pill pill-blue">NAMESPACE</span></td></tr>
+    <tr><td><code>explain</code></td><td><code>report explain</code></td><td><span class="pill pill-blue">NAMESPACE</span></td></tr>
+    <tr><td><code>export-nuclei</code></td><td><code>export nuclei</code></td><td><span class="pill pill-blue">NAMESPACE</span></td></tr>
+    <tr><td><code>ci</code></td><td><code>export ci</code></td><td><span class="pill pill-blue">NAMESPACE</span></td></tr>
+    <tr><td><code>monitor</code></td><td><code>monitor</code></td><td><span class="pill pill-green">KEEP</span></td></tr>
+    <tr><td><code>config</code></td><td><code>config</code></td><td><span class="pill pill-green">KEEP</span></td></tr>
+    <tr><td><code>init-config</code></td><td>deprecated &rarr; <code>config init</code></td><td><span class="pill pill-red">DEPRECATE</span></td></tr>
+    <tr><td><code>plugin</code></td><td><code>plugin</code></td><td><span class="pill pill-green">KEEP</span></td></tr>
+    <tr><td><code>cache</code></td><td><code>cache</code></td><td><span class="pill pill-green">KEEP</span></td></tr>
+    <tr><td><code>update</code> + <code>sync</code></td><td><code>update</code> (merged)</td><td><span class="pill pill-yellow">MERGE</span></td></tr>
+    <tr><td><code>bounty</code></td><td><code>scan --bounty</code></td><td><span class="pill pill-yellow">FLAG</span></td></tr>
+    <tr><td><code>scope</code></td><td><code>config scope</code></td><td><span class="pill pill-blue">NAMESPACE</span></td></tr>
+    <tr><td><code>dashboard</code></td><td><code>dashboard</code></td><td><span class="pill pill-green">KEEP</span></td></tr>
+    <tr><td><code>mcp</code></td><td><code>mcp</code></td><td><span class="pill pill-green">KEEP</span></td></tr>
+    <tr><td><code>ask</code></td><td><code>ask</code></td><td><span class="pill pill-green">KEEP</span></td></tr>
+    <tr><td><code>learn</code></td><td><code>learn</code></td><td><span class="pill pill-green">KEEP</span></td></tr>
+    <tr><td><code>doctor</code></td><td><code>doctor</code></td><td><span class="pill pill-green">KEEP</span></td></tr>
+    <tr><td><code>help</code></td><td><code>help</code></td><td><span class="pill pill-green">KEEP</span></td></tr>
+    <tr><td><code>completions</code></td><td><code>completions</code></td><td><span class="pill pill-green">KEEP</span></td></tr>
+    <tr><td><code>wizard</code> / <code>init</code></td><td><code>fray</code> (no args)</td><td><span class="pill pill-yellow">DEFAULT</span></td></tr>
+    <tr><td><code>demo</code></td><td><code>go --demo</code></td><td><span class="pill pill-yellow">FLAG</span></td></tr>
+    <tr><td><code>version</code></td><td><code>--version</code> flag</td><td><span class="pill pill-yellow">FLAG</span></td></tr>
+    <tr><td><code>stats</code></td><td><code>cache stats</code></td><td><span class="pill pill-blue">NAMESPACE</span></td></tr>
+    <tr><td><code>payloads</code></td><td><code>cache payloads</code></td><td><span class="pill pill-blue">NAMESPACE</span></td></tr>
+    <tr><td><code>submit-payload</code></td><td><code>update submit</code></td><td><span class="pill pill-blue">NAMESPACE</span></td></tr>
+    <tr><td><code>smoke</code></td><td><code>doctor --smoke</code></td><td><span class="pill pill-yellow">FLAG</span></td></tr>
+    <tr><td><code>todo</code></td><td>Remove from public CLI</td><td><span class="pill pill-red">HIDE</span></td></tr>
+  </tbody>
+</table>
+
+<!-- COMMAND TREE -->
+<h2 id="tree">Proposed Command Tree</h2>
+
+<div class="tree"><span class="category">fray</span>                                      <span class="desc"># No args = wizard</span>
+<span class="desc">│</span>
+<span class="desc">├── </span><span class="cmd">go</span> &lt;url&gt;                            <span class="star">★</span> <span class="desc">Full assessment (recommended)</span>
+<span class="desc">│</span>
+<span class="desc">├── </span><span class="cmd">recon</span> &lt;url&gt;                         <span class="desc">Reconnaissance &amp; fingerprinting</span>
+<span class="desc">│     --detect  --harden  --graph</span>
+<span class="desc">│     --waf-reverse  --batch FILE</span>
+<span class="desc">│</span>
+<span class="desc">├── </span><span class="cmd">test</span> &lt;url&gt;                          <span class="desc">WAF payload testing</span>
+<span class="desc">│     --bypass  --ai  --agent</span>
+<span class="desc">│     --smuggle  --race  --proto</span>
+<span class="desc">│     --compare  --validate</span>
+<span class="desc">│</span>
+<span class="desc">├── </span><span class="cmd">scan</span> &lt;url&gt;                          <span class="desc">Auto crawl &rarr; discover &rarr; inject</span>
+<span class="desc">│     --bounty  --crawl-only</span>
+<span class="desc">│</span>
+<span class="desc">├── </span><span class="cmd">report</span>                              <span class="desc">Generate reports</span>
+<span class="desc">│     ├── generate  -i results.json</span>
+<span class="desc">│     ├── company   --company domain</span>
+<span class="desc">│     ├── waf</span>
+<span class="desc">│     ├── posture   results.jsonl</span>
+<span class="desc">│     ├── diff      old.json new.json</span>
+<span class="desc">│     └── explain   CVE-ID</span>
+<span class="desc">│</span>
+<span class="desc">├── </span><span class="cmd">intel</span>                               <span class="desc">Threat intelligence</span>
+<span class="desc">│     ├── feed      --since 7d</span>
+<span class="desc">│     ├── cve       CVE-2024-12345</span>
+<span class="desc">│     ├── poc-recheck</span>
+<span class="desc">│     ├── leak      domain|email</span>
+<span class="desc">│     ├── osint     domain</span>
+<span class="desc">│     └── ct        domain</span>
+<span class="desc">│</span>
+<span class="desc">├── </span><span class="cmd">monitor</span> &lt;domain&gt;                    <span class="desc">Continuous monitoring</span>
+<span class="desc">│</span>
+<span class="desc">├── </span><span class="cmd">auth</span>                                <span class="desc">Authentication</span>
+<span class="desc">│     ├── session   list|login|delete</span>
+<span class="desc">│     ├── solve     &lt;url&gt;</span>
+<span class="desc">│     └── cred      &lt;login-url&gt;</span>
+<span class="desc">│</span>
+<span class="desc">├── </span><span class="cmd">export</span>                              <span class="desc">Export &amp; integrations</span>
+<span class="desc">│     ├── nuclei    results.json</span>
+<span class="desc">│     ├── burp      results.json</span>
+<span class="desc">│     ├── sarif     results.json</span>
+<span class="desc">│     └── ci        init</span>
+<span class="desc">│</span>
+<span class="desc">├── </span><span class="cmd">config</span>  init|show|validate|scope    <span class="desc">Configuration</span>
+<span class="desc">├── </span><span class="cmd">plugin</span>  list|init|install|hooks      <span class="desc">Plugins</span>
+<span class="desc">├── </span><span class="cmd">cache</span>   show|clear|export|import     <span class="desc">Payload cache</span>
+<span class="desc">├── </span><span class="cmd">update</span>  [--push|--pull|--submit]     <span class="desc">Payload database</span>
+<span class="desc">│</span>
+<span class="desc">├── </span><span class="cmd">ask</span> &lt;query&gt;                         <span class="desc">Natural language query</span>
+<span class="desc">├── </span><span class="cmd">learn</span> [topic]                       <span class="desc">Security tutorial</span>
+<span class="desc">├── </span><span class="cmd">doctor</span> [--fix] [--smoke]            <span class="desc">Environment check</span>
+<span class="desc">├── </span><span class="cmd">dashboard</span>                           <span class="desc">Web UI</span>
+<span class="desc">├── </span><span class="cmd">mcp</span>                                 <span class="desc">AI assistant server</span>
+<span class="desc">└── </span><span class="cmd">help</span>                                <span class="desc">Command guide</span></div>
+
+<!-- WORKFLOWS -->
+<h2 id="workflows">Workflow Chains</h2>
+
+<div class="flow"><span class="desc">First time?</span>
+  <span class="cmd">fray</span>                        <span class="arrow">&rarr;</span> interactive wizard
+  <span class="cmd">fray go</span> url                 <span class="arrow">&rarr;</span> recon <span class="arrow">&rarr;</span> test <span class="arrow">&rarr;</span> report
+
+<span class="desc">Manual deep-dive:</span>
+  <span class="cmd">fray recon</span> url              <span class="arrow">&rarr;</span> <span class="cmd">fray test</span> url -c xss   <span class="arrow">&rarr;</span> <span class="cmd">fray report</span> generate
+       <span class="arrow">│</span>                            <span class="arrow">│</span>
+       <span class="arrow">├&rarr;</span> <span class="cmd">recon</span> --graph             <span class="arrow">├&rarr;</span> test --bypass
+       <span class="arrow">├&rarr;</span> <span class="cmd">recon</span> --waf-reverse        <span class="arrow">├&rarr;</span> test --ai
+       <span class="arrow">└&rarr;</span> <span class="cmd">recon</span> --harden             <span class="arrow">└&rarr;</span> test --agent
+
+<span class="desc">Bug bounty:</span>
+  <span class="cmd">config scope</span> scope.txt     <span class="arrow">&rarr;</span> <span class="cmd">scan</span> url --bounty     <span class="arrow">&rarr;</span> <span class="cmd">report</span> company
+
+<span class="desc">Continuous:</span>
+  <span class="cmd">monitor</span> domain              <span class="arrow">&rarr;</span> periodic recon + diff + leak <span class="arrow">&rarr;</span> webhook alerts
+  <span class="cmd">intel feed</span> --auto-add       <span class="arrow">&rarr;</span> ingest CVE payloads <span class="arrow">&rarr;</span> auto-test
+
+<span class="desc">CI/CD:</span>
+  <span class="cmd">export ci</span> init              <span class="arrow">&rarr;</span> generates .github/workflows/fray.yml
+  <span class="cmd">go</span> url --ci --fail-on high  <span class="arrow">&rarr;</span> exit(1) on findings
+
+<span class="desc">Enterprise:</span>
+  <span class="cmd">recon</span> --batch domains.txt   <span class="arrow">&rarr;</span> <span class="cmd">report</span> posture results.jsonl <span class="arrow">&rarr;</span> <span class="cmd">report</span> waf</div>
+
+<!-- GLOBAL FLAGS -->
+<h2 id="global-flags">Common Global Flags</h2>
+
+<table>
+  <thead>
+    <tr><th>Flag</th><th>Description</th><th>Default</th></tr>
+  </thead>
+  <tbody>
+    <tr><td class="flag">-t, --timeout N</td><td>Request timeout (seconds)</td><td class="default">8</td></tr>
+    <tr><td class="flag">-d, --delay N</td><td>Delay between requests (seconds)</td><td class="default">0.5</td></tr>
+    <tr><td class="flag">-o, --output FILE</td><td>Save results to file</td><td class="default">&mdash;</td></tr>
+    <tr><td class="flag">--json</td><td>Output as JSON to stdout</td><td class="default">off</td></tr>
+    <tr><td class="flag">--insecure</td><td>Skip TLS certificate verification</td><td class="default">off</td></tr>
+    <tr><td class="flag">--cookie VALUE</td><td>Cookie header for authentication</td><td class="default">&mdash;</td></tr>
+    <tr><td class="flag">--bearer TOKEN</td><td>Bearer token for auth</td><td class="default">&mdash;</td></tr>
+    <tr><td class="flag">-H 'K: V'</td><td>Custom header (repeatable)</td><td class="default">&mdash;</td></tr>
+    <tr><td class="flag">--stealth</td><td>Anti-detection: random UA, jitter, TLS spoof</td><td class="default">off</td></tr>
+    <tr><td class="flag">--impersonate BROWSER</td><td>TLS fingerprint spoofing</td><td class="default">&mdash;</td></tr>
+    <tr><td class="flag">--profile PRESET</td><td>quick / standard / deep / stealth / api / bounty</td><td class="default">&mdash;</td></tr>
+    <tr><td class="flag">--scope FILE</td><td>Restrict to domains in scope file</td><td class="default">&mdash;</td></tr>
+    <tr><td class="flag">--load-session NAME</td><td>Load saved session from ~/.fray/sessions/</td><td class="default">&mdash;</td></tr>
+    <tr><td class="flag">--save-session NAME</td><td>Save session for reuse</td><td class="default">&mdash;</td></tr>
+    <tr><td class="flag">--auth-profile FILE</td><td>Auth profile JSON</td><td class="default">&mdash;</td></tr>
+    <tr><td class="flag">--notify WEBHOOK</td><td>Slack/Discord/Teams notification</td><td class="default">&mdash;</td></tr>
+    <tr><td class="flag">--sarif</td><td>SARIF 2.1.0 output for GitHub Security tab</td><td class="default">off</td></tr>
+    <tr><td class="flag">--ci</td><td>CI mode: minimal output, JSON, non-zero exit</td><td class="default">off</td></tr>
+    <tr><td class="flag">--fail-on SEVERITY</td><td>Exit code 1 if findings &ge; severity</td><td class="default">&mdash;</td></tr>
+    <tr><td class="flag">--rate-limit N</td><td>Max requests per second</td><td class="default">unlimited</td></tr>
+    <tr><td class="flag">--plugin FILE</td><td>Load plugin file(s)</td><td class="default">&mdash;</td></tr>
+    <tr><td class="flag">-v / -q</td><td>Verbose / quiet output</td><td class="default">&mdash;</td></tr>
+  </tbody>
+</table>
+
+<!-- ENVIRONMENT -->
+<h2 id="env">Environment Variables &amp; Data Directories</h2>
+
+<div class="cols-2">
+  <div>
+    <h3>Environment Variables</h3>
+    <table>
+      <thead><tr><th>Variable</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td class="flag">FRAY_PLUGINS</td><td>Auto-load plugin files (comma-separated)</td></tr>
+        <tr><td class="flag">FRAY_TIMEOUT</td><td>Default timeout override</td></tr>
+        <tr><td class="flag">FRAY_DELAY</td><td>Default delay override</td></tr>
+        <tr><td class="flag">FRAY_CATEGORY</td><td>Default category override</td></tr>
+        <tr><td class="flag">GITHUB_TOKEN</td><td>GitHub code search, leak detection</td></tr>
+        <tr><td class="flag">OPENAI_API_KEY</td><td>AI features (ask, ai-summary)</td></tr>
+        <tr><td class="flag">ANTHROPIC_API_KEY</td><td>Alternative AI provider</td></tr>
+        <tr><td class="flag">RESEND_API_KEY</td><td>Email alerts in monitor</td></tr>
+        <tr><td class="flag">NO_COLOR</td><td>Disable color output</td></tr>
+        <tr><td class="flag">FORCE_COLOR</td><td>Force color output</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div>
+    <h3>Data Directories</h3>
+    <table>
+      <thead><tr><th>Path</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>~/.fray/plugins/</code></td><td>Auto-loaded plugins</td></tr>
+        <tr><td><code>~/.fray/sessions/</code></td><td>Saved auth sessions</td></tr>
+        <tr><td><code>~/.fray/checkpoints/</code></td><td>Scan resume checkpoints</td></tr>
+        <tr><td><code>~/.fray/auth/</code></td><td>Auth profiles</td></tr>
+        <tr><td><code>~/.fray/recon/</code></td><td>Exported recon results</td></tr>
+        <tr><td><code>~/.fray/ct_baselines/</code></td><td>CT monitoring baselines</td></tr>
+        <tr><td><code>~/.fray/learned_patterns.json</code></td><td>Agent learning cache</td></tr>
+        <tr><td><code>~/.fray/subdomain_cache.json</code></td><td>Subdomain cache</td></tr>
+        <tr><td><code>.fray.toml</code></td><td>Project config file</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- EXAMPLES -->
+<h2 id="examples">Quick Start Examples</h2>
+
+<pre class="code"><span class="desc"># First time &mdash; guided wizard</span>
+<span style="color:var(--green)">fray</span>
+
+<span class="desc"># One-command full assessment</span>
+<span style="color:var(--green)">fray go</span> https://example.com
+
+<span class="desc"># Deep stealth recon</span>
+<span style="color:var(--green)">fray recon</span> https://example.com --deep --stealth
+
+<span class="desc"># XSS test with adaptive evolution</span>
+<span style="color:var(--green)">fray test</span> https://example.com -c xss --smart --mutate
+
+<span class="desc"># Auto-scan with browser and blind detection</span>
+<span style="color:var(--green)">fray scan</span> https://example.com -c xss --browser --blind
+
+<span class="desc"># Self-improving agent</span>
+<span style="color:var(--green)">fray test</span> https://example.com --agent -c xss --rounds 5
+
+<span class="desc"># Authenticated testing</span>
+<span style="color:var(--green)">fray auth session</span> login https://example.com/login --name mysite --cookie "sid=abc"
+<span style="color:var(--green)">fray test</span> https://example.com -c sqli --load-session mysite
+
+<span class="desc"># CI/CD pipeline</span>
+<span style="color:var(--green)">fray go</span> https://staging.example.com --ci --fail-on high --sarif
+
+<span class="desc"># Batch enterprise</span>
+<span style="color:var(--green)">fray recon</span> --batch domains.txt -w 8 --profile deep -o results.jsonl
+<span style="color:var(--green)">fray report</span> posture results.jsonl -o posture_report.md
+
+<span class="desc"># Continuous monitoring</span>
+<span style="color:var(--green)">fray monitor</span> example.com --interval 6h --webhook https://hooks.slack.com/...
+
+<span class="desc"># Threat intelligence</span>
+<span style="color:var(--green)">fray intel</span> feed --since 7d --auto-add --test-target https://example.com
+
+<span class="desc"># Create a plugin</span>
+<span style="color:var(--green)">fray plugin</span> init --name slack_notifier
+<span class="desc"># edit ~/.fray/plugins/slack_notifier.py, auto-loads next run</span></pre>
+
+</div>
+
+<script>
+function filterCmds() {
+  const q = document.getElementById('cmdSearch').value.toLowerCase();
+  document.querySelectorAll('.cmd-card').forEach(card => {
+    const text = card.textContent.toLowerCase();
+    card.classList.toggle('hidden', q && !text.includes(q));
+  });
+}
+</script>
+
+</body>
+</html>
