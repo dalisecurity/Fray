@@ -51,13 +51,10 @@ class _C:
 # ── ASCII Art Logo ───────────────────────────────────────────────────────────
 
 _LOGO_LINES = [
-    f"{_C.BCYAN}       ┌─────────┐{_C.R}",
-    f"{_C.BCYAN}       │ {_C.WHITE}{_C.BOLD}◉{_C.R}{_C.BCYAN}   {_C.WHITE}{_C.BOLD}◉{_C.R}{_C.BCYAN} │{_C.R}",
-    f"{_C.BCYAN}       │  {_C.WHITE}{_C.BOLD}▬▬▬{_C.R}{_C.BCYAN}  │{_C.R}",
-    f"{_C.BCYAN}       └────┬────┘{_C.R}",
-    f"{_C.BCYAN}      ╔═════╧═════╗{_C.R}",
-    f"{_C.BCYAN}      ║{_C.R} {_C.BOLD}{_C.WHITE}F  R  A  Y{_C.R} {_C.BCYAN}║{_C.R}  {_C.DIM}v{__version__}{_C.R}",
-    f"{_C.BCYAN}      ╚═══════════╝{_C.R}  {_C.DIM}WAF Security Testing Platform{_C.R}",
+    f"{_C.BCYAN}      ╱╲    ╱╲    ╱╲{_C.R}{_C.BMAGENTA}  · .{_C.R}",
+    f"{_C.BCYAN}   ──╱──╲──╱──╲──╱──╲──{_C.R}{_C.BMAGENTA}·  ·{_C.R}     {_C.BOLD}{_C.WHITE}F R A Y{_C.R}  {_C.DIM}v{__version__}{_C.R}",
+    f"{_C.BCYAN}     ╲  ╱╲  ╱╲  ╱{_C.R}  {_C.BMAGENTA}·    ·{_C.R}    {_C.DIM}AI-Native Security Toolkit{_C.R}",
+    f"{_C.BCYAN}      ╲╱  ╲╱  ╲╱{_C.R}   {_C.BMAGENTA} ·{_C.R}",
 ]
 
 

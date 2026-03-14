@@ -15,45 +15,67 @@ Usage:
 
 # ── Subcommands and their descriptions ──────────────────────────────────────
 
+# Visible top-level commands (shown in fray --help / fray help)
+_VISIBLE_COMMANDS = {
+    "go": "Full pipeline: recon + smart test + report",
+    "recon": "Reconnaissance & fingerprinting (35+ checks)",
+    "test": "Test WAF with payloads",
+    "scan": "Auto crawl, discover, inject",
+    "monitor": "Continuous monitoring with alerts",
+    "report": "Reports (generate, company, waf, posture, diff, explain)",
+    "intel": "Threat intelligence (feed, cve, poc-recheck, leak, osint, ct)",
+    "auth": "Authentication (session, solve, cred)",
+    "export": "Export (nuclei, ci)",
+    "config": "Manage .fray.toml configuration",
+    "plugin": "Plugin system",
+    "cache": "Adaptive payload cache & stats",
+    "update": "Update payload database",
+    "dashboard": "Launch local web dashboard",
+    "mcp": "Start MCP server for AI assistants",
+    "completions": "Generate shell completion scripts",
+    "ask": "Natural language query",
+    "learn": "Interactive security tutorial",
+    "doctor": "Check environment & auto-fix issues",
+    "help": "Show friendly guide to all commands",
+}
+
+# All subcommands (including hidden/deprecated, for backward-compat completion)
 _SUBCOMMANDS = {
-    "recon": "Reconnaissance: HTTP, TLS, headers, app fingerprinting",
+    **_VISIBLE_COMMANDS,
     "detect": "Detect WAF vendor on target URL",
-    "test": "Test WAF with attack payloads",
     "bypass": "WAF bypass scoring with evasion scorecard",
     "ai-bypass": "AI-assisted WAF bypass with LLM-generated payloads",
     "agent": "Self-improving payload agent: probe, mutate, learn",
     "feed": "Threat intelligence feed: auto-discover CVEs and attack vectors",
-    "update": "Pull latest payload database from cloud",
     "sync": "Cloud sync: publish or pull payload database",
     "todo": "Internal TODO list",
     "harden": "OWASP hardening audit with security header checks",
     "auto": "Full pipeline: recon, scan, ai-bypass in one command",
     "diff": "Compare two scan results and surface regressions",
     "smuggle": "HTTP request smuggling detection",
-    "report": "Generate HTML/Markdown security report",
     "payloads": "List available payload categories",
-    "scan": "Auto scan: crawl, param discovery, payload injection",
     "graph": "Visualize attack surface tree",
     "stats": "Show payload database statistics",
     "version": "Show version",
-    "doctor": "Check environment and auto-fix issues",
     "submit-payload": "Submit payload to community database via GitHub PR",
     "validate": "Validate WAF configuration (blue team report)",
     "bounty": "Bug bounty platform integration",
     "ci": "Generate GitHub Actions workflow for WAF testing",
-    "learn": "Interactive CTF-style security tutorial",
-    "mcp": "Start MCP server for AI assistant integration",
     "init-config": "Create sample .fray.toml config file",
     "explain": "Explain a CVE or scan results",
     "scope": "Inspect or validate a scope file",
     "leak": "Search for leaked credentials on GitHub and HIBP",
     "osint": "Offensive OSINT: whois, emails, GitHub org recon",
     "cred": "Credential stuffing test against login endpoints",
-    "monitor": "Continuous monitoring with diff and alerting",
     "demo": "Quick showcase: detect WAF + XSS scan",
-    "cache": "Adaptive payload cache management",
-    "help": "Show friendly guide to all fray commands",
-    "completions": "Generate shell completion scripts",
+}
+
+# Namespace subcommand completions
+_NAMESPACE_SUBS = {
+    "report": ["generate", "company", "waf", "posture", "diff", "explain"],
+    "intel": ["feed", "cve", "poc-recheck", "leak", "osint", "ct"],
+    "auth": ["session", "solve", "cred"],
+    "export": ["nuclei", "ci"],
 }
 
 # ── Common flags per subcommand ─────────────────────────────────────────────
@@ -155,13 +177,21 @@ _COMMON_FLAGS = {
         "--json", "--output", "--cookie", "--bearer", "--header", "--notify",
     ],
     "monitor": [
-        "--interval", "--webhook", "--email", "--leak", "--once", "--list",
-        "--timeout",
+        "--interval", "--notify", "--email", "--leak", "--once", "--list",
+        "--timeout", "--json", "--output",
     ],
+    "go": [
+        "--category", "--deep", "--stealth", "--profile", "--output",
+        "--json", "--timeout", "--delay", "--cookie", "--bearer", "--header",
+        "--sarif", "--fail-on", "--solve-challenge", "--impersonate",
+    ],
+    "dashboard": ["--port", "--no-open", "--json"],
+    "ask": ["--json"],
+    "help": ["--all"],
     "update": ["--source", "--json"],
     "sync": ["--push", "--pull", "--source", "--tag", "--configure", "--status", "--json"],
     "doctor": ["--fix", "--verbose"],
-    "ci": ["--target", "--categories", "--max", "--webhook", "--fail-on-bypass", "--no-comment", "--minimal", "--output-dir"],
+    "ci": ["--target", "--categories", "--max", "--notify", "--fail-on-bypass", "--no-comment", "--minimal", "--output-dir"],
     "learn": ["--level", "--list", "--reset"],
     "explain": ["--max", "--json", "--output"],
     "scope": ["--check", "--json"],
@@ -260,6 +290,18 @@ def generate_bash() -> str:
         flags = " ".join(_COMMON_FLAGS[cmd] + _GLOBAL_FLAGS)
         lines.append(f'        {cmd})')
         lines.append(f'            COMPREPLY=($(compgen -W "{flags}" -- "$cur"))')
+        lines.append('            ;;')
+
+    # Namespace subcommand completions (fray report <tab>, fray intel <tab>, etc.)
+    for ns, subs in sorted(_NAMESPACE_SUBS.items()):
+        lines.append(f'        {ns})')
+        lines.append(f'            if [[ $COMP_CWORD -eq 2 ]]; then')
+        lines.append(f'                COMPREPLY=($(compgen -W "{" ".join(subs)}" -- "$cur"))')
+        lines.append(f'            else')
+        ns_flags = " ".join(_COMMON_FLAGS.get(ns, []) + _GLOBAL_FLAGS)
+        if ns_flags.strip():
+            lines.append(f'                COMPREPLY=($(compgen -W "{ns_flags}" -- "$cur"))')
+        lines.append(f'            fi')
         lines.append('            ;;')
 
     lines += [
@@ -397,6 +439,15 @@ def generate_fish() -> str:
             f"complete -c fray -n '__fish_seen_subcommand_from recon test' "
             f"-l profile -ra '{v}'"
         )
+
+    lines.append('')
+    lines.append('# Namespace subcommands (fray report <tab>, fray intel <tab>, etc.)')
+    for ns, subs in sorted(_NAMESPACE_SUBS.items()):
+        for sub in subs:
+            lines.append(
+                f"complete -c fray -n '__fish_seen_subcommand_from {ns}' "
+                f"-a '{sub}'"
+            )
 
     lines.append('')
     lines.append('# completions subcommand')

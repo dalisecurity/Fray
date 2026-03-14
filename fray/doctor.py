@@ -227,6 +227,150 @@ class FrayDoctor:
             self._add("MCP server", WARN, "mcp package not installed (optional)",
                        fix_hint="Install for AI integration: pip install 'fray[mcp]'")
 
+    def check_optional_deps(self):
+        """Check optional dependencies that enhance Fray capabilities"""
+        _OPTIONAL = [
+            ("curl_cffi", "TLS fingerprint spoofing (--impersonate)",
+             "pip install curl_cffi"),
+            ("playwright", "Headless browser for SPA crawling (--browser)",
+             "pip install playwright && playwright install chromium"),
+            ("aiohttp", "Async parallel testing (--concurrency >1)",
+             "pip install aiohttp"),
+            ("rich", "Enhanced terminal output (tables, progress bars)",
+             "pip install rich"),
+        ]
+        installed = []
+        missing = []
+        for mod, desc, install_cmd in _OPTIONAL:
+            try:
+                __import__(mod)
+                installed.append(mod)
+            except ImportError:
+                missing.append((mod, desc, install_cmd))
+
+        if not missing:
+            self._add("Optional dependencies", PASS,
+                       f"All {len(installed)} optional packages installed")
+        else:
+            names = ", ".join(m[0] for m in missing)
+            self._add("Optional dependencies", WARN,
+                       f"{len(missing)} optional: {names}",
+                       fix_hint="; ".join(f"{m[2]}" for m in missing[:2])
+                       + (" ..." if len(missing) > 2 else ""))
+            if self.verbose:
+                for mod, desc, cmd in missing:
+                    self._add(f"  └ {mod}", WARN, desc, fix_hint=cmd)
+
+    def check_api_keys(self):
+        """Check if commonly used API keys / env vars are configured"""
+        _KEYS = [
+            ("GITHUB_TOKEN", "Leak search, threat intel feed, CVE monitoring"),
+            ("FRAY_CF_KEY", "Cloudflare Workers AI integration"),
+            ("FRAY_CF_WORKER_URL", "Cloudflare Workers AI endpoint"),
+            ("RESEND_API_KEY", "Email alerts for fray monitor"),
+            ("FRAY_LLM_PROVIDER", "LLM provider (cloudflare/ollama/openai)"),
+        ]
+        configured = []
+        missing = []
+        for key, desc in _KEYS:
+            if os.environ.get(key):
+                configured.append(key)
+            else:
+                missing.append((key, desc))
+
+        if configured:
+            self._add("API keys", PASS,
+                       f"{len(configured)} configured: {', '.join(configured)}")
+        else:
+            self._add("API keys", WARN, "No API keys configured (all optional)",
+                       fix_hint="Set GITHUB_TOKEN for leak search; see docs for others")
+
+        if self.verbose and missing:
+            for key, desc in missing:
+                self._add(f"  └ {key}", WARN, f"Not set — {desc}",
+                           fix_hint=f"export {key}=<value>")
+
+    def check_config_file(self):
+        """Check if .fray.toml exists and is valid"""
+        from pathlib import Path as _Path
+        config_path = _Path.cwd() / ".fray.toml"
+        if not config_path.exists():
+            self._add("Config file", WARN, ".fray.toml not found in current directory",
+                       fix_hint="Run: fray config init")
+            return
+
+        try:
+            text = config_path.read_text(encoding="utf-8")
+            # Basic TOML validation (Python 3.11+ has tomllib, fallback to simple check)
+            try:
+                import tomllib
+                tomllib.loads(text)
+            except ImportError:
+                try:
+                    import tomli
+                    tomli.loads(text)
+                except ImportError:
+                    # No TOML parser — just check it's not empty and has [sections]
+                    if not text.strip():
+                        raise ValueError("File is empty")
+                    if "[" not in text:
+                        raise ValueError("No TOML sections found")
+            self._add("Config file", PASS, f".fray.toml valid ({len(text)} bytes)")
+        except Exception as e:
+            self._add("Config file", FAIL, f".fray.toml invalid: {e}",
+                       fix_hint="Fix syntax or regenerate: fray config init")
+
+    def check_fray_directory(self):
+        """Check ~/.fray/ directory exists and is writable"""
+        fray_dir = Path.home() / ".fray"
+        if not fray_dir.exists():
+            if self.auto_fix:
+                try:
+                    fray_dir.mkdir(parents=True, exist_ok=True)
+                    self._add("Data directory", FIXED, f"Created {fray_dir}")
+                except OSError as e:
+                    self._add("Data directory", FAIL, f"Cannot create {fray_dir}: {e}",
+                               fix_hint=f"mkdir -p {fray_dir}")
+            else:
+                self._add("Data directory", WARN, f"{fray_dir} does not exist",
+                           fix_hint="Run: fray doctor --fix  (or mkdir -p ~/.fray)")
+            return
+
+        # Check writable
+        test_file = fray_dir / ".doctor_write_test"
+        try:
+            test_file.write_text("ok")
+            test_file.unlink()
+            # Count contents
+            items = list(fray_dir.iterdir())
+            self._add("Data directory", PASS,
+                       f"{fray_dir} writable ({len(items)} items)")
+        except OSError as e:
+            self._add("Data directory", FAIL, f"{fray_dir} not writable: {e}",
+                       fix_hint=f"chmod 755 {fray_dir}")
+
+    def check_latest_version(self):
+        """Check if running the latest version from PyPI"""
+        try:
+            import urllib.request
+            url = "https://pypi.org/pypi/fray/json"
+            req = urllib.request.Request(url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode())
+            latest = data.get("info", {}).get("version", "")
+            from fray import __version__
+            if latest and latest != __version__:
+                self._add("Fray version", WARN,
+                           f"v{__version__} installed, v{latest} available",
+                           fix_hint=f"pip install --upgrade fray")
+            elif latest:
+                self._add("Fray version", PASS, f"v{__version__} (latest)")
+            else:
+                self._add("Fray version", PASS, f"v{__version__} (PyPI check skipped)")
+        except Exception:
+            self._add("Fray version", PASS,
+                       f"v{__version__} (PyPI unreachable, skipped)")
+
     def check_encoding(self):
         """Verify stdout encoding supports Unicode"""
         encoding = sys.stdout.encoding or "unknown"
@@ -260,14 +404,19 @@ class FrayDoctor:
         self.checks = []
 
         self.check_python_version()
+        self.check_latest_version()
         self.check_package_integrity()
         self.check_payloads_directory()
         self.check_file_permissions()
+        self.check_fray_directory()
+        self.check_config_file()
         self.check_network_connectivity()
         self.check_ssl_tls()
+        self.check_optional_deps()
+        self.check_mcp_server()
+        self.check_api_keys()
         self.check_encoding()
         self.check_disk_space()
-        self.check_mcp_server()
 
         return self.checks
 
@@ -316,9 +465,24 @@ class FrayDoctor:
         print()
 
 
-def run_doctor(auto_fix: bool = False, verbose: bool = False):
+def run_doctor(auto_fix: bool = False, verbose: bool = False,
+               json_mode: bool = False):
     """Entry point for fray doctor command"""
     doctor = FrayDoctor(auto_fix=auto_fix, verbose=verbose)
     doctor.run_all()
-    doctor.print_report()
+    if json_mode:
+        import json as _json
+        result = {
+            "version": __version__,
+            "checks": doctor.checks,
+            "summary": {
+                "total": len(doctor.checks),
+                "passed": sum(1 for c in doctor.checks if c["status"] in (PASS, FIXED)),
+                "warnings": sum(1 for c in doctor.checks if c["status"] == WARN),
+                "failures": sum(1 for c in doctor.checks if c["status"] == FAIL),
+            },
+        }
+        print(_json.dumps(result, indent=2))
+    else:
+        doctor.print_report()
     return doctor.checks

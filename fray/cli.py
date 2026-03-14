@@ -2097,7 +2097,8 @@ def cmd_completions(args):
 def cmd_doctor(args):
     """Run environment diagnostics and auto-fix issues"""
     from fray.doctor import run_doctor
-    run_doctor(auto_fix=args.fix, verbose=args.verbose)
+    checks = run_doctor(auto_fix=args.fix, verbose=args.verbose,
+                        json_mode=getattr(args, 'json', False))
 
 
 def cmd_submit_payload(args):
@@ -5875,18 +5876,56 @@ def cmd_monitor(args):
 def cmd_help(args):
     """Friendly high-level guide to every fray command.
 
-    fray help          → same as fray help --all (full grouped guide)
+    fray help          → progressive view (6 essential commands)
     fray help --all    → full grouped guide (all 20 commands)
     fray help <cmd>    → deep-dive on one command
     """
     topic = ' '.join(getattr(args, 'topic', []) or []).strip()
+    show_all = getattr(args, 'show_all', False) or topic == '--all'
 
     # ── Deep dive: fray help <command> ──
     if topic and topic != '--all':
         _cmd_help_topic(topic)
         return
 
-    # ── Full grouped guide (fray help / fray help --all) ──
+    # ── Progressive view (bare fray help) ──
+    if not show_all:
+        print(f"""
+  \033[1m⚔️  Fray v{__version__} — WAF Security Testing Toolkit\033[0m
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  \033[33mQUICK START\033[0m
+  ─────────────────────────────
+  fray <url>                    Full assessment (= fray go <url>)
+  fray                          Interactive guided wizard
+
+  \033[36mESSENTIAL COMMANDS\033[0m
+  ─────────────────────────────
+  fray go <url>           \033[33m★\033[0m Full pipeline: recon → smart test → report
+  fray recon <url>          Reconnaissance & fingerprinting (35+ checks)
+  fray test <url>           Test WAF with payloads (-c xss --smart --blind)
+  fray scan <url>           Auto crawl → discover → inject
+  fray report <sub>         Reports (generate, company, waf, posture, diff)
+  fray config               Manage .fray.toml configuration
+
+  \033[36mGLOBAL FLAGS\033[0m
+  ─────────────────────────────
+  --json                    JSON output (all commands)
+  --stealth                 Anti-detection mode
+  --profile <name>          Preset: quick / deep / stealth / bounty
+  --cookie / --bearer / -H  Authentication headers
+
+  \033[2m14 more commands available:\033[0m
+    fray help --all             Show all 20 commands
+    fray help <command>         Deep-dive on any command
+    fray <command> --help       Command-specific flags
+
+  \033[2mDocs:   https://dalisec.io/docs\033[0m
+  \033[2mGitHub: https://github.com/dalisecurity/fray\033[0m
+""")
+        return
+
+    # ── Full grouped guide (fray help --all) ──
     print(f"""
   \033[1m⚔️  Fray v{__version__} — WAF Security Testing Toolkit\033[0m
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -7235,6 +7274,7 @@ def main():
     p_doctor = subparsers.add_parser("doctor", help="Check environment and auto-fix common issues")
     p_doctor.add_argument("--fix", action="store_true", help="Auto-fix issues where possible")
     p_doctor.add_argument("-v", "--verbose", action="store_true", help="Show detailed fix suggestions")
+    p_doctor.add_argument("--json", action="store_true", help="JSON output for scripting/monitoring")
     p_doctor.set_defaults(func=cmd_doctor)
 
     # submit-payload
@@ -7307,6 +7347,7 @@ def main():
     p_plugin.add_argument("--description", default="", help="Plugin description (for 'init' action)")
     p_plugin.add_argument("--directory", default=None, help="Output directory (for 'init' action)")
     p_plugin.add_argument("--source", default=None, help="Source .py file to install (for 'install' action)")
+    p_plugin.add_argument("--json", action="store_true", help="JSON output")
     p_plugin.set_defaults(func=cmd_plugin)
 
     # posture (#72)
@@ -7450,6 +7491,7 @@ def main():
     p_learn.add_argument("--level", type=int, default=None, help="Jump to specific level")
     p_learn.add_argument("--list", action="store_true", help="List all topics and progress")
     p_learn.add_argument("--reset", action="store_true", help="Reset all progress")
+    p_learn.add_argument("--json", action="store_true", help="JSON output")
     p_learn.set_defaults(func=cmd_learn)
 
     # mcp
@@ -7788,8 +7830,13 @@ def main():
     args = parser.parse_args()
 
     if not args.command:
-        from fray.welcome import print_welcome
-        print_welcome()
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            from fray.welcome import print_welcome
+            print_welcome()
+        else:
+            # Non-interactive (piped) — show progressive help instead of wizard
+            sys.argv = [sys.argv[0], '--help']
+            main()
         sys.exit(0)
 
     # ── --no-hints → FRAY_NO_HINTS ──
