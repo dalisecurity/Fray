@@ -1441,3 +1441,188 @@ class TestAuthSessions:
         assert loaded._session_cookies["sid"] == "abc123"
         cookie_str = loaded.get_cookie_string()
         assert "sid=abc123" in cookie_str
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 14. Plugin system — hooks, metadata, auto-discovery, init, install
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestPluginSystem:
+    def setup_method(self):
+        from fray.plugins import clear
+        clear()
+
+    def teardown_method(self):
+        from fray.plugins import clear
+        clear()
+
+    def test_hook_types_expanded(self):
+        from fray.plugins import HOOK_TYPES
+        assert "on_request" in HOOK_TYPES
+        assert "on_response" in HOOK_TYPES
+        assert "on_recon_complete" in HOOK_TYPES
+        assert "on_payload_tested" in HOOK_TYPES
+        assert "on_report_generate" in HOOK_TYPES
+        assert "custom_check" in HOOK_TYPES
+        assert "custom_payloads" in HOOK_TYPES
+        assert len(HOOK_TYPES) == 10
+
+    def test_fray_hook_decorator(self):
+        from fray.plugins import fray_hook, list_hooks
+        @fray_hook("on_request")
+        def my_handler(event):
+            pass
+        hooks = list_hooks()
+        assert hooks["on_request"] >= 1
+
+    def test_emit(self):
+        from fray.plugins import fray_hook, emit
+        captured = []
+        @fray_hook("on_scan_start")
+        def handler(event):
+            captured.append(event)
+        emit("on_scan_start", {"target": "test.com"})
+        assert len(captured) == 1
+        assert captured[0]["target"] == "test.com"
+
+    def test_emit_exception_safe(self):
+        from fray.plugins import fray_hook, emit
+        @fray_hook("on_scan_end")
+        def bad_handler(event):
+            raise ValueError("boom")
+        # Should not raise
+        emit("on_scan_end", {"target": "test.com"})
+
+    def test_custom_payloads(self):
+        from fray.plugins import fray_hook, get_custom_payloads
+        @fray_hook("custom_payloads")
+        def my_payloads(event):
+            if event.get("category") == "xss":
+                return ["<svg/onload=alert(1)>", "<img src=x>"]
+            return []
+        payloads = get_custom_payloads("xss")
+        assert len(payloads) == 2
+        assert "<svg/onload=alert(1)>" in payloads
+
+    def test_custom_payloads_empty(self):
+        from fray.plugins import get_custom_payloads
+        assert get_custom_payloads("xss") == []
+
+    def test_custom_checks(self):
+        from fray.plugins import fray_hook, run_custom_checks
+        @fray_hook("custom_check")
+        def my_check(event):
+            return [{"title": "Test Finding", "severity": "medium"}]
+        findings = run_custom_checks("https://test.com", {})
+        assert len(findings) == 1
+        assert findings[0]["title"] == "Test Finding"
+
+    def test_custom_checks_empty(self):
+        from fray.plugins import run_custom_checks
+        assert run_custom_checks("https://test.com", {}) == []
+
+    def test_load_plugin_file(self, tmp_path):
+        from fray.plugins import load_plugin, list_plugins, list_hooks
+        # Create a minimal plugin file
+        plugin = tmp_path / "test_plug.py"
+        plugin.write_text('''
+from fray.plugins import fray_hook
+
+PLUGIN_NAME = "Test Plugin"
+PLUGIN_VERSION = "2.0.0"
+PLUGIN_AUTHOR = "tester"
+PLUGIN_DESCRIPTION = "A test plugin"
+
+@fray_hook("on_finding")
+def handler(event):
+    pass
+''')
+        load_plugin(str(plugin))
+        plugins = list_plugins()
+        assert len(plugins) >= 1
+        last = plugins[-1]
+        assert last["name"] == "Test Plugin"
+        assert last["version"] == "2.0.0"
+        assert last["author"] == "tester"
+        hooks = list_hooks()
+        assert hooks["on_finding"] >= 1
+
+    def test_load_plugin_not_found(self):
+        from fray.plugins import load_plugin
+        import pytest
+        with pytest.raises(FileNotFoundError):
+            load_plugin("/nonexistent/plugin.py")
+
+    def test_load_plugin_not_py(self, tmp_path):
+        from fray.plugins import load_plugin
+        import pytest
+        txt = tmp_path / "plugin.txt"
+        txt.write_text("not python")
+        with pytest.raises(ValueError):
+            load_plugin(str(txt))
+
+    def test_init_plugin(self, tmp_path):
+        from fray.plugins import init_plugin
+        path = init_plugin("my_scanner", directory=tmp_path, description="Custom scanner")
+        assert path.exists()
+        content = path.read_text()
+        assert "PLUGIN_NAME" in content
+        assert "my_scanner" in content
+        assert "fray_hook" in content
+        assert "on_scan_start" in content
+        assert "custom_check" in content
+
+    def test_init_plugin_no_overwrite(self, tmp_path):
+        from fray.plugins import init_plugin
+        import pytest
+        init_plugin("dupe", directory=tmp_path)
+        with pytest.raises(FileExistsError):
+            init_plugin("dupe", directory=tmp_path)
+
+    def test_install_plugin(self, tmp_path):
+        from fray.plugins import install_plugin
+        src = tmp_path / "src_plugin.py"
+        src.write_text("# plugin")
+        dest_dir = tmp_path / "installed"
+        dest = install_plugin(str(src), target_dir=dest_dir)
+        assert dest.exists()
+        assert dest.read_text() == "# plugin"
+
+    def test_install_plugin_invalid(self, tmp_path):
+        from fray.plugins import install_plugin
+        import pytest
+        with pytest.raises(ValueError):
+            install_plugin("/nonexistent.py")
+
+    def test_auto_discover(self, tmp_path, monkeypatch):
+        import fray.plugins as plugins
+        monkeypatch.setattr(plugins, "_PLUGINS_DIR", tmp_path / "user_plugins")
+        monkeypatch.setattr(plugins, "_PROJECT_PLUGINS_DIR", tmp_path / "project_plugins")
+        # No dirs exist → should return 0
+        n = plugins.auto_discover()
+        assert n == 0
+
+    def test_auto_discover_with_plugins(self, tmp_path, monkeypatch):
+        import fray.plugins as plugins
+        user_dir = tmp_path / "user_plugins"
+        user_dir.mkdir()
+        (user_dir / "auto_plug.py").write_text('''
+from fray.plugins import fray_hook
+PLUGIN_NAME = "Auto Plugin"
+@fray_hook("on_request")
+def h(e): pass
+''')
+        monkeypatch.setattr(plugins, "_PLUGINS_DIR", user_dir)
+        monkeypatch.setattr(plugins, "_PROJECT_PLUGINS_DIR", tmp_path / "no_project")
+        n = plugins.auto_discover()
+        assert n == 1
+        assert any(p["name"] == "Auto Plugin" for p in plugins.list_plugins())
+
+    def test_clear(self):
+        from fray.plugins import fray_hook, clear, list_hooks, list_plugins
+        @fray_hook("on_request")
+        def h(e): pass
+        assert list_hooks()["on_request"] >= 1
+        clear()
+        assert list_hooks()["on_request"] == 0
+        assert list_plugins() == []

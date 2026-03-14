@@ -1107,20 +1107,83 @@ async function renderLearned() {
 
 async function renderIntel() {
   const data = await fetchJSON('/api/threat-intel');
-  let html = `<div class="section-title">&#9889; Threat Intel Cache</div>`;
+  let html = `<div class="section-title">&#9889; CVE Feed &amp; Threat Intel</div>`;
+
+  // Explanation for new users
+  html += `<div style="background:linear-gradient(135deg, var(--bg2) 0%, var(--bg3) 100%);border:1px solid var(--border);border-left:3px solid var(--medium);border-radius:var(--radius);padding:18px 22px;margin-bottom:24px;box-shadow:var(--shadow-sm)">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--medium);margin-bottom:8px;font-weight:600">What is this?</div>
+    <p style="color:var(--text);font-size:13px;line-height:1.65;margin:0">Fray automatically monitors 6 threat intelligence sources (NVD, CISA, GitHub, ExploitDB, RSS, Nuclei) for new CVEs and exploit payloads. Discovered payloads are classified, deduplicated, and can be auto-tested against your targets to check if your WAF blocks them. This page shows what has been ingested so far.</p>
+  </div>`;
 
   if (!data || !Object.keys(data).length) {
-    html += `<div class="loading">No threat intel data. Run: fray feed --since 7d</div>`;
+    html += `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:32px;text-align:center">
+      <div style="font-size:15px;color:var(--text);margin-bottom:8px;font-weight:500">No threat intel data yet</div>
+      <p style="color:var(--text2);font-size:13px;margin-bottom:16px;max-width:460px;margin-left:auto;margin-right:auto">Fetch the latest CVEs and exploit payloads from public sources. Fray will classify them and optionally test them against your WAF.</p>
+      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:inline-block;font-family:var(--mono);font-size:12px;color:var(--text)">fray feed --since 7d --auto-add</div>
+    </div>`;
     $('#content').innerHTML = html;
     return;
   }
 
-  html += `<div class="detail-section"><h3>Cached Data</h3>`;
-  for (const [k, v] of Object.entries(data)) {
-    const display = Array.isArray(v) ? `${v.length} items` : typeof v === 'object' ? JSON.stringify(v).slice(0,80) : String(v);
-    html += `<div class="kv"><span class="kv-key">${k}</span><span class="kv-val">${display}</span></div>`;
+  // Parse data
+  const seenCves = data.seen_cves || [];
+  const seenHashes = data.seen_hashes || [];
+  const stats = data.stats || {};
+  const lastFetch = data.last_fetch || {};
+  const version = data.version || 1;
+
+  // Last fetch time
+  let lastFetchStr = 'Never';
+  const fetchEntries = Object.entries(lastFetch);
+  if (fetchEntries.length) {
+    const [sources, ts] = fetchEntries[0];
+    try {
+      const d = new Date(ts);
+      lastFetchStr = d.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}) + ' at ' + d.toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit'});
+    } catch(e) { lastFetchStr = String(ts).slice(0,16); }
   }
-  html += `</div>`;
+
+  // Summary cards
+  html += `<div class="cards">
+    <div class="card"><div class="card-label">Known CVEs</div><div class="card-value">${seenCves.length}</div><div class="card-sub">unique vulnerabilities tracked</div></div>
+    <div class="card"><div class="card-label">Payloads Ingested</div><div class="card-value">${seenHashes.length}</div><div class="card-sub">${stats.total_fetched||0} fetched, ${stats.total_skipped||0} deduped</div></div>
+    <div class="card"><div class="card-label">Last Fetch</div><div class="card-value" style="font-size:14px;color:var(--text)">${lastFetchStr}</div></div>
+    <div class="card"><div class="card-label">Sources</div><div class="card-value" style="font-size:14px">${fetchEntries.length ? fetchEntries[0][0].split(',').length : 0}</div><div class="card-sub">NVD, CISA, GitHub, ExploitDB, RSS, Nuclei</div></div>
+  </div>`;
+
+  // CVE list
+  if (seenCves.length) {
+    html += `<div class="section-title">Tracked CVEs <span class="count">(${seenCves.length})</span></div>`;
+    html += `<div class="detail-section"><div style="display:flex;flex-wrap:wrap;gap:6px">`;
+    for (const cve of seenCves.slice(0, 80)) {
+      const year = cve.split('-')[1] || '';
+      const isRecent = parseInt(year) >= 2025;
+      const cls = isRecent ? 'tag tag-lang' : 'tag';
+      html += `<span class="${cls}" style="font-family:var(--mono);font-size:11px">${cve}</span>`;
+    }
+    if (seenCves.length > 80) html += `<span class="tag">+${seenCves.length - 80} more</span>`;
+    html += `</div></div>`;
+  }
+
+  // Pipeline stats
+  if (stats.total_fetched) {
+    html += `<div class="section-title" style="margin-top:24px">Ingestion Pipeline</div>`;
+    html += `<div class="detail-grid"><div class="detail-section">
+      <h3>Pipeline Stats</h3>
+      <div class="kv"><span class="kv-key">Total Fetched</span><span class="kv-val">${stats.total_fetched||0}</span></div>
+      <div class="kv"><span class="kv-key">Added to Database</span><span class="kv-val" style="color:var(--success)">${stats.total_added||0}</span></div>
+      <div class="kv"><span class="kv-key">Skipped (duplicates)</span><span class="kv-val">${stats.total_skipped||0}</span></div>
+      <div class="kv"><span class="kv-key">Dedup Rate</span><span class="kv-val">${stats.total_fetched ? Math.round(stats.total_skipped / stats.total_fetched * 100) : 0}%</span></div>
+    </div>
+    <div class="detail-section">
+      <h3>Next Steps</h3>
+      <div style="font-size:13px;color:var(--text);line-height:1.65">
+        <p style="margin-bottom:10px">To auto-test ingested payloads against a WAF target:</p>
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-family:var(--mono);font-size:11.5px;color:var(--text);margin-bottom:10px">fray feed --since 7d --auto-add --test-target https://target.com</div>
+        <p style="margin:0;color:var(--text2);font-size:12px">This fetches new CVEs, ingests payloads, and tests them against your WAF to verify coverage.</p>
+      </div>
+    </div></div>`;
+  }
 
   $('#content').innerHTML = html;
 }
@@ -1178,8 +1241,7 @@ async function renderExecutive() {
     <div class="card"><div class="card-label">Remediation Actions</div><div class="card-value">${s.total_remediation||0}</div></div>
   </div>`;
 
-  // Security Posture
-  const p = s.posture || {};
+  // Security Posture (p already declared above)
   html += `<div class="section-title" style="margin-top:8px">Security Posture Gaps</div>`;
   html += `<div class="cards">
     <div class="card"><div class="card-label">Missing CSP</div><div class="card-value" style="color:${p.csp_missing > s.total_domains*0.5 ? 'var(--critical)' : 'var(--medium)'}">${p.csp_missing}</div><div class="card-sub">of ${s.total_domains} domains</div></div>

@@ -5,15 +5,29 @@ Allows external scripts and community extensions to hook into Fray's
 request/response/finding pipeline without modifying core code.
 
 Hooks:
-    @fray_hook("on_request")      — Called before each HTTP request is sent.
-    @fray_hook("on_response")     — Called after each HTTP response is received.
-    @fray_hook("on_finding")      — Called when a vulnerability finding is recorded.
-    @fray_hook("on_scan_start")   — Called when a scan begins.
-    @fray_hook("on_scan_end")     — Called when a scan completes.
+    @fray_hook("on_request")        — Called before each HTTP request is sent.
+    @fray_hook("on_response")       — Called after each HTTP response is received.
+    @fray_hook("on_finding")        — Called when a vulnerability finding is recorded.
+    @fray_hook("on_scan_start")     — Called when a scan begins.
+    @fray_hook("on_scan_end")       — Called when a scan completes.
+    @fray_hook("on_recon_complete")  — Called after recon pipeline finishes.
+    @fray_hook("on_payload_tested")  — Called after each payload test (blocked/passed).
+    @fray_hook("on_report_generate") — Called before report generation (modify data).
+    @fray_hook("custom_check")       — Run custom security checks during scan.
+    @fray_hook("custom_payloads")    — Supply additional payloads for a category.
+
+Plugin metadata (optional module-level attributes):
+    PLUGIN_NAME = "My Plugin"        # Display name
+    PLUGIN_VERSION = "1.0.0"         # SemVer
+    PLUGIN_AUTHOR = "author"         # Author name
+    PLUGIN_DESCRIPTION = "..."       # Short description
 
 Usage:
     # my_plugin.py
     from fray.plugins import fray_hook
+
+    PLUGIN_NAME = "Request Logger"
+    PLUGIN_VERSION = "1.0.0"
 
     @fray_hook("on_request")
     def log_request(event):
@@ -33,6 +47,11 @@ Loading plugins:
     fray test <url> --plugin my_plugin.py
     fray test <url> --plugin ./plugins/          # load all .py in dir
     FRAY_PLUGINS=my_plugin.py,other.py fray test <url>
+
+Auto-discovery:
+    ~/.fray/plugins/*.py     — User plugins (auto-loaded)
+    ./plugins/*.py           — Project plugins (auto-loaded)
+    .fray.toml [plugins]     — paths = ["path/to/plugin.py"]
 """
 
 from __future__ import annotations
@@ -53,13 +72,21 @@ HOOK_TYPES = frozenset({
     "on_finding",
     "on_scan_start",
     "on_scan_end",
+    "on_recon_complete",
+    "on_payload_tested",
+    "on_report_generate",
+    "custom_check",
+    "custom_payloads",
 })
 
 # ── Registry ─────────────────────────────────────────────────────────────────
 
 _registry: Dict[str, List[Callable]] = {h: [] for h in HOOK_TYPES}
 _registry_lock = threading.Lock()
-_loaded_plugins: List[str] = []
+_loaded_plugins: List[Dict[str, Any]] = []  # [{path, name, version, author, desc, hooks}]
+
+_PLUGINS_DIR = Path.home() / ".fray" / "plugins"
+_PROJECT_PLUGINS_DIR = Path("plugins")
 
 
 def fray_hook(hook_type: str) -> Callable:
@@ -170,7 +197,24 @@ def load_plugin(path: str) -> str:
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
 
-    _loaded_plugins.append(str(p))
+    # Extract plugin metadata
+    meta = {
+        "path": str(p),
+        "name": getattr(module, "PLUGIN_NAME", p.stem),
+        "version": getattr(module, "PLUGIN_VERSION", ""),
+        "author": getattr(module, "PLUGIN_AUTHOR", ""),
+        "description": getattr(module, "PLUGIN_DESCRIPTION", ""),
+        "hooks": [k for k, v in _registry.items()
+                  if any(getattr(fn, '_fray_source', '') == str(p) for fn in v)],
+    }
+    # Tag hooks with source file
+    with _registry_lock:
+        for hook_list in _registry.values():
+            for fn in hook_list:
+                if not hasattr(fn, '_fray_source'):
+                    fn._fray_source = str(p)
+
+    _loaded_plugins.append(meta)
     return module_name
 
 
@@ -224,6 +268,46 @@ def load_plugins(paths: Optional[List[str]] = None) -> int:
     return loaded
 
 
+def auto_discover() -> int:
+    """Auto-discover and load plugins from standard locations.
+
+    Searches (in order):
+        1. ~/.fray/plugins/*.py
+        2. ./plugins/*.py (project-local)
+        3. .fray.toml [plugins] paths
+
+    Returns:
+        Number of plugins loaded.
+    """
+    dirs: List[str] = []
+
+    # 1. User plugins
+    if _PLUGINS_DIR.is_dir():
+        dirs.append(str(_PLUGINS_DIR))
+
+    # 2. Project plugins
+    project_dir = _PROJECT_PLUGINS_DIR.resolve()
+    if project_dir.is_dir():
+        dirs.append(str(project_dir))
+
+    # 3. Config-specified plugin paths
+    try:
+        from fray.config import load_config
+        config = load_config()
+        plugin_cfg = config.get("plugins", {})
+        if isinstance(plugin_cfg, dict):
+            extra_paths = plugin_cfg.get("paths", [])
+            if isinstance(extra_paths, list):
+                dirs.extend(str(p) for p in extra_paths if p)
+    except Exception:
+        pass
+
+    if not dirs:
+        return 0
+
+    return load_plugins(dirs)
+
+
 # ── Introspection ────────────────────────────────────────────────────────────
 
 def list_hooks() -> Dict[str, int]:
@@ -232,9 +316,51 @@ def list_hooks() -> Dict[str, int]:
         return {h: len(handlers) for h, handlers in _registry.items()}
 
 
-def list_plugins() -> List[str]:
-    """Return list of loaded plugin file paths."""
+def list_plugins() -> List[Dict[str, Any]]:
+    """Return list of loaded plugin metadata dicts."""
     return list(_loaded_plugins)
+
+
+def get_custom_payloads(category: str) -> List[str]:
+    """Collect additional payloads from custom_payloads hooks.
+
+    Plugins return a list of payload strings for the given category.
+    """
+    with _registry_lock:
+        handlers = list(_registry.get("custom_payloads", []))
+
+    payloads: List[str] = []
+    for handler in handlers:
+        try:
+            result = handler({"category": category})
+            if isinstance(result, list):
+                payloads.extend(str(p) for p in result)
+        except Exception as e:
+            name = getattr(handler, "__name__", repr(handler))
+            sys.stderr.write(f"  [plugin] custom_payloads/{name}: {e}\n")
+    return payloads
+
+
+def run_custom_checks(target: str, context: Dict[str, Any]) -> List[Dict]:
+    """Run all custom_check hooks and collect findings.
+
+    Each handler receives {target, ...context} and returns a list of
+    finding dicts: [{title, severity, description, ...}].
+    """
+    with _registry_lock:
+        handlers = list(_registry.get("custom_check", []))
+
+    findings: List[Dict] = []
+    for handler in handlers:
+        try:
+            event = {"target": target, **context}
+            result = handler(event)
+            if isinstance(result, list):
+                findings.extend(result)
+        except Exception as e:
+            name = getattr(handler, "__name__", repr(handler))
+            sys.stderr.write(f"  [plugin] custom_check/{name}: {e}\n")
+    return findings
 
 
 def clear() -> None:
@@ -243,3 +369,114 @@ def clear() -> None:
         for h in _registry:
             _registry[h].clear()
     _loaded_plugins.clear()
+
+
+# ── Plugin scaffold ────────────────────────────────────────────────────────
+
+_PLUGIN_TEMPLATE = '''"""Fray Plugin — {name}
+
+Drop this file in ~/.fray/plugins/ or ./plugins/ for auto-loading.
+Or load explicitly: fray test <url> --plugin {filename}
+"""
+from fray.plugins import fray_hook
+
+PLUGIN_NAME = "{name}"
+PLUGIN_VERSION = "1.0.0"
+PLUGIN_AUTHOR = ""
+PLUGIN_DESCRIPTION = "{description}"
+
+
+@fray_hook("on_scan_start")
+def on_start(event):
+    """Called when a scan begins."""
+    print(f"[{name}] Scan started: {{event.get(\'target\', \'\')}}")
+
+
+@fray_hook("on_finding")
+def on_finding(event):
+    """Called when a vulnerability finding is recorded."""
+    if not event.get("blocked"):
+        print(f"[{name}] BYPASS: {{event.get(\'payload\', \'\')[:60]}}")
+
+
+@fray_hook("on_scan_end")
+def on_end(event):
+    """Called when a scan completes."""
+    total = event.get("total", 0)
+    passed = event.get("passed", 0)
+    print(f"[{name}] Scan complete: {{passed}}/{{total}} passed")
+
+
+# Uncomment to add custom security checks:
+# @fray_hook("custom_check")
+# def my_check(event):
+#     """Custom security check. Return list of finding dicts."""
+#     target = event["target"]
+#     return [{{
+#         "title": "Custom Check Finding",
+#         "severity": "medium",
+#         "description": f"Found issue on {{target}}",
+#     }}]
+
+# Uncomment to supply custom payloads:
+# @fray_hook("custom_payloads")
+# def my_payloads(event):
+#     """Return extra payloads for a category."""
+#     category = event.get("category", "")
+#     if category == "xss":
+#         return ["<img src=x onerror=alert(1)>", "<svg/onload=alert(1)>"]
+#     return []
+'''
+
+
+def init_plugin(name: str, directory: Optional[Path] = None,
+                description: str = "") -> Path:
+    """Scaffold a new plugin file.
+
+    Args:
+        name: Plugin name (used as filename and display name).
+        directory: Where to create the file. Default: ~/.fray/plugins/
+
+    Returns:
+        Path to the created plugin file.
+    """
+    target_dir = directory or _PLUGINS_DIR
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    filename = name.lower().replace(" ", "_").replace("-", "_")
+    if not filename.endswith(".py"):
+        filename += ".py"
+    filepath = target_dir / filename
+
+    if filepath.exists():
+        raise FileExistsError(f"Plugin already exists: {filepath}")
+
+    content = _PLUGIN_TEMPLATE.format(
+        name=name,
+        filename=filename,
+        description=description or f"Custom plugin: {name}",
+    )
+    filepath.write_text(content, encoding="utf-8")
+    return filepath
+
+
+def install_plugin(source: str, target_dir: Optional[Path] = None) -> Path:
+    """Install a plugin file to the plugins directory.
+
+    Args:
+        source: Path to the .py file to install.
+        target_dir: Where to copy. Default: ~/.fray/plugins/
+
+    Returns:
+        Path to the installed plugin.
+    """
+    import shutil
+    src = Path(source).resolve()
+    if not src.is_file() or not src.suffix == ".py":
+        raise ValueError(f"Source must be a .py file: {source}")
+
+    dest_dir = target_dir or _PLUGINS_DIR
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / src.name
+    shutil.copy2(str(src), str(dest))
+    return dest

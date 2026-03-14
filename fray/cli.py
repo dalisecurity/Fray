@@ -2220,8 +2220,10 @@ def cmd_bounty(args):
 
 
 def cmd_plugin(args):
-    """Plugin / Extension API introspection (#163)."""
-    from fray.plugins import list_hooks, list_plugins, load_plugins, HOOK_TYPES
+    """Plugin / Extension API management (#163)."""
+    from fray.plugins import (list_hooks, list_plugins, load_plugins,
+                              HOOK_TYPES, init_plugin, install_plugin,
+                              auto_discover, _PLUGINS_DIR)
 
     action = getattr(args, 'action', 'list')
 
@@ -2239,22 +2241,75 @@ def cmd_plugin(args):
         return
 
     if action == 'hooks':
-        print("  Available hook types:")
+        print("  Available hook types:\n")
+        _hook_descriptions = {
+            "on_request": "Before each HTTP request is sent",
+            "on_response": "After each HTTP response is received",
+            "on_finding": "When a vulnerability finding is recorded",
+            "on_scan_start": "When a scan begins",
+            "on_scan_end": "When a scan completes",
+            "on_recon_complete": "After recon pipeline finishes",
+            "on_payload_tested": "After each payload test (blocked/passed)",
+            "on_report_generate": "Before report generation (modify data)",
+            "custom_check": "Run custom security checks during scan",
+            "custom_payloads": "Supply additional payloads for a category",
+        }
         for h in sorted(HOOK_TYPES):
-            print(f"    - {h}")
+            desc = _hook_descriptions.get(h, "")
+            print(f"    {h:<24} {desc}")
         return
 
-    # Default: list loaded plugins
+    if action == 'init':
+        name = getattr(args, 'name', None) or 'my_plugin'
+        desc = getattr(args, 'description', '') or ''
+        try:
+            from pathlib import Path
+            directory = Path(args.directory) if getattr(args, 'directory', None) else None
+            path = init_plugin(name, directory=directory, description=desc)
+            print(f"  ✔ Created plugin: {path}")
+            print(f"  Edit it, then load: fray --plugin {path} test <url>")
+            print(f"  Or move to ~/.fray/plugins/ for auto-loading")
+        except FileExistsError as e:
+            print(f"  ✖ {e}")
+            sys.exit(1)
+        return
+
+    if action == 'install':
+        source = getattr(args, 'source', None)
+        if not source:
+            print("  Usage: fray plugin install my_plugin.py")
+            return
+        try:
+            dest = install_plugin(source)
+            print(f"  ✔ Installed: {dest}")
+            print(f"  Will be auto-loaded on next run")
+        except (ValueError, FileNotFoundError) as e:
+            print(f"  ✖ {e}")
+            sys.exit(1)
+        return
+
+    # Default: list loaded plugins + auto-discovered
+    n_auto = auto_discover()
     plugins = list_plugins()
     hooks = list_hooks()
+
+    print(f"  Plugin directory: {_PLUGINS_DIR}")
     if not plugins:
-        print("  No plugins loaded.")
-        print("  Load with: fray --plugin my_plugin.py <command>")
-        print("  Or: FRAY_PLUGINS=a.py,b.py fray <command>")
+        print("  No plugins loaded.\n")
+        print("  Create one:   fray plugin init --name my_plugin")
+        print("  Load one:     fray --plugin my_plugin.py <command>")
+        print("  Auto-load:    Place .py files in ~/.fray/plugins/")
+        print("  Environment:  FRAY_PLUGINS=a.py,b.py fray <command>")
     else:
         print(f"  {len(plugins)} plugin(s) loaded:")
         for p in plugins:
-            print(f"    - {p}")
+            name = p.get("name", "?")
+            ver = p.get("version", "")
+            desc = p.get("description", "")
+            ver_str = f" v{ver}" if ver else ""
+            desc_str = f" — {desc}" if desc else ""
+            print(f"    • {name}{ver_str}{desc_str}")
+            print(f"      {p.get('path', '?')}")
     total_hooks = sum(hooks.values())
     if total_hooks:
         print(f"\n  {total_hooks} hook handler(s) registered:")
@@ -6825,10 +6880,14 @@ GitHub: https://github.com/dalisecurity/fray
     p_company_report.set_defaults(func=cmd_company_report)
 
     # plugin (#163)
-    p_plugin = subparsers.add_parser("plugin", help="Plugin / Extension API — list, load, inspect hooks (#163)")
-    p_plugin.add_argument("action", nargs="?", default="list", choices=["list", "load", "hooks"],
+    p_plugin = subparsers.add_parser("plugin", help="Plugin / Extension API — list, load, init, install, hooks")
+    p_plugin.add_argument("action", nargs="?", default="list", choices=["list", "load", "hooks", "init", "install"],
                           help="Action: list (default), load, hooks")
     p_plugin.add_argument("paths", nargs="*", default=[], help="Plugin file(s) to load (for 'load' action)")
+    p_plugin.add_argument("--name", default=None, help="Plugin name (for 'init' action)")
+    p_plugin.add_argument("--description", default="", help="Plugin description (for 'init' action)")
+    p_plugin.add_argument("--directory", default=None, help="Output directory (for 'init' action)")
+    p_plugin.add_argument("--source", default=None, help="Source .py file to install (for 'install' action)")
     p_plugin.set_defaults(func=cmd_plugin)
 
     # posture (#72)
@@ -7288,6 +7347,15 @@ GitHub: https://github.com/dalisecurity/fray
         n = load_plugins(plugin_paths)
         if n and not getattr(args, 'json', False):
             sys.stderr.write(f"  Loaded {n} plugin(s)\n")
+
+    # Auto-discover plugins from ~/.fray/plugins/ and ./plugins/
+    try:
+        from fray.plugins import auto_discover
+        _n_auto = auto_discover()
+        if _n_auto and not getattr(args, 'json', False):
+            sys.stderr.write(f"  Auto-loaded {_n_auto} plugin(s)\n")
+    except Exception:
+        pass
 
     # ── Environment variable overrides (FRAY_* → argparse defaults) ──
     _apply_env_overrides(args)
