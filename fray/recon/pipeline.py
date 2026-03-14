@@ -3351,7 +3351,14 @@ def export_recon_dir(result: Dict[str, Any], output_dir: str) -> Dict[str, str]:
 
     # technologies.txt
     techs = result.get("fingerprint", {}).get("technologies", {})
-    tech_lines = [f"{t}\t{c:.0%}" for t, c in sorted(techs.items(), key=lambda x: -x[1])]
+    def _tech_conf(v):
+        """Extract numeric confidence from tech value (may be float or dict)."""
+        if isinstance(v, (int, float)):
+            return v
+        if isinstance(v, dict):
+            return v.get("confidence", v.get("score", 0))
+        return 0
+    tech_lines = [f"{t}\t{_tech_conf(c):.0%}" for t, c in sorted(techs.items(), key=lambda x: -_tech_conf(x[1]))]
     _write("technologies.txt", tech_lines)
 
     # high-value.txt

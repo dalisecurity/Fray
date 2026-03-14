@@ -2006,6 +2006,11 @@ def cmd_scan(args):
                 json.dump(ai_out, f, indent=2, ensure_ascii=False)
         return
 
+    # Persist to ~/.fray/scans/ for dashboard
+    scan_dict_save = scan.to_dict()
+    scan_dict_save['command'] = 'scan'
+    _save_to_fray("scans", args.target, scan_dict_save)
+
     if json_mode:
         _json_print(scan.to_dict())
     else:
@@ -2085,6 +2090,7 @@ def cmd_scan(args):
             next_steps(args.target, "scan", bypassed=_bypassed)
         except Exception:
             pass
+        sys.stderr.write(f"\n  \033[2m💡 View in dashboard: \033[0mfray dashboard\n")
 
 
 def cmd_stats(args):
@@ -3115,12 +3121,15 @@ def cmd_recon(args):
         crit = sum(1 for r in all_results if r.get("attack_surface", {}).get("risk_level") == "CRITICAL")
         high = sum(1 for r in all_results if r.get("attack_surface", {}).get("risk_level") == "HIGH")
         sys.stderr.write(f"\n  Fray recon complete: {total} targets — {crit} CRITICAL, {high} HIGH\n")
+        sys.stderr.write(f"  \033[2m💡 View in dashboard: \033[0mfray dashboard\n")
         # Return highest risk_score across all targets for exit code mapping
         max_rs = max(r.get("attack_surface", {}).get("risk_score", 0) for r in all_results)
         return {"risk_score": max_rs}
 
-    # Single target: return risk_score for exit code mapping (#190)
+    # Single target: dashboard hint + return risk_score for exit code mapping (#190)
     if not multi and result:
+        if not json_mode and not quiet_mode:
+            sys.stderr.write(f"\n  \033[2m\U0001f4a1 View in dashboard: \033[0mfray dashboard\n")
         rs = result.get("attack_surface", {}).get("risk_score", 0)
         return {"risk_score": rs}
 
@@ -3160,6 +3169,17 @@ def cmd_smuggle(args):
             json.dump(asdict(report), f, indent=2, ensure_ascii=False)
         print(f"\n  Results saved to {args.output}")
 
+    # Persist to ~/.fray/smuggle/ for dashboard
+    smuggle_data = {
+        "target": args.target,
+        "timestamp": __import__("datetime").datetime.now().isoformat(),
+        "command": "smuggle",
+        "vulnerable": report.vulnerable,
+        "techniques_tested": len(report.results) if hasattr(report, 'results') else 0,
+        "findings": [asdict(r) for r in report.results] if hasattr(report, 'results') else [],
+    }
+    _save_to_fray("smuggle", args.target, smuggle_data)
+
     # Next-step hints
     if not getattr(args, 'json', False):
         try:
@@ -3167,6 +3187,7 @@ def cmd_smuggle(args):
             next_steps(args.target, "smuggle")
         except Exception:
             pass
+        sys.stderr.write(f"\n  \033[2m\U0001f4a1 View in dashboard: \033[0mfray dashboard\n")
 
     # Exit code: 1 if vulnerable (CI integration)
     if report.vulnerable:
@@ -3645,6 +3666,20 @@ def cmd_bypass(args):
         print(f"\n  🔄 Bypass recipes exported (anonymized): {recipe_file}")
         print(f"     {len([b for b in bypass_results if not b.get('blocked')])} recipe(s) ready for community sharing")
 
+    # Persist to ~/.fray/bypasses/ for dashboard
+    from dataclasses import asdict as _asdict
+    bypass_data = {
+        "target": args.target,
+        "timestamp": __import__("datetime").datetime.now().isoformat(),
+        "command": "bypass",
+        "waf": getattr(args, 'waf', None),
+        "category": getattr(args, 'category', 'xss') or 'xss',
+        "total_payloads": len(all_payloads),
+        "bypasses": len([b for b in bypass_results if not b.get('blocked')]) if bypass_results else 0,
+        "scorecard": _asdict(scorecard) if scorecard else None,
+    }
+    _save_to_fray("bypasses", args.target, bypass_data)
+
     # Next-step hints
     if not getattr(args, 'json', False):
         try:
@@ -3653,6 +3688,7 @@ def cmd_bypass(args):
             next_steps(args.target, "bypass", bypassed=_bypassed)
         except Exception:
             pass
+        sys.stderr.write(f"\n  \033[2m\U0001f4a1 View in dashboard: \033[0mfray dashboard\n")
 
 
 def cmd_ai_bypass(args):
@@ -3793,6 +3829,20 @@ def cmd_agent(args):
         use_ai=getattr(args, 'ai', False),
     )
 
+    # Persist to ~/.fray/agents/ for dashboard
+    agent_data = {
+        "target": args.target,
+        "timestamp": __import__("datetime").datetime.now().isoformat(),
+        "command": "agent",
+        "rounds": stats.rounds_completed,
+        "total_requests": stats.total_requests,
+        "bypasses": stats.total_bypasses,
+        "bypass_rate": stats.bypass_rate,
+        "techniques": sorted(stats.unique_bypass_techniques),
+        "results": results,
+    }
+    _save_to_fray("agents", args.target, agent_data)
+
     # JSON output
     if json_mode:
         output = {
@@ -3843,6 +3893,7 @@ def cmd_agent(args):
             next_steps(args.target, "agent", bypassed=stats.total_bypasses)
         except Exception:
             pass
+        sys.stderr.write(f"\n  \033[2m💡 View in dashboard: \033[0mfray dashboard\n")
 
 
 def _enrich_existing_payloads(json_mode: bool = False) -> None:
@@ -8128,8 +8179,11 @@ def main():
         sys.stderr.write("\n  Interrupted.\n")
         _exit_code = 130
     except Exception as e:
+        import traceback as _tb
         sys.stderr.write(f"\n  \033[31m✗\033[0m  {e}\n")
         sys.stderr.write(f"     \033[2mRun 'fray doctor' to diagnose environment issues.\033[0m\n\n")
+        if os.environ.get('FRAY_DEBUG'):
+            _tb.print_exc()
         _exit_code = 2
     sys.exit(_exit_code)
 

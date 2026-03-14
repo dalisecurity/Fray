@@ -13,7 +13,7 @@ import html as html_mod
 import random
 import re
 import urllib.parse
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 # ── Mutation strategies ──────────────────────────────────────────────────
