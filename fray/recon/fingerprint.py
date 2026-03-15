@@ -660,26 +660,75 @@ def _score_header_value(name_lower: str, value: str) -> tuple:
             return ("MODERATE", "explicitly disabled — relies on CSP instead (acceptable if CSP is strong)")
         return ("WEAK", "enabled without mode=block")
 
+    if name_lower in ("cross-origin-opener-policy",):
+        if vl == "same-origin":
+            return ("STRONG", "")
+        if vl == "same-origin-allow-popups":
+            return ("MODERATE", "allows popups — weaker than same-origin")
+        if vl == "unsafe-none":
+            return ("WEAK", "no cross-origin isolation")
+        return ("MODERATE", "")
+
+    if name_lower in ("cross-origin-resource-policy",):
+        if vl == "same-origin":
+            return ("STRONG", "")
+        if vl == "same-site":
+            return ("MODERATE", "allows same-site cross-origin access")
+        if vl == "cross-origin":
+            return ("WEAK", "allows any origin to load this resource")
+        return ("MODERATE", "")
+
     return ("STRONG", "")
 
 
+# Quality → score multiplier for value-weighted scoring
+_QUALITY_WEIGHT = {
+    "STRONG": 1.0,
+    "MODERATE": 0.6,
+    "WEAK": 0.25,
+    "MISCONFIGURED": 0.1,
+}
+
+# Header importance weights (higher = more impactful on overall score)
+_HEADER_WEIGHT = {
+    "strict-transport-security": 15,
+    "content-security-policy": 20,
+    "x-frame-options": 10,
+    "x-content-type-options": 10,
+    "x-xss-protection": 5,
+    "referrer-policy": 10,
+    "permissions-policy": 10,
+    "cross-origin-opener-policy": 10,
+    "cross-origin-resource-policy": 10,
+}
+
+
 def check_security_headers(headers: Dict[str, str]) -> Dict[str, Any]:
-    """Audit security headers from an HTTP response."""
+    """Audit security headers from an HTTP response.
+
+    Score is value-weighted: a present header with WEAK value scores much
+    less than one with STRONG value.  Missing critical headers have a larger
+    penalty than missing low-severity ones.
+    """
     results: Dict[str, Any] = {
         "present": {},
         "missing": {},
         "score": 0,
+        "value_score": 0,
         "value_issues": [],
     }
 
-    total = len(_SECURITY_HEADERS)
-    found = 0
+    max_points = sum(_HEADER_WEIGHT.get(k, 10) for k in _SECURITY_HEADERS)
+    earned_points = 0.0
 
     for header_key, info in _SECURITY_HEADERS.items():
+        weight = _HEADER_WEIGHT.get(header_key, 10)
         if header_key in headers:
-            found += 1
             value = headers[header_key]
             quality, detail = _score_header_value(header_key, value)
+            multiplier = _QUALITY_WEIGHT.get(quality, 0.5)
+            earned_points += weight * multiplier
+
             entry = {
                 "value": value,
                 "description": info["description"],
@@ -701,7 +750,15 @@ def check_security_headers(headers: Dict[str, str]) -> Dict[str, Any]:
                 "severity": info["severity"],
             }
 
-    results["score"] = round((found / total) * 100) if total > 0 else 0
+    # Value-weighted score (0-100)
+    results["value_score"] = round((earned_points / max_points) * 100) if max_points > 0 else 0
+    # Presence-based score (backward compat)
+    total = len(_SECURITY_HEADERS)
+    found = len(results["present"])
+    results["presence_score"] = round((found / total) * 100) if total > 0 else 0
+    # Combined score: 60% value quality + 40% presence
+    results["score"] = round(results["value_score"] * 0.6 + results["presence_score"] * 0.4)
+
     if results["missing"]:
         results["fix_snippets"] = generate_header_fix_snippets(results["missing"])
     return results
