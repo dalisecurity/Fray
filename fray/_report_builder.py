@@ -3,7 +3,7 @@ import html as _html
 import ipaddress as _ipaddr
 import re as _re_mod
 from typing import Dict, Any, List, Optional
-from fray._report_css import CSS, SEV_COLORS, risk_color, risk_grade, gauge_svg, donut_svg
+from fray._report_css import CSS, SEV_COLORS, LOGO_SVG, risk_color, risk_grade, gauge_svg, donut_svg
 
 _esc = _html.escape
 
@@ -310,8 +310,8 @@ def build(rd: Dict[str, Any]) -> str:
     parts.append(f'''
 <div class="hdr">
   <div>
-    <div style="font-size:28px;font-weight:800;letter-spacing:1px;">Fray</div>
-    <div style="margin-top:12px;font-size:0.7em;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.5);">Attack Surface Intelligence</div>
+    {LOGO_SVG}
+    <div style="margin-top:14px;font-size:0.7em;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.5);">Attack Surface Intelligence</div>
     <h1 style="margin-top:4px;font-size:2.4em;font-weight:800;letter-spacing:-1px;">{_esc(host)}</h1>
     <div class="sub" style="margin-top:6px;">{_esc(ts_short)} — Profile: {_esc(_profile_label)}</div>
   </div>

