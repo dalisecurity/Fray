@@ -63,6 +63,7 @@ _SUBCOMMANDS = {
     "ci": "Generate GitHub Actions workflow for WAF testing",
     "init-config": "Create sample .fray.toml config file",
     "init": "Initialize project: .fray.toml + auth template + scope file",
+    "template": "Run YAML security check templates (nuclei-like DSL)",
     "explain": "Explain a CVE or scan results",
     "scope": "Inspect or validate a scope file",
     "leak": "Search for leaked credentials on GitHub and HIBP",
@@ -79,6 +80,7 @@ _NAMESPACE_SUBS = {
     "export": ["nuclei", "ci"],
     "cache": ["show", "clear", "stats", "export", "import"],
     "config": ["init", "show", "validate", "set", "get"],
+    "template": ["run", "list", "validate", "new"],
 }
 
 # ── Common flags per subcommand ─────────────────────────────────────────────

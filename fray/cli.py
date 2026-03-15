@@ -2777,6 +2777,170 @@ def cmd_company_report(args):
         print(f"  Report saved to {out}")
 
 
+def cmd_template(args):
+    """YAML Template DSL — run, list, validate, scaffold security test templates."""
+    from fray.template_engine import (
+        load_template, load_template_from_string, discover_templates,
+        run_template, run_templates, scaffold_template, BatchResult,
+    )
+
+    json_mode = getattr(args, 'json', False)
+    action = getattr(args, 'action', 'run')
+
+    # ── scaffold: generate a new template ──
+    if action == 'new':
+        cat = getattr(args, 'category', 'xss') or 'xss'
+        tid = getattr(args, 'id', None) or f'custom-{cat}'
+        path = getattr(args, 'path', None) or f'/search?q={{{{payload}}}}'
+        sev = getattr(args, 'severity', 'medium') or 'medium'
+        yaml_text = scaffold_template(
+            template_id=tid, name=f'Custom {cat.upper()} test',
+            category=cat, severity=sev, path=path,
+        )
+        out = getattr(args, 'output', None)
+        if out:
+            with open(out, 'w') as f:
+                f.write(yaml_text)
+            if not json_mode:
+                print(f"  Template saved to {out}")
+        else:
+            print(yaml_text)
+        return
+
+    # ── validate: check template(s) ──
+    if action == 'validate':
+        paths = getattr(args, 'templates', []) or []
+        if not paths:
+            print("  Usage: fray template validate <file.yaml> [file2.yaml ...]")
+            return
+        all_ok = True
+        for p in paths:
+            try:
+                t = load_template(p)
+                errors = t.validate()
+                if errors:
+                    all_ok = False
+                    if json_mode:
+                        _json_print({"file": p, "valid": False, "errors": errors})
+                    else:
+                        print(f"  \033[31m✖\033[0m {p}")
+                        for e in errors:
+                            print(f"    - {e}")
+                else:
+                    if json_mode:
+                        _json_print({"file": p, "valid": True, "id": t.id, "name": t.info.name})
+                    else:
+                        print(f"  \033[32m✔\033[0m {p} — {t.id} ({t.info.name})")
+            except Exception as e:
+                all_ok = False
+                if json_mode:
+                    _json_print({"file": p, "valid": False, "errors": [str(e)]})
+                else:
+                    print(f"  \033[31m✖\033[0m {p} — {e}")
+        if all_ok and not json_mode:
+            print(f"\n  All {len(paths)} template(s) valid")
+        return
+
+    # ── list: discover and list templates ──
+    if action == 'list':
+        paths = getattr(args, 'templates', None) or None
+        tags = [t.strip() for t in getattr(args, 'tags', '').split(',')] if getattr(args, 'tags', '') else None
+        severity = [s.strip() for s in getattr(args, 'severity', '').split(',')] if getattr(args, 'severity', '') else None
+        templates = discover_templates(paths=paths, tags=tags, severity=severity)
+        if json_mode:
+            _json_print({"templates": [
+                {"id": t.id, "name": t.info.name, "severity": t.info.severity,
+                 "author": t.info.author, "tags": t.info.tags, "file": t.file_path}
+                for t in templates
+            ]})
+        else:
+            if not templates:
+                print("  No templates found. Create one with: fray template new -c xss -o my-test.yaml")
+                print("  Or add templates to ~/.fray/templates/")
+                return
+            sev_colors = {'critical': '\033[31m', 'high': '\033[33m', 'medium': '\033[93m', 'low': '\033[34m', 'info': '\033[90m'}
+            print(f"\n  Found {len(templates)} template(s):\n")
+            for t in templates:
+                sc = sev_colors.get(t.info.severity, '')
+                print(f"  {sc}[{t.info.severity.upper():8s}]\033[0m {t.id}")
+                print(f"             {t.info.name}")
+                if t.info.tags:
+                    print(f"             tags: {', '.join(t.info.tags)}")
+            print()
+        return
+
+    # ── run: execute template(s) against target ──
+    target = getattr(args, 'target', None)
+    if not target:
+        print("  Usage: fray template run <target> -t template.yaml")
+        print("         fray template run <target> --tags xss,sqli")
+        return
+
+    # Ensure https://
+    if not target.startswith(('http://', 'https://')):
+        target = f'https://{target}'
+
+    template_paths = getattr(args, 'templates', []) or []
+    tags = [t.strip() for t in getattr(args, 'tags', '').split(',')] if getattr(args, 'tags', '') else None
+    severity = [s.strip() for s in getattr(args, 'severity', '').split(',')] if getattr(args, 'severity', '') else None
+
+    templates = discover_templates(paths=template_paths or None, tags=tags, severity=severity)
+    if not templates:
+        print("  No templates found. Specify with -t <file.yaml> or add to ~/.fray/templates/")
+        return
+
+    if not json_mode:
+        sys.stderr.write(f"\n  \033[1m📋 Running {len(templates)} template(s) against {target}\033[0m\n\n")
+
+    custom_headers = build_auth_headers(args) if hasattr(args, 'cookie') else None
+
+    def _callback(r):
+        if json_mode:
+            return
+        icon = '\033[32m✔\033[0m' if r.matched else ('\033[31m✖\033[0m' if r.error else '\033[90m—\033[0m')
+        sev_colors = {'critical': '\033[31m', 'high': '\033[33m', 'medium': '\033[93m', 'low': '\033[34m', 'info': '\033[90m'}
+        sc = sev_colors.get(r.severity, '')
+        sys.stderr.write(f"  {icon} {sc}[{r.severity.upper():8s}]\033[0m {r.template_id}")
+        if r.matched:
+            sys.stderr.write(f" — \033[32m{r.payloads_matched} match(es)\033[0m")
+        if r.error:
+            sys.stderr.write(f" — \033[31merror: {r.error[:60]}\033[0m")
+        sys.stderr.write(f" ({r.duration:.1f}s)\n")
+
+    batch = run_templates(
+        templates=templates,
+        target=target,
+        timeout=getattr(args, 'timeout', 8),
+        delay=getattr(args, 'delay', 0.3),
+        verify_ssl=not getattr(args, 'insecure', False),
+        custom_headers=custom_headers,
+        verbose=getattr(args, 'verbose', False),
+        impersonate=getattr(args, 'impersonate', None),
+        callback=_callback,
+    )
+
+    if json_mode:
+        _json_print(batch.to_dict(), default=str)
+    else:
+        sev_counts = batch.summary_by_severity()
+        sys.stderr.write(f"\n  ━━━ Results: {batch.templates_matched}/{batch.templates_run} templates matched")
+        sys.stderr.write(f" | {batch.total_matches} payloads matched | {batch.total_blocked} blocked")
+        sys.stderr.write(f" | {batch.duration:.1f}s\n")
+        for sev_name in ('critical', 'high', 'medium', 'low'):
+            cnt = sev_counts.get(sev_name, 0)
+            if cnt > 0:
+                sys.stderr.write(f"      {sev_name.upper()}: {cnt}\n")
+        sys.stderr.write("\n")
+
+    out = getattr(args, 'output', None)
+    if out:
+        import json as _json
+        with open(out, 'w') as f:
+            _json.dump(batch.to_dict(), f, indent=2, default=str)
+        if not json_mode:
+            print(f"  Results saved to {out}")
+
+
 def cmd_ci(args):
     """Generate GitHub Actions workflow for automated WAF testing"""
     from fray.ci import run_ci
@@ -4690,6 +4854,143 @@ def cmd_export_nuclei(args):
     print(f"\n  Run: nuclei -t {args.output}/ -u <target>")
 
 
+def cmd_template(args):
+    """Run, list, or validate YAML security check templates (nuclei-like DSL)."""
+    from fray.template_dsl import (
+        load_templates, load_builtin_templates, run_templates,
+        validate_template, scaffold_template,
+    )
+
+    sub = getattr(args, 'template_sub', None) or 'list'
+    json_mode = getattr(args, 'json', False)
+    quiet_mode = getattr(args, 'quiet', False)
+
+    if sub == 'run':
+        target = getattr(args, 'target', None)
+        if not target:
+            sys.stderr.write("  Usage: fray template run <path> -t <target>\n")
+            sys.exit(1)
+        if not target.startswith("http"):
+            target = f"https://{target}"
+
+        tpl_path = getattr(args, 'path', None) or str(Path.home() / ".fray" / "templates")
+        templates = load_templates(tpl_path)
+
+        # Also load builtins if scanning a custom path
+        if tpl_path != str(Path.home() / ".fray" / "templates"):
+            templates.extend(load_builtin_templates())
+
+        if not templates:
+            sys.stderr.write("  No templates found. Create one with: fray template new\n")
+            sys.exit(0)
+
+        tags = getattr(args, 'tags', None)
+        if tags:
+            tags = [t.strip() for t in tags.split(",")]
+        severity = getattr(args, 'severity', None)
+        if severity:
+            severity = [s.strip() for s in severity.split(",")]
+
+        if not quiet_mode and not json_mode:
+            sys.stderr.write(f"\n  \033[1m🔍 Running {len(templates)} template(s) against {target}\033[0m\n\n")
+
+        results = run_templates(
+            templates, target,
+            verify_ssl=not getattr(args, 'insecure', False),
+            timeout=getattr(args, 'timeout', 10),
+            tags=tags, severity=severity,
+            verbose=getattr(args, 'verbose', False),
+        )
+
+        matched = [r for r in results if r.matched]
+
+        if json_mode:
+            _json_print([r.to_dict() for r in results])
+        else:
+            _sev_colors = {"critical": "\033[31m", "high": "\033[33m", "medium": "\033[93m", "low": "\033[34m", "info": "\033[90m"}
+            for r in results:
+                icon = "✓" if r.matched else "·"
+                color = _sev_colors.get(r.severity, "\033[90m") if r.matched else "\033[90m"
+                label = f"{color}{r.severity.upper()}\033[0m" if r.matched else "\033[90m—\033[0m"
+                sys.stderr.write(f"  {icon} [{label}] {r.template_id} — {r.template_name}")
+                if r.matched:
+                    sys.stderr.write(f"  \033[92m✓ MATCHED\033[0m")
+                    if r.matched_at:
+                        sys.stderr.write(f" ({r.matched_at})")
+                sys.stderr.write(f"  \033[90m{r.elapsed_ms:.0f}ms\033[0m\n")
+
+            sys.stderr.write(f"\n  Results: {len(matched)} matched / {len(results)} total\n")
+            if matched:
+                sys.stderr.write(f"  \033[2m💡 View details:\033[0m fray template run {tpl_path} -t {target} --json\n")
+
+        # Persist to ~/.fray/templates_results/
+        if matched:
+            _save_to_fray("templates", target, {
+                "target": target,
+                "timestamp": __import__("datetime").datetime.now().isoformat(),
+                "command": "template",
+                "templates_run": len(results),
+                "matched": len(matched),
+                "findings": [r.to_dict() for r in matched],
+            })
+
+        # Exit code: 1 if findings, 0 if clean
+        sys.exit(1 if matched else 0)
+
+    elif sub == 'list':
+        tpl_path = getattr(args, 'path', None) or str(Path.home() / ".fray" / "templates")
+        templates = load_templates(tpl_path)
+        templates.extend(load_builtin_templates())
+
+        if not templates:
+            sys.stderr.write("  No templates found.\n")
+            sys.stderr.write(f"  Create templates in: ~/.fray/templates/\n")
+            sys.stderr.write(f"  Scaffold: fray template new --id my-check\n")
+            sys.exit(0)
+
+        if json_mode:
+            _json_print([{"id": t.info.id, "name": t.info.name, "severity": t.info.severity,
+                          "author": t.info.author, "tags": t.info.tags, "file": t.file_path}
+                         for t in templates])
+        else:
+            sys.stderr.write(f"\n  Templates ({len(templates)}):\n\n")
+            _sev_colors = {"critical": "\033[31m", "high": "\033[33m", "medium": "\033[93m", "low": "\033[34m", "info": "\033[90m"}
+            for t in templates:
+                color = _sev_colors.get(t.info.severity, "\033[90m")
+                sys.stderr.write(f"  {color}●\033[0m {t.info.id} — {t.info.name}")
+                if t.info.tags:
+                    sys.stderr.write(f"  \033[90m[{', '.join(t.info.tags[:3])}]\033[0m")
+                sys.stderr.write("\n")
+
+    elif sub == 'validate':
+        path = getattr(args, 'path', None)
+        if not path:
+            sys.stderr.write("  Usage: fray template validate <path>\n")
+            sys.exit(1)
+        errors = validate_template(path)
+        if errors:
+            sys.stderr.write(f"  \033[31m✗\033[0m {path}: {len(errors)} error(s)\n")
+            for e in errors:
+                sys.stderr.write(f"    · {e}\n")
+            sys.exit(1)
+        else:
+            sys.stderr.write(f"  \033[32m✓\033[0m {path}: valid\n")
+
+    elif sub == 'new':
+        template_id = getattr(args, 'id', 'custom-check') or 'custom-check'
+        tpl_dir = Path.home() / ".fray" / "templates"
+        tpl_dir.mkdir(parents=True, exist_ok=True)
+        out_path = tpl_dir / f"{template_id}.yaml"
+        if out_path.exists():
+            sys.stderr.write(f"  Template already exists: {out_path}\n")
+            sys.exit(1)
+        content = scaffold_template(template_id=template_id)
+        out_path.write_text(content, encoding="utf-8")
+        sys.stderr.write(f"  \033[32m✓\033[0m Created: {out_path}\n")
+        sys.stderr.write(f"  Edit the template, then run:\n")
+        sys.stderr.write(f"    fray template run {out_path} -t https://target.com\n")
+
+
 def cmd_go(args):
     """Zero-knowledge guided pipeline: recon → smart test → report.
 
@@ -5680,6 +5981,62 @@ def cmd_explain(args):
             print(f"\n  JSON saved to {args.output}")
         else:
             _json_print(output)
+
+
+def cmd_share(args):
+    """Share a domain's recon snapshot via Cloudflare R2."""
+    json_mode = getattr(args, 'json', False)
+
+    # List active shares
+    if getattr(args, 'list', False):
+        from fray.cloud_sync import list_shares
+        shares = list_shares()
+        if json_mode:
+            _json_print(shares)
+            return
+        if not shares:
+            print("\n  No active shares. Run: fray share <domain>")
+            print()
+            return
+        print(f"\n  \033[1m🔗 Active Shares\033[0m ({len(shares)})\n")
+        for sid, info in sorted(shares.items(), key=lambda x: x[1].get("shared_at", ""), reverse=True):
+            print(f"  \033[96m{info['domain']}\033[0m")
+            print(f"    URL:     https://share.dalisec.io/{sid}")
+            print(f"    Shared:  {info.get('shared_at', '?')[:19]}")
+            print(f"    Expires: {info.get('expires_at', '?')[:19]}")
+            print()
+        return
+
+    # Unshare
+    if getattr(args, 'unshare', None):
+        from fray.cloud_sync import unshare_domain
+        ok = unshare_domain(args.unshare, verbose=not json_mode)
+        if json_mode:
+            _json_print({"status": "unshared" if ok else "failed", "id": args.unshare})
+        return
+
+    # Share a domain
+    domain = getattr(args, 'target', None)
+    if not domain:
+        print("  Usage: fray share <domain> [--expires 30] [--list] [--unshare ID]")
+        return
+
+    from fray.cloud_sync import share_domain
+    domain = domain.replace("https://", "").replace("http://", "").rstrip("/")
+    expires = getattr(args, 'expires', 30)
+
+    if not json_mode:
+        sys.stderr.write(f"\n  \033[1m🔗 Share: uploading sanitized snapshot\033[0m\n")
+        sys.stderr.write(f"  \033[2mStripping: origin IPs, secrets, admin panels, cookies, JWTs, buckets\033[0m\n")
+        sys.stderr.write(f"  \033[2mExpires: {expires} days\033[0m\n\n")
+
+    url = share_domain(domain, expires_days=expires, verbose=not json_mode)
+
+    if json_mode:
+        if url:
+            _json_print({"status": "shared", "url": url, "domain": domain, "expires_days": expires})
+        else:
+            _json_print({"status": "failed", "domain": domain})
 
 
 def cmd_dashboard(args):
@@ -7049,7 +7406,8 @@ def main():
         'submit-payload', 'validate', 'bounty', 'smoke', 'company-report',
         'posture', 'waf-report', 'proto', 'cve-payload', 'poc-recheck',
         'wizard', 'init', 'batch', 'waf-reverse', 'race', 'ci', 'init-config',
-        'explain', 'scope', 'leak', 'osint', 'cred', 'ct', 'demo',
+        'explain', 'scope', 'leak', 'osint', 'cred', 'ct', 'demo', 'share',
+        'template',
     }
     if len(sys.argv) >= 2 and sys.argv[1] not in _KNOWN_COMMANDS \
             and not sys.argv[1].startswith('-') and not _looks_like_url(sys.argv[1]):
@@ -7636,6 +7994,34 @@ def main():
     p_smuggle.add_argument("--insecure", action="store_true", help="Skip SSL verification")
     p_smuggle.set_defaults(func=cmd_smuggle)
 
+    # template — YAML template DSL (nuclei-like custom checks)
+    p_template = subparsers.add_parser("template",
+        help="Run YAML security check templates (nuclei-like DSL)")
+    p_template_sub = p_template.add_subparsers(dest="template_sub")
+
+    p_tpl_run = p_template_sub.add_parser("run", help="Run templates against a target")
+    p_tpl_run.add_argument("path", nargs="?", default=None, help="Template file or directory (default: ~/.fray/templates/)")
+    p_tpl_run.add_argument("-t", "--target", required=True, help="Target URL")
+    p_tpl_run.add_argument("--tags", default=None, help="Filter by tags (comma-separated)")
+    p_tpl_run.add_argument("--severity", default=None, help="Filter by severity (comma-separated)")
+    p_tpl_run.add_argument("--timeout", type=int, default=10, help="Request timeout (default: 10)")
+    p_tpl_run.add_argument("--insecure", action="store_true", help="Skip SSL verification")
+    p_tpl_run.add_argument("--json", action="store_true", help="Output as JSON")
+    p_tpl_run.add_argument("--quiet", action="store_true", help="Suppress educational output")
+    p_tpl_run.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+
+    p_tpl_list = p_template_sub.add_parser("list", help="List available templates")
+    p_tpl_list.add_argument("path", nargs="?", default=None, help="Template directory (default: ~/.fray/templates/)")
+    p_tpl_list.add_argument("--json", action="store_true", help="Output as JSON")
+
+    p_tpl_validate = p_template_sub.add_parser("validate", help="Validate a template file")
+    p_tpl_validate.add_argument("path", help="Template file to validate")
+
+    p_tpl_new = p_template_sub.add_parser("new", help="Create a new template scaffold")
+    p_tpl_new.add_argument("--id", default="custom-check", help="Template ID (default: custom-check)")
+
+    p_template.set_defaults(func=cmd_template)
+
     # report
     p_report = subparsers.add_parser("report", help="Generate HTML security report")
     p_report.add_argument("-i", "--input", help="Input results JSON file")
@@ -7992,6 +8378,48 @@ def main():
     p_race.add_argument("-H", "--header", action="append", help="Custom header (repeatable)")
     p_race.set_defaults(func=cmd_race)
 
+    # template — YAML Template DSL
+    p_tmpl = subparsers.add_parser("template",
+        help="YAML template DSL — run, list, validate, create security test templates")
+    p_tmpl.add_argument("action", nargs="?", default="run",
+                        choices=["run", "list", "validate", "new"],
+                        help="Action: run (default), list, validate, new")
+    p_tmpl.add_argument("target", nargs="?", default=None,
+                        help="Target URL (for run action)")
+    p_tmpl.add_argument("-t", "--templates", nargs="*", default=None,
+                        help="Template file(s) or directory")
+    p_tmpl.add_argument("--tags", default="",
+                        help="Filter by tags (comma-separated)")
+    p_tmpl.add_argument("--severity", default="",
+                        help="Filter by severity (comma-separated)")
+    p_tmpl.add_argument("--id", default=None,
+                        help="Template ID (for new action)")
+    p_tmpl.add_argument("-c", "--category", default=None,
+                        help="Category (for new action): xss, sqli, ssrf, etc.")
+    p_tmpl.add_argument("--path", default=None,
+                        help="URL path with {{payload}} marker (for new action)")
+    p_tmpl.add_argument("-o", "--output", default=None,
+                        help="Output file")
+    p_tmpl.add_argument("--json", action="store_true",
+                        help="JSON output")
+    p_tmpl.add_argument("-T", "--timeout", type=int, default=8,
+                        help="Request timeout (default: 8)")
+    p_tmpl.add_argument("-d", "--delay", type=float, default=0.3,
+                        help="Delay between requests (default: 0.3)")
+    p_tmpl.add_argument("--insecure", action="store_true",
+                        help="Skip SSL verification")
+    p_tmpl.add_argument("-v", "--verbose", action="store_true",
+                        help="Verbose output")
+    p_tmpl.add_argument("--impersonate", default=None,
+                        help="TLS fingerprint spoofing (chrome, firefox, safari)")
+    p_tmpl.add_argument("--cookie", default=None,
+                        help="Cookie header")
+    p_tmpl.add_argument("--bearer", default=None,
+                        help="Bearer token")
+    p_tmpl.add_argument("-H", "--header", action="append",
+                        help="Custom header (repeatable)")
+    p_tmpl.set_defaults(func=cmd_template)
+
     # ci
     p_ci = subparsers.add_parser("ci", help=argparse.SUPPRESS)
     p_ci.add_argument("action", nargs="?", default="init", choices=["init", "show"],
@@ -8150,6 +8578,21 @@ def main():
     p_monitor.add_argument("--json", action="store_true", help="JSON output")
     p_monitor.add_argument("-o", "--output", default=None, help="Save results to file")
     p_monitor.set_defaults(func=cmd_monitor)
+
+    # share — share domain snapshot via R2
+    p_share = subparsers.add_parser("share",
+        help="Share a domain's recon snapshot via Cloudflare R2 (sanitized, time-limited)")
+    p_share.add_argument("target", nargs="?", default=None,
+                          help="Domain to share (e.g. example.com)")
+    p_share.add_argument("--expires", type=int, default=30,
+                          help="Expiry in days (default: 30)")
+    p_share.add_argument("--list", action="store_true",
+                          help="List all active shares")
+    p_share.add_argument("--unshare", metavar="ID",
+                          help="Delete a share by ID")
+    p_share.add_argument("--json", action="store_true",
+                          help="JSON output")
+    p_share.set_defaults(func=cmd_share)
 
     # dashboard — web UI (#57)
     p_dash = subparsers.add_parser("dashboard",
