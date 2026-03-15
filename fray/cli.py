@@ -1129,6 +1129,12 @@ def cmd_test(args):
             sys.stderr.write(f"  \033[2m👁  Blind mode: testing with out-of-band callbacks\033[0m\n")
         if getattr(args, 'stealth', False):
             sys.stderr.write(f"  \033[2m🥷 Stealth mode: randomized timing, TLS fingerprint rotation\033[0m\n")
+        _ctx = getattr(args, 'context', 'url_param')
+        if _ctx != 'url_param':
+            _ctx_labels = {'header': '📋 Header injection', 'cookie': '🍪 Cookie injection',
+                           'json_body': '📦 JSON body injection', 'xml_body': '📄 XML body injection',
+                           'path': '🔗 Path injection'}
+            sys.stderr.write(f"  \033[2m{_ctx_labels.get(_ctx, _ctx)}: --context {_ctx}\033[0m\n")
         sys.stderr.write("\n")
         sys.stderr.flush()
 
@@ -1515,7 +1521,10 @@ def cmd_test(args):
         else:
             results = tester.test_payloads(all_payloads, max_payloads=args.max,
                                            quiet=json_mode, waf_vendor=_waf_vendor,
-                                           resume=getattr(args, 'resume', False))
+                                           resume=getattr(args, 'resume', False),
+                                           param=getattr(args, 'param', 'input'),
+                                           content_type=getattr(args, 'content_type', '') or '',
+                                           injection_context=getattr(args, 'context', 'url_param'))
 
     # --mutate: auto-mutate blocked payloads and re-test
     mutate_n = getattr(args, 'mutate', 0)
@@ -7457,6 +7466,13 @@ def main():
                          help="Suppress all non-essential output (only errors and JSON)")
     p_test.add_argument("--notify", default=None, metavar="WEBHOOK_URL",
                          help="Send Slack/Discord/Teams notification on completion")
+    p_test.add_argument("--param", default="input",
+                         help="URL parameter to inject into (default: input)")
+    p_test.add_argument("--context", default="url_param",
+                         choices=["url_param", "header", "cookie", "json_body", "xml_body", "path"],
+                         help="Injection context: where to place the payload (default: url_param)")
+    p_test.add_argument("--content-type", default=None, dest="content_type", metavar="CT",
+                         help="Override Content-Type for POST body (e.g. application/json, text/xml, multipart/form-data)")
     p_test.set_defaults(func=cmd_test)
 
     # bypass

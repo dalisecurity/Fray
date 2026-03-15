@@ -112,7 +112,8 @@ _COMMON_FLAGS = {
         "--cookie", "--bearer", "--header", "--verbose", "--json", "--ai",
         "--sarif", "--mutate", "--blind", "--oob-server", "--auth-profile",
         "--stealth", "--rate-limit", "--jitter", "--quiet", "--resume",
-        "--report-format", "--scope", "--notify",
+        "--report-format", "--scope", "--notify", "--param", "--context",
+        "--content-type", "--from-crawl", "--concurrency",
     ],
     "bypass": [
         "--waf", "--category", "--max", "--mutations", "--mutation-budget",

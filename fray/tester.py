@@ -1199,7 +1199,9 @@ class WAFTester:
     def test_payloads(self, payloads: List[Dict], method: str = 'GET', param: str = 'input',
                      max_payloads: Optional[int] = None, quiet: bool = False,
                      smart_sort: bool = True, waf_vendor: str = '',
-                     resume: bool = False) -> List[Dict]:
+                     resume: bool = False,
+                     content_type: str = '',
+                     injection_context: str = 'url_param') -> List[Dict]:
         """Test multiple payloads.
 
         Args:
@@ -1269,9 +1271,13 @@ class WAFTester:
                         continue
                 desc = payload_data.get('description', '') if isinstance(payload_data, dict) else ''
                 category = payload_data.get('category', 'unknown') if isinstance(payload_data, dict) else 'unknown'
-                result = self.test_payload(payload, method, param)
+                result = self.test_payload(payload, method, param,
+                                           content_type=content_type,
+                                           injection_context=injection_context)
                 result['category'] = category
                 result['description'] = desc
+                if injection_context != 'url_param':
+                    result['injection_context'] = injection_context
                 results.append(result)
                 # Checkpoint after each payload
                 if resume:
@@ -1329,9 +1335,13 @@ class WAFTester:
                 desc = payload_data.get('description', '') if isinstance(payload_data, dict) else ''
                 category = payload_data.get('category', 'unknown') if isinstance(payload_data, dict) else 'unknown'
                 
-                result = self.test_payload(payload, method, param)
+                result = self.test_payload(payload, method, param,
+                                           content_type=content_type,
+                                           injection_context=injection_context)
                 result['category'] = category
                 result['description'] = desc
+                if injection_context != 'url_param':
+                    result['injection_context'] = injection_context
                 results.append(result)
                 
                 # Print result with rich badge + confidence
