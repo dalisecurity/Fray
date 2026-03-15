@@ -406,6 +406,38 @@ def check_exposed_files(host: str, port: int, use_ssl: bool,
             ("/php-fpm-status", "PHP-FPM status page"),
             ("/opcache-status.php", "OPcache status page"),
         ],
+        "next": [
+            ("/_next/data/", "Next.js data directory"),
+            ("/api/__coverage__", "Next.js coverage endpoint"),
+            ("/.next/BUILD_ID", "Next.js build ID (deployment fingerprint)"),
+        ],
+        "nuxt": [
+            ("/_nuxt/", "Nuxt.js build assets"),
+            ("/__nuxt__/", "Nuxt.js devtools"),
+        ],
+        "flask": [
+            ("/console", "Flask/Werkzeug debugger console (RCE risk!)"),
+            ("/static/", "Flask static directory listing"),
+        ],
+        "asp.net": [
+            ("/elmah.axd", ".NET error log (stack traces, queries)"),
+            ("/trace.axd", ".NET trace log"),
+            ("/web.config", ".NET config (connection strings, keys)"),
+            ("/_blazor", "Blazor app internals"),
+        ],
+        "graphql": [
+            ("/graphql", "GraphQL endpoint"),
+            ("/graphiql", "GraphiQL IDE (interactive query explorer)"),
+            ("/playground", "GraphQL Playground"),
+            ("/altair", "Altair GraphQL client"),
+        ],
+        "docker": [
+            ("/v2/_catalog", "Docker Registry catalog (image listing)"),
+            ("/.dockerenv", "Docker environment marker"),
+        ],
+        "firebase": [
+            ("/__/firebase/init.json", "Firebase config (API keys, project ID)"),
+        ],
     }
 
     # ── Content validation patterns for tech-specific probes ──
@@ -424,6 +456,15 @@ def check_exposed_files(host: str, port: int, use_ssl: bool,
         "/rails/info/properties": ["Rails version", "Ruby version"],
         "/rails/info/routes": ["Prefix", "Verb", "URI Pattern"],
         "/.npmrc": ["registry", "_authToken"],
+        "/console": ["Werkzeug", "Debugger", "console", ">>> "],
+        "/.next/BUILD_ID": [],  # any content = real build ID
+        "/v2/_catalog": ['"repositories"'],
+        "/__/firebase/init.json": ['"projectId"', '"apiKey"'],
+        "/graphiql": ["GraphiQL", "graphiql"],
+        "/playground": ["GraphQL Playground", "playground"],
+        "/web.config": ["<configuration", "connectionString"],
+        "/elmah.axd": ["Error Log", "ELMAH"],
+        "/trace.axd": ["Trace Information", "Request Details"],
     }
 
     # High-value probes — always checked
@@ -525,11 +566,18 @@ def check_exposed_files(host: str, port: int, use_ssl: bool,
                 if is_real:
                     severity = "critical"
                     if probe_path in ("/.well-known/security.txt", "/crossdomain.xml",
-                                      "/sitemap.xml.gz"):
+                                      "/sitemap.xml.gz", "/.next/BUILD_ID",
+                                      "/.node-version"):
                         severity = "info"
                     elif probe_path in ("/composer.json", "/package.json",
-                                        "/requirements.txt", "/Gemfile"):
+                                        "/requirements.txt", "/Gemfile",
+                                        "/yarn.lock", "/_next/data/",
+                                        "/_nuxt/", "/static/"):
                         severity = "medium"
+                    elif probe_path in ("/console", "/actuator/heapdump",
+                                        "/h2-console", "/jolokia",
+                                        "/v2/_catalog"):
+                        severity = "critical"  # RCE risk
                     return {
                         "path": probe_path,
                         "description": description,

@@ -387,23 +387,63 @@ class WAFDetector:
             _CANARY_PROBES = {
                 'cloudflare': {
                     'payload': '?fray_canary=<script>cf_canary</script>',
-                    'confirm': [r'cloudflare', r'cf-error', r'attention required', r'ray id'],
+                    'confirm': [r'cloudflare', r'cf-error', r'attention required', r'ray id', r'cf-ray'],
+                    'status': [403, 503],
                 },
                 'aws_waf': {
                     'payload': "?fray_canary=' OR 1=1--",
-                    'confirm': [r'x-amzn-requestid', r'aws-waf', r'request blocked'],
+                    'confirm': [r'x-amzn-requestid', r'aws-waf', r'request blocked', r'awselb'],
+                    'status': [403],
                 },
                 'akamai': {
                     'payload': '?fray_canary=../../etc/passwd',
-                    'confirm': [r'reference\s*#[\d.]+', r'akamai'],
+                    'confirm': [r'reference\s*#[\d.]+', r'akamai', r'akamaighost'],
+                    'status': [403],
                 },
                 'imperva': {
                     'payload': '?fray_canary=|id',
-                    'confirm': [r'incapsula', r'incident\s*id', r'imperva'],
+                    'confirm': [r'incapsula', r'incident\s*id', r'imperva', r'_incap_'],
+                    'status': [403],
                 },
                 'f5_bigip': {
                     'payload': '?fray_canary=<script>alert(1)</script>',
-                    'confirm': [r'the requested url was rejected', r'support id'],
+                    'confirm': [r'the requested url was rejected', r'support id', r'bigipserver'],
+                    'status': [403, 500],
+                },
+                'modsecurity': {
+                    'payload': "?fray_canary=<script>alert('xss')</script>",
+                    'confirm': [r'mod_security', r'modsecurity', r'owasp.*crs', r'not acceptable'],
+                    'status': [403, 406],
+                },
+                'fastly': {
+                    'payload': '?fray_canary=<img src=x onerror=alert(1)>',
+                    'confirm': [r'fastly', r'varnish', r'fastly-error'],
+                    'status': [403, 503],
+                },
+                'sucuri': {
+                    'payload': "?fray_canary='; DROP TABLE--",
+                    'confirm': [r'sucuri', r'cloudproxy', r'access denied.*sucuri'],
+                    'status': [403],
+                },
+                'barracuda': {
+                    'payload': '?fray_canary=<script>alert(document.cookie)</script>',
+                    'confirm': [r'barracuda', r'barra_counter_session', r'barracuda_',],
+                    'status': [403],
+                },
+                'fortinet': {
+                    'payload': '?fray_canary=../../etc/shadow',
+                    'confirm': [r'fortigate', r'fortiweb', r'fortinet', r'fgd_icon'],
+                    'status': [403],
+                },
+                'radware': {
+                    'payload': '?fray_canary=<svg onload=alert(1)>',
+                    'confirm': [r'radware', r'appwall', r'unauthorized activity'],
+                    'status': [403],
+                },
+                'citrix': {
+                    'payload': '?fray_canary=UNION SELECT 1,2,3--',
+                    'confirm': [r'ns_af', r'citrix', r'netscaler', r'appfw'],
+                    'status': [403, 302],
                 },
             }
             _all_dets = results.get('all_detections', [])

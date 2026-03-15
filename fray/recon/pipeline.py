@@ -3216,6 +3216,48 @@ def _build_attack_surface_summary(r: Dict[str, Any]) -> Dict[str, Any]:
                 break
         f["category"] = cat
 
+    # ── Contextual severity adjustment ──
+    # Upgrade/downgrade finding severity based on target context
+    _has_waf = bool(waf_vendor)
+    _has_login = has_login or has_registration
+    _large_surface = n_subdomains >= 50
+    _has_origin_bypass = any("origin IP" in f.get("finding", "").lower() and
+                             f.get("severity") == "critical" for f in findings)
+
+    for f in findings:
+        text = f.get("finding", "")
+        sev = f.get("severity", "low")
+
+        # WAF in monitor mode + origin bypass = escalate everything
+        if _has_origin_bypass and "bypass WAF" not in text.lower():
+            pass  # Don't double-escalate
+
+        # No WAF on login page → escalate injection/XSS findings
+        if not _has_waf and _has_login:
+            if any(kw in text.lower() for kw in ("injectable", "xss", "injection", "cors")):
+                if sev == "medium":
+                    f["severity"] = "high"
+                    f["severity_reason"] = "escalated: no WAF + login page present"
+
+        # Large attack surface → escalate exposed files and staging
+        if _large_surface:
+            if any(kw in text.lower() for kw in ("staging", "exposed sensitive", "admin panel")):
+                if sev == "medium":
+                    f["severity"] = "high"
+                    f["severity_reason"] = "escalated: large attack surface (50+ subdomains)"
+                elif sev == "low":
+                    f["severity"] = "medium"
+                    f["severity_reason"] = "escalated: large attack surface (50+ subdomains)"
+
+        # WAF present → downgrade low-confidence findings
+        if _has_waf and sev == "medium":
+            if any(kw in text.lower() for kw in ("robots.txt", "wildcard dns", "multi-cloud")):
+                f["severity"] = "low"
+                f["severity_reason"] = "downgraded: WAF present, low exploitability"
+
+        # Recalculate risk_score after severity change
+        f["risk_score"] = _score_finding(f)
+
     # Sort findings by risk_score descending
     findings.sort(key=lambda f: f["risk_score"], reverse=True)
 
