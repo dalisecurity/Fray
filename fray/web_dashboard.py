@@ -570,6 +570,182 @@ def get_executive_summary() -> Dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  TIMELINE — aggregate all command runs for a domain over time
+# ══════════════════════════════════════════════════════════════════════════════
+
+def get_domain_timeline(domain: str) -> List[Dict]:
+    """Get all runs (any command) for a domain, sorted by time."""
+    _SUBDIRS = ["recon", "tests", "scans", "bypasses", "smuggle", "agents", "crawls", "go", "compare"]
+    timeline = []
+    for subdir in _SUBDIRS:
+        d = FRAY_DIR / subdir
+        if not d.exists():
+            continue
+        for f in sorted(d.glob(f"{domain}_2*.json")):
+            data = _safe_json(f)
+            if not data:
+                continue
+            entry = {
+                "file": f.name,
+                "command": data.get("command", subdir.rstrip("s")),
+                "timestamp": data.get("timestamp", ""),
+                "subdir": subdir,
+            }
+            # Extract key metrics per command type
+            if subdir == "recon":
+                s = _extract_scan_summary(data)
+                entry.update({"risk_score": s["risk_score"], "findings": s["finding_count"], "vectors": s["vector_count"], "subdomains": s["subdomains"]})
+            elif subdir == "tests":
+                sm = data.get("summary", {})
+                entry.update({"total": sm.get("total", 0), "blocked": sm.get("blocked", 0), "passed": sm.get("passed", 0), "block_rate": sm.get("block_rate", "")})
+            elif subdir == "scans":
+                sm = data.get("summary", {})
+                entry.update({"total": sm.get("total_tested", 0), "blocked": sm.get("blocked", 0), "passed": sm.get("passed", 0)})
+            elif subdir == "bypasses":
+                entry.update({"total_payloads": data.get("total_payloads", 0), "bypasses": data.get("bypasses", 0), "waf": data.get("waf", "")})
+            elif subdir == "agents":
+                entry.update({"rounds": data.get("rounds", 0), "total_requests": data.get("total_requests", 0), "bypasses": data.get("bypasses", 0)})
+            elif subdir == "smuggle":
+                entry.update({"vulnerable": data.get("vulnerable", False), "techniques_tested": data.get("techniques_tested", 0)})
+            elif subdir == "crawls":
+                entry.update({"pages_crawled": data.get("pages_crawled", 0), "total_endpoints": data.get("total_endpoints", 0)})
+            elif subdir == "go":
+                entry.update({"phases": data.get("phases", []), "duration": data.get("duration")})
+            elif subdir == "compare":
+                entry.update({"category": data.get("category", ""), "impersonate": data.get("impersonate", "")})
+            timeline.append(entry)
+    timeline.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+    return timeline
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  DIFF — compare two specific scan files side-by-side
+# ══════════════════════════════════════════════════════════════════════════════
+
+def diff_runs(domain: str, file_a: str, file_b: str) -> Dict:
+    """Compare two scan files for the same domain and return structured diff."""
+    # Find files across all subdirs
+    data_a = data_b = None
+    for subdir in ["recon", "tests", "scans", "bypasses", "smuggle", "agents", "crawls", "go", "compare"]:
+        d = FRAY_DIR / subdir
+        pa = d / file_a
+        pb = d / file_b
+        if pa.exists() and data_a is None:
+            data_a = _safe_json(pa)
+        if pb.exists() and data_b is None:
+            data_b = _safe_json(pb)
+    if not data_a:
+        return {"error": f"File not found: {file_a}"}
+    if not data_b:
+        return {"error": f"File not found: {file_b}"}
+
+    # For recon data, use the rich summary extractor
+    if "attack_surface" in data_a or "attack_surface" in data_b:
+        sa = _extract_scan_summary(data_a)
+        sb = _extract_scan_summary(data_b)
+        sa["timestamp"] = data_a.get("timestamp", "")
+        sb["timestamp"] = data_b.get("timestamp", "")
+
+        # Compute deltas
+        findings_a = {f["finding"] for f in sa.get("findings", [])}
+        findings_b = {f["finding"] for f in sb.get("findings", [])}
+        new_findings = [f for f in sb.get("findings", []) if f["finding"] not in findings_a]
+        resolved = [f for f in sa.get("findings", []) if f["finding"] not in findings_b]
+        techs_a = set(sa.get("technologies", []))
+        techs_b = set(sb.get("technologies", []))
+
+        return {
+            "domain": domain, "file_a": file_a, "file_b": file_b,
+            "a": sa, "b": sb,
+            "deltas": {
+                "risk_score": sb["risk_score"] - sa["risk_score"],
+                "findings": sb["finding_count"] - sa["finding_count"],
+                "vectors": sb["vector_count"] - sa["vector_count"],
+                "subdomains": sb["subdomains"] - sa["subdomains"],
+                "new_findings": new_findings,
+                "resolved_findings": resolved,
+                "new_techs": sorted(techs_b - techs_a),
+                "removed_techs": sorted(techs_a - techs_b),
+                "waf_changed": sa["waf"] != sb["waf"],
+            },
+        }
+    else:
+        # Generic diff: show both payloads side by side
+        return {
+            "domain": domain, "file_a": file_a, "file_b": file_b,
+            "a": {"timestamp": data_a.get("timestamp", ""), "command": data_a.get("command", ""), "data": data_a},
+            "b": {"timestamp": data_b.get("timestamp", ""), "command": data_b.get("command", ""), "data": data_b},
+        }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  SSE — Server-Sent Events for live reload
+# ══════════════════════════════════════════════════════════════════════════════
+
+_sse_clients: List = []  # list of wfile objects
+_sse_lock = threading.Lock()
+
+
+def _sse_broadcast(event: str, data: dict):
+    """Send an SSE event to all connected clients."""
+    msg = f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
+    encoded = msg.encode("utf-8")
+    with _sse_lock:
+        dead = []
+        for wfile in _sse_clients:
+            try:
+                wfile.write(encoded)
+                wfile.flush()
+            except Exception:
+                dead.append(wfile)
+        for d in dead:
+            _sse_clients.remove(d)
+
+
+def _file_watcher():
+    """Background thread that watches ~/.fray/ for new/modified JSON files."""
+    _SUBDIRS = ["recon", "tests", "scans", "bypasses", "smuggle", "agents", "crawls", "go", "compare"]
+    seen = {}  # path -> mtime
+
+    # Initial snapshot
+    for subdir in _SUBDIRS:
+        d = FRAY_DIR / subdir
+        if d.exists():
+            for f in d.glob("*.json"):
+                try:
+                    seen[str(f)] = f.stat().st_mtime
+                except OSError:
+                    pass
+
+    while True:
+        time.sleep(2)  # poll every 2 seconds
+        try:
+            for subdir in _SUBDIRS:
+                d = FRAY_DIR / subdir
+                if not d.exists():
+                    continue
+                for f in d.glob("*.json"):
+                    fp = str(f)
+                    try:
+                        mt = f.stat().st_mtime
+                    except OSError:
+                        continue
+                    if fp not in seen or mt > seen[fp]:
+                        is_new = fp not in seen
+                        seen[fp] = mt
+                        domain = f.stem.replace("_latest", "").split("_2")[0]
+                        _sse_broadcast("file_change", {
+                            "type": "new" if is_new else "updated",
+                            "subdir": subdir,
+                            "file": f.name,
+                            "domain": domain,
+                            "timestamp": datetime.now().isoformat(),
+                        })
+        except Exception:
+            pass
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  HTTP SERVER + API ROUTES
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -674,6 +850,34 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             thread.start()
 
             self._json_response(task)
+        elif path.startswith("/api/share/"):
+            domain = path.replace("/api/share/", "").strip("/")
+            if not domain:
+                self._json_response({"error": "domain required"}, 400)
+                return
+            content_len = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(content_len)) if content_len else {}
+            expires = body.get("expires_days", 30)
+            try:
+                from fray.cloud_sync import share_domain
+                url = share_domain(domain, expires_days=expires, verbose=False)
+                if url:
+                    self._json_response({"status": "shared", "url": url, "domain": domain})
+                else:
+                    self._json_response({"error": "Share failed — check R2 config (fray sync --configure)"}, 500)
+            except Exception as e:
+                self._json_response({"error": str(e)}, 500)
+        elif path.startswith("/api/unshare/"):
+            share_id = path.replace("/api/unshare/", "").strip("/")
+            try:
+                from fray.cloud_sync import unshare_domain
+                ok = unshare_domain(share_id, verbose=False)
+                if ok:
+                    self._json_response({"status": "unshared", "id": share_id})
+                else:
+                    self._json_response({"error": "Unshare failed"}, 500)
+            except Exception as e:
+                self._json_response({"error": str(e)}, 500)
         else:
             self._json_response({"error": "Not found"}, 404)
 
@@ -712,6 +916,12 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self._json_response(get_all_findings_triage())
         elif path == "/api/payload-analytics":
             self._json_response(get_payload_analytics())
+        elif path == "/api/shares":
+            try:
+                from fray.cloud_sync import list_shares
+                self._json_response(list_shares())
+            except Exception:
+                self._json_response({})
         elif path == "/api/tests":
             self._json_response(list_command_results("tests"))
         elif path == "/api/scans":
@@ -765,6 +975,45 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                         "software": (info.get("affected_software") or "")[:100],
                     }
             self._json_response(meta)
+        elif path.startswith("/api/timeline/"):
+            domain = path.replace("/api/timeline/", "").strip("/")
+            self._json_response(get_domain_timeline(domain))
+        elif path.startswith("/api/diff/"):
+            # /api/diff/domain?a=file_a&b=file_b
+            domain = path.replace("/api/diff/", "").strip("/")
+            file_a = params.get("a", [""])[0]
+            file_b = params.get("b", [""])[0]
+            if not file_a or not file_b:
+                self._json_response({"error": "Both ?a=<file>&b=<file> params required"}, 400)
+            else:
+                self._json_response(diff_runs(domain, file_a, file_b))
+        elif path == "/api/events":
+            # SSE endpoint for live reload
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self._cors()
+            self.end_headers()
+            # Send initial heartbeat
+            self.wfile.write(b"event: connected\ndata: {}\n\n")
+            self.wfile.flush()
+            # Register client
+            with _sse_lock:
+                _sse_clients.append(self.wfile)
+            # Keep connection alive
+            try:
+                while True:
+                    time.sleep(30)
+                    self.wfile.write(b": heartbeat\n\n")
+                    self.wfile.flush()
+            except Exception:
+                pass
+            finally:
+                with _sse_lock:
+                    if self.wfile in _sse_clients:
+                        _sse_clients.remove(self.wfile)
+            return
         else:
             # Serve SPA for all other routes
             self._html_response(_SPA_HTML)
@@ -1010,7 +1259,7 @@ tr:hover td { background:rgba(255,255,255,.015); }
 
 <div class="shell">
   <div class="sidebar">
-    <div class="logo">&#9876; Fray <span>Dashboard</span></div>
+    <div class="logo">&#9876; Fray <span>Dashboard</span> <span id="live-dot" class="scan-dot scan-dot-idle" style="margin-left:auto;width:6px;height:6px" title="Connecting..."></span></div>
     <div class="nav-item active" data-page="overview">&#9632;&ensp;Overview</div>
     <div class="nav-item" data-page="findings">&#9888;&ensp;Findings</div>
     <div class="nav-item" data-page="targets">&#9673;&ensp;Targets</div>
@@ -1019,6 +1268,9 @@ tr:hover td { background:rgba(255,255,255,.015); }
     <div class="nav-item" data-page="executive">&#9998;&ensp;Executive Report</div>
     <div class="nav-item" data-page="learned">&#9881;&ensp;WAF Intel</div>
     <div class="nav-item" data-page="intel">&#9889;&ensp;CVE Feed</div>
+    <div class="nav-section">Analysis</div>
+    <div class="nav-item" data-page="timeline">&#128337;&ensp;Timeline</div>
+    <div class="nav-item" data-page="diff">&#8644;&ensp;Diff Runs</div>
     <div class="nav-section">Settings</div>
     <div class="nav-item" data-page="domains">&#9776;&ensp;All Domains</div>
     <div class="sidebar-footer">
@@ -1265,6 +1517,32 @@ async function exportDomainReport(domain) {
     showToast(`Downloaded ${domain}_report.html`);
   } catch(e) {
     showToast('Export failed: ' + e.message);
+  }
+}
+
+async function shareDomain(domain) {
+  showToast(`Sharing ${domain}...`);
+  try {
+    const resp = await fetch('/api/share/' + domain, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({expires_days: 30})
+    });
+    const data = await resp.json();
+    if (data.url) {
+      navigator.clipboard.writeText(data.url).catch(() => {});
+      showToast(`Shared! Link copied: ${data.url}`);
+      // Update share button to show link
+      const shareBtn = document.getElementById('share-btn');
+      if (shareBtn) {
+        shareBtn.innerHTML = `&#10003; Shared`;
+        shareBtn.title = data.url;
+      }
+    } else {
+      showToast(data.error || 'Share failed');
+    }
+  } catch(e) {
+    showToast('Share failed: ' + e.message);
   }
 }
 
@@ -1788,6 +2066,7 @@ async function renderDetail(domain) {
     <div class="section-title" style="margin-bottom:0"><span class="grade-badge ${_gCls}" style="width:32px;height:32px;font-size:14px">${_grade}</span> ${domain} ${riskBadge(riskLevel)}</div>
     <div style="display:flex;gap:8px;align-items:center">
       <button class="btn" onclick="exportDomainReport('${domain}')">&#128196; Export Report</button>
+      <button class="btn" id="share-btn" onclick="shareDomain('${domain}')" title="Upload sanitized snapshot to share.dalisec.io">&#128279; Share</button>
       <div class="rescan-menu">
       <button class="btn btn-brand" onclick="toggleRescanMenu('rescan-drop-detail')">&#8635; Re-scan</button>
       <div class="rescan-drop" id="rescan-drop-detail">
@@ -2532,6 +2811,286 @@ async function renderExecutive() {
   $('#content').innerHTML = html;
 }
 
+// ── Timeline View ────────────────────────────────────────────────────
+
+async function renderTimeline(domain) {
+  const c = $('#content');
+  if (!domain) {
+    // Domain picker
+    const domains = await fetchJSON('/api/domains');
+    let html = '<div class="section-title">Timeline <span class="count">Select a domain</span></div>';
+    if (!domains.length) { c.innerHTML = '<div class="loading">No domains found. Run <code>fray recon</code> first.</div>'; return; }
+    html += '<div class="table-wrap"><table><thead><tr><th>Domain</th><th>Risk</th><th>Grade</th><th>Scans</th><th></th></tr></thead><tbody>';
+    for (const d of domains) {
+      html += `<tr style="cursor:pointer" onclick="navigate('timeline','${d.domain}')">
+        <td><a href="#" onclick="event.preventDefault();navigate('timeline','${d.domain}')">${d.domain}</a></td>
+        <td>${d.risk_score}</td>
+        <td><span class="grade-badge grade-${(d.grade||'c').toLowerCase()}">${d.grade||'?'}</span></td>
+        <td>${d.scan_count||0}</td>
+        <td style="text-align:right"><button class="btn-xs primary" onclick="event.stopPropagation();navigate('timeline','${d.domain}')">View timeline</button></td>
+      </tr>`;
+    }
+    html += '</tbody></table></div>';
+    c.innerHTML = html;
+    return;
+  }
+
+  c.innerHTML = '<div class="loading">Loading timeline...</div>';
+  const tl = await fetchJSON(`/api/timeline/${domain}`);
+  let html = `<div class="breadcrumb"><a href="#" onclick="event.preventDefault();navigate('timeline')">Timeline</a> / <strong>${domain}</strong></div>`;
+  html += `<div class="section-title">${domain} <span class="count">(${tl.length} runs)</span></div>`;
+
+  if (!tl.length) {
+    html += '<div class="loading">No runs found for this domain.</div>';
+    c.innerHTML = html;
+    return;
+  }
+
+  // Command type icons
+  const cmdIcon = {recon:'\u{1f50d}',test:'\u{1f9ea}',scan:'\u{1f50e}',bypass:'\u{1f6e1}',agent:'\u{1f916}',smuggle:'\u26a0',crawl:'\u{1f578}',go:'\u{1f680}',compare:'\u2194'};
+
+  // Summary cards
+  const cmdCounts = {};
+  tl.forEach(e => { const c = e.command||'unknown'; cmdCounts[c] = (cmdCounts[c]||0)+1; });
+  html += '<div class="cards">';
+  for (const [cmd, cnt] of Object.entries(cmdCounts).sort((a,b)=>b[1]-a[1])) {
+    html += `<div class="card"><div class="card-label">${cmdIcon[cmd]||'\u25cf'} ${cmd}</div><div class="card-value">${cnt}</div><div class="card-sub">run${cnt>1?'s':''}</div></div>`;
+  }
+  html += '</div>';
+
+  // Timeline table
+  html += '<div class="table-wrap"><table><thead><tr><th>Time</th><th>Command</th><th>Key Metrics</th><th>Actions</th></tr></thead><tbody>';
+  for (const e of tl) {
+    let metrics = '';
+    if (e.risk_score !== undefined) metrics += `Risk: <strong>${e.risk_score}</strong> &middot; `;
+    if (e.findings !== undefined) metrics += `Findings: ${e.findings} &middot; `;
+    if (e.vectors !== undefined) metrics += `Vectors: ${e.vectors} &middot; `;
+    if (e.subdomains !== undefined) metrics += `Subs: ${e.subdomains} &middot; `;
+    if (e.total !== undefined) metrics += `Total: ${e.total} &middot; `;
+    if (e.blocked !== undefined) metrics += `Blocked: ${e.blocked} &middot; `;
+    if (e.passed !== undefined) metrics += `Passed: ${e.passed} &middot; `;
+    if (e.bypasses !== undefined) metrics += `Bypasses: ${e.bypasses} &middot; `;
+    if (e.total_payloads !== undefined) metrics += `Payloads: ${e.total_payloads} &middot; `;
+    if (e.vulnerable !== undefined) metrics += `Vulnerable: ${e.vulnerable?'Yes':'No'} &middot; `;
+    if (e.pages_crawled !== undefined) metrics += `Pages: ${e.pages_crawled} &middot; `;
+    if (e.total_endpoints !== undefined) metrics += `Endpoints: ${e.total_endpoints} &middot; `;
+    if (e.rounds !== undefined && e.rounds) metrics += `Rounds: ${e.rounds} &middot; `;
+    metrics = metrics.replace(/ &middot; $/, '');
+
+    const icon = cmdIcon[e.command] || '\u25cf';
+    html += `<tr>
+      <td style="white-space:nowrap;font-size:12px;color:var(--text2)">${timeAgo(e.timestamp)}<br><span style="font-size:10px;font-family:var(--mono)">${(e.timestamp||'').slice(0,19)}</span></td>
+      <td><span class="badge badge-info">${icon} ${e.command}</span></td>
+      <td style="font-size:12px">${metrics || '<span style="color:var(--text3)">—</span>'}</td>
+      <td><button class="btn-xs" onclick="_diffSelect('${domain}','${e.file}','${e.subdir}')">Select for diff</button></td>
+    </tr>`;
+  }
+  html += '</tbody></table></div>';
+
+  // Diff selection UI
+  html += `<div id="diff-bar" style="display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--bg-elevated);border:1px solid var(--brand);border-radius:10px;padding:12px 20px;box-shadow:var(--shadow-lg);z-index:100;display:flex;align-items:center;gap:12px">
+    <span style="font-size:12px;color:var(--text2)">Selected: <strong id="diff-sel-a" style="color:var(--brand2)">—</strong> vs <strong id="diff-sel-b" style="color:var(--brand2)">—</strong></span>
+    <button class="btn btn-brand" id="diff-go-btn" onclick="_launchDiff('${domain}')" disabled>Compare</button>
+    <button class="btn" onclick="_diffClear()">Clear</button>
+  </div>`;
+
+  c.innerHTML = html;
+  _diffClear(); // Reset diff bar initially hidden
+}
+
+// Diff selection state
+let _diffFileA = '', _diffFileB = '', _diffSubdirA = '', _diffSubdirB = '';
+function _diffSelect(domain, file, subdir) {
+  if (!_diffFileA) {
+    _diffFileA = file; _diffSubdirA = subdir;
+    const bar = document.getElementById('diff-bar');
+    if (bar) { bar.style.display = 'flex'; }
+    const a = document.getElementById('diff-sel-a');
+    if (a) a.textContent = file;
+    showToast('First run selected. Pick a second run to compare.');
+  } else if (!_diffFileB && file !== _diffFileA) {
+    _diffFileB = file; _diffSubdirB = subdir;
+    const b = document.getElementById('diff-sel-b');
+    if (b) b.textContent = file;
+    const btn = document.getElementById('diff-go-btn');
+    if (btn) btn.disabled = false;
+    showToast('Two runs selected. Click Compare.');
+  }
+}
+function _diffClear() {
+  _diffFileA = ''; _diffFileB = ''; _diffSubdirA = ''; _diffSubdirB = '';
+  const bar = document.getElementById('diff-bar');
+  if (bar) bar.style.display = 'none';
+}
+function _launchDiff(domain) {
+  if (_diffFileA && _diffFileB) {
+    navigate('diff', `${domain}|${_diffFileA}|${_diffFileB}`);
+  }
+}
+
+// ── Diff View ────────────────────────────────────────────────────────
+
+async function renderDiff(arg) {
+  const c = $('#content');
+
+  if (!arg || !arg.includes('|')) {
+    // Domain picker — same as timeline but redirect to timeline for selection
+    const domains = await fetchJSON('/api/domains');
+    let html = '<div class="section-title">Diff Runs <span class="count">Select a domain to pick runs</span></div>';
+    html += '<p style="color:var(--text2);font-size:13px;margin-bottom:18px">Go to a domain\'s timeline to select two runs for comparison.</p>';
+    if (!domains.length) { c.innerHTML = '<div class="loading">No domains found.</div>'; return; }
+    html += '<div class="table-wrap"><table><thead><tr><th>Domain</th><th>Risk</th><th>Scans</th><th></th></tr></thead><tbody>';
+    for (const d of domains) {
+      html += `<tr style="cursor:pointer" onclick="navigate('timeline','${d.domain}')">
+        <td>${d.domain}</td><td>${d.risk_score}</td><td>${d.scan_count||0}</td>
+        <td style="text-align:right"><button class="btn-xs primary" onclick="event.stopPropagation();navigate('timeline','${d.domain}')">Pick runs</button></td>
+      </tr>`;
+    }
+    html += '</tbody></table></div>';
+    c.innerHTML = html;
+    return;
+  }
+
+  // Parse arg: domain|fileA|fileB
+  const parts = arg.split('|');
+  const domain = parts[0], fileA = parts[1], fileB = parts[2];
+  c.innerHTML = '<div class="loading">Computing diff...</div>';
+  const diff = await fetchJSON(`/api/diff/${domain}?a=${encodeURIComponent(fileA)}&b=${encodeURIComponent(fileB)}`);
+
+  if (diff.error) { c.innerHTML = `<div class="loading" style="color:var(--critical)">${diff.error}</div>`; return; }
+
+  let html = `<div class="breadcrumb"><a href="#" onclick="event.preventDefault();navigate('timeline','${domain}')">Timeline: ${domain}</a> / <strong>Diff</strong></div>`;
+  html += `<div class="section-title">Diff: ${domain}</div>`;
+
+  const a = diff.a || {}, b = diff.b || {}, deltas = diff.deltas || {};
+
+  // Side-by-side summary cards
+  html += '<div class="detail-grid">';
+  html += `<div class="detail-section"><h3>Run A: ${fileA}</h3>`;
+  html += `<div class="kv"><span class="kv-key">Timestamp</span><span>${a.timestamp||'—'}</span></div>`;
+  if (a.risk_score !== undefined) html += `<div class="kv"><span>Risk Score</span><span style="color:${riskColor(a.risk_score)}">${a.risk_score}</span></div>`;
+  if (a.grade) html += `<div class="kv"><span>Grade</span><span class="grade-badge grade-${a.grade.toLowerCase()}">${a.grade}</span></div>`;
+  if (a.finding_count !== undefined) html += `<div class="kv"><span>Findings</span><span>${a.finding_count}</span></div>`;
+  if (a.vector_count !== undefined) html += `<div class="kv"><span>Vectors</span><span>${a.vector_count}</span></div>`;
+  if (a.subdomains !== undefined) html += `<div class="kv"><span>Subdomains</span><span>${a.subdomains}</span></div>`;
+  if (a.waf) html += `<div class="kv"><span>WAF</span><span class="waf-chip">${a.waf}</span></div>`;
+  html += '</div>';
+
+  html += `<div class="detail-section"><h3>Run B: ${fileB}</h3>`;
+  html += `<div class="kv"><span class="kv-key">Timestamp</span><span>${b.timestamp||'—'}</span></div>`;
+  if (b.risk_score !== undefined) html += `<div class="kv"><span>Risk Score</span><span style="color:${riskColor(b.risk_score)}">${b.risk_score}</span></div>`;
+  if (b.grade) html += `<div class="kv"><span>Grade</span><span class="grade-badge grade-${b.grade.toLowerCase()}">${b.grade}</span></div>`;
+  if (b.finding_count !== undefined) html += `<div class="kv"><span>Findings</span><span>${b.finding_count}</span></div>`;
+  if (b.vector_count !== undefined) html += `<div class="kv"><span>Vectors</span><span>${b.vector_count}</span></div>`;
+  if (b.subdomains !== undefined) html += `<div class="kv"><span>Subdomains</span><span>${b.subdomains}</span></div>`;
+  if (b.waf) html += `<div class="kv"><span>WAF</span><span class="waf-chip">${b.waf}</span></div>`;
+  html += '</div></div>';
+
+  // Delta summary
+  html += '<div class="section-title">Changes</div>';
+  html += '<div class="cards">';
+  if (deltas.risk_score !== undefined) {
+    const d = deltas.risk_score;
+    const cls = d > 0 ? 'delta-up' : d < 0 ? 'delta-down' : 'delta-neutral';
+    html += `<div class="card"><div class="card-label">Risk Score</div><div class="card-value ${cls}">${d>0?'+':''}${d}</div></div>`;
+  }
+  if (deltas.findings !== undefined) {
+    const d = deltas.findings;
+    const cls = d > 0 ? 'delta-up' : d < 0 ? 'delta-down' : 'delta-neutral';
+    html += `<div class="card"><div class="card-label">Findings</div><div class="card-value ${cls}">${d>0?'+':''}${d}</div></div>`;
+  }
+  if (deltas.vectors !== undefined) {
+    const d = deltas.vectors;
+    const cls = d > 0 ? 'delta-up' : d < 0 ? 'delta-down' : 'delta-neutral';
+    html += `<div class="card"><div class="card-label">Vectors</div><div class="card-value ${cls}">${d>0?'+':''}${d}</div></div>`;
+  }
+  if (deltas.subdomains !== undefined) {
+    const d = deltas.subdomains;
+    html += `<div class="card"><div class="card-label">Subdomains</div><div class="card-value">${d>0?'+':''}${d}</div></div>`;
+  }
+  if (deltas.waf_changed) {
+    html += `<div class="card"><div class="card-label">WAF</div><div class="card-value" style="font-size:14px">${a.waf||'None'} \u2192 ${b.waf||'None'}</div></div>`;
+  }
+  html += '</div>';
+
+  // New findings
+  const nf = deltas.new_findings || [];
+  if (nf.length) {
+    html += `<div class="section-title" style="color:var(--critical)">New Findings <span class="count">(${nf.length})</span></div>`;
+    html += '<div class="table-wrap"><table><thead><tr><th>Finding</th><th>Severity</th><th>Category</th></tr></thead><tbody>';
+    for (const f of nf) {
+      html += `<tr><td>${highlightFinding(f.finding)}</td><td>${riskBadge(f.severity)}</td><td><span class="tag">${f.category||''}</span></td></tr>`;
+    }
+    html += '</tbody></table></div>';
+  }
+
+  // Resolved findings
+  const rf = deltas.resolved_findings || [];
+  if (rf.length) {
+    html += `<div class="section-title" style="color:var(--success)">Resolved Findings <span class="count">(${rf.length})</span></div>`;
+    html += '<div class="table-wrap"><table><thead><tr><th>Finding</th><th>Severity</th></tr></thead><tbody>';
+    for (const f of rf) {
+      html += `<tr><td style="text-decoration:line-through;opacity:.6">${f.finding}</td><td>${riskBadge(f.severity)}</td></tr>`;
+    }
+    html += '</tbody></table></div>';
+  }
+
+  // Tech changes
+  const nt = deltas.new_techs || [], rt = deltas.removed_techs || [];
+  if (nt.length || rt.length) {
+    html += '<div class="section-title">Technology Changes</div><div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:28px">';
+    for (const t of nt) html += `<span class="tag" style="border-color:var(--success);color:var(--success)">+ ${t}</span>`;
+    for (const t of rt) html += `<span class="tag" style="border-color:var(--critical);color:var(--critical);text-decoration:line-through">\u2212 ${t}</span>`;
+    html += '</div>';
+  }
+
+  c.innerHTML = html;
+  _diffClear();
+}
+
+// ── SSE Live Reload ──────────────────────────────────────────────────
+
+let _evtSource = null;
+let _liveIndicator = null;
+
+function initSSE() {
+  if (_evtSource) return;
+  try {
+    _evtSource = new EventSource('/api/events');
+    _evtSource.addEventListener('connected', () => {
+      _setLiveStatus(true);
+    });
+    _evtSource.addEventListener('file_change', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        showToast(`\u{1f504} ${data.type}: ${data.subdir}/${data.file}`);
+        // Auto-refresh current page if relevant
+        const cur = _currentPage;
+        if (cur === 'overview') renderOverview();
+        else if (cur === 'findings') renderFindings();
+        else if (cur === 'targets') renderTargets();
+        else if (cur === 'history') renderHistory();
+        else if (cur === 'domains') renderDomains();
+        else if (cur === 'detail' && _currentArg === data.domain) renderDetail(data.domain);
+        else if (cur === 'timeline' && _currentArg === data.domain) renderTimeline(data.domain);
+      } catch(err) {}
+    });
+    _evtSource.onerror = () => {
+      _setLiveStatus(false);
+      // Reconnect after 5s
+      setTimeout(() => { if (_evtSource) { _evtSource.close(); _evtSource = null; } initSSE(); }, 5000);
+    };
+  } catch(e) {}
+}
+
+function _setLiveStatus(connected) {
+  const dot = document.getElementById('live-dot');
+  if (dot) {
+    dot.className = connected ? 'scan-dot scan-dot-live' : 'scan-dot scan-dot-idle';
+    dot.title = connected ? 'Live — watching ~/.fray/' : 'Disconnected';
+  }
+}
+
 // ── Router ────────────────────────────────────────────────────────────
 
 function navigate(page, arg) {
@@ -2558,6 +3117,8 @@ function navigate(page, arg) {
     case 'detail': renderDetail(arg); break;
     case 'learned': renderLearned(); break;
     case 'intel': renderIntel(); break;
+    case 'timeline': renderTimeline(arg); break;
+    case 'diff': renderDiff(arg); break;
     default: renderOverview();
   }
 }
@@ -2579,6 +3140,8 @@ function updateToolbar() {
     detail: _currentArg || 'Domain Detail',
     learned: 'WAF Intel',
     intel: 'CVE Feed',
+    timeline: _currentArg ? `Timeline: ${_currentArg}` : 'Timeline',
+    diff: 'Diff Runs',
   }[_currentPage] || 'Dashboard';
 
   tb.innerHTML = `
@@ -2624,6 +3187,7 @@ function downloadJSON() {
   else if (_currentPage === 'detail' && _currentArg) { endpoint = `/api/domain/${_currentArg}`; filename = `fray-${_currentArg}.json`; }
   else if (_currentPage === 'learned') { endpoint = '/api/learned'; filename = 'fray-learned.json'; }
   else if (_currentPage === 'intel') { endpoint = '/api/threat-intel'; filename = 'fray-threat-intel.json'; }
+  else if (_currentPage === 'timeline' && _currentArg) { endpoint = `/api/timeline/${_currentArg}`; filename = `fray-timeline-${_currentArg}.json`; }
 
   fetchJSON(endpoint).then(data => {
     const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
@@ -2647,7 +3211,7 @@ function loadFromHash() {
   const parts = hash.split('/');
   const page = parts[0];
   const arg = parts.slice(1).join('/');
-  if (['overview','findings','targets','history','executive','domains','detail','learned','intel'].includes(page)) {
+  if (['overview','findings','targets','history','executive','domains','detail','learned','intel','timeline','diff'].includes(page)) {
     navigate(page, arg || undefined);
     return true;
   }
@@ -2661,6 +3225,9 @@ $$('.nav-item').forEach(n => {
 });
 
 window.addEventListener('hashchange', () => loadFromHash());
+
+// Start SSE live reload
+initSSE();
 
 // Start — load from hash or default to overview
 if (!loadFromHash()) renderOverview();
@@ -2680,6 +3247,10 @@ def start_dashboard(port: int = 8337, open_browser: bool = True,
     _DASHBOARD_PORT = port
     handler = DashboardHandler
 
+    # Start file watcher for SSE live reload
+    watcher = threading.Thread(target=_file_watcher, daemon=True)
+    watcher.start()
+
     with socketserver.TCPServer(("127.0.0.1", port), handler) as httpd:
         httpd.allow_reuse_address = True
         url = f"http://127.0.0.1:{port}"
@@ -2690,6 +3261,7 @@ def start_dashboard(port: int = 8337, open_browser: bool = True,
             sys.stderr.write(f"  \033[90m{'─' * 40}\033[0m\n")
             sys.stderr.write(f"  URL:  \033[96m{url}\033[0m\n")
             sys.stderr.write(f"  Data: \033[90m{FRAY_DIR}\033[0m\n")
+            sys.stderr.write(f"  Live: \033[92m✓ watching ~/.fray/ (SSE)\033[0m\n")
             sys.stderr.write(f"  \033[90m{'─' * 40}\033[0m\n")
             sys.stderr.write(f"  \033[90mPress Ctrl+C to stop\033[0m\n\n")
 
