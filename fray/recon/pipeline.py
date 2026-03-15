@@ -3087,6 +3087,12 @@ def _build_attack_surface_summary(r: Dict[str, Any]) -> Dict[str, Any]:
         findings.append({"severity": "high", "finding": "CORS misconfiguration"})
     if waf_vendor and waf_redirect_target:
         findings.append({"severity": "low", "finding": f"WAF ({waf_vendor}) detected on redirect target ({waf_redirect_target}), not the original domain"})
+    # WAF monitor mode detection
+    _waf_mode = diff.get("waf_mode") if isinstance(diff, dict) else None
+    if not _waf_mode:
+        _waf_mode = r.get("waf", {}).get("waf_mode") if isinstance(r.get("waf"), dict) else None
+    if _waf_mode == "monitor":
+        findings.append({"severity": "critical", "finding": f"WAF ({waf_vendor or 'unknown'}) in MONITOR/LOG-ONLY mode — attack payloads pass through unblocked", "category": "waf"})
     if clickjack_vuln:
         findings.append({"severity": "medium", "finding": "Clickjacking vulnerable — no X-Frame-Options or CSP frame-ancestors"})
     if risky_ports:
@@ -3266,6 +3272,7 @@ def _build_attack_surface_summary(r: Dict[str, Any]) -> Dict[str, Any]:
         "waf_vendor": waf_vendor,
         "waf_redirect_target": waf_redirect_target,
         "waf_detection_mode": detection_mode,
+        "waf_mode": _waf_mode,
         "cdn": cdn,
         "tls_version": tls_version,
         "tls_grade": tls_grade,

@@ -463,6 +463,124 @@ class WAFDetector:
                     results['confidence'] = _top['confidence']
                     results['signatures_found'] = _top['signatures']
 
+            # ── Monitor mode detection ──
+            # Send an obvious attack payload.  If the WAF is in monitor/log-only
+            # mode it will pass the request through (200) instead of blocking (403).
+            # Compare against a clean baseline to detect:
+            #   - monitor mode (malicious passes, same as clean)
+            #   - active blocking (malicious blocked, clean passes)
+            #   - transparent (no WAF behaviour at all)
+            if results.get('waf_vendor'):
+                _MONITOR_PROBES = [
+                    "<script>alert('fray_monitor_detect')</script>",
+                    "' OR 1=1-- ",
+                    "../../../etc/passwd",
+                ]
+                try:
+                    # Baseline: clean request
+                    _bsock = socket.create_connection((host, port), timeout=timeout)
+                    if use_ssl:
+                        _bctx = ssl.create_default_context()
+                        if not verify_ssl:
+                            _bctx.check_hostname = False
+                            _bctx.verify_mode = ssl.CERT_NONE
+                        _bconn = _bctx.wrap_socket(_bsock, server_hostname=host)
+                    else:
+                        _bconn = _bsock
+                    _breq = f"GET {path}?_fray_baseline=1 HTTP/1.1\r\nHost: {host}\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\nConnection: close\r\n\r\n"
+                    _bconn.sendall(_breq.encode('utf-8', errors='replace'))
+                    _bresp = b""
+                    while True:
+                        try:
+                            _bd = _bconn.recv(4096)
+                            if not _bd:
+                                break
+                            _bresp += _bd
+                            if len(_bresp) > 8000:
+                                break
+                        except (socket.error, socket.timeout, OSError):
+                            break
+                    _bconn.close()
+                    _baseline_status = 0
+                    _bfirst = _bresp.split(b"\r\n", 1)[0].decode('utf-8', errors='replace')
+                    if ' ' in _bfirst:
+                        try:
+                            _baseline_status = int(_bfirst.split(' ')[1])
+                        except (ValueError, IndexError):
+                            pass
+
+                    # Malicious probes
+                    _probe_statuses = []
+                    _probe_reflected = []
+                    for _mp in _MONITOR_PROBES:
+                        try:
+                            _msock = socket.create_connection((host, port), timeout=timeout)
+                            if use_ssl:
+                                _mctx = ssl.create_default_context()
+                                if not verify_ssl:
+                                    _mctx.check_hostname = False
+                                    _mctx.verify_mode = ssl.CERT_NONE
+                                _mconn = _mctx.wrap_socket(_msock, server_hostname=host)
+                            else:
+                                _mconn = _msock
+                            _enc = urllib.parse.quote(_mp, safe='')
+                            _mreq = f"GET {path}?_fray_monitor={_enc} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\nConnection: close\r\n\r\n"
+                            _mconn.sendall(_mreq.encode('utf-8', errors='replace'))
+                            _mresp = b""
+                            while True:
+                                try:
+                                    _md = _mconn.recv(4096)
+                                    if not _md:
+                                        break
+                                    _mresp += _md
+                                    if len(_mresp) > 8000:
+                                        break
+                                except (socket.error, socket.timeout, OSError):
+                                    break
+                            _mconn.close()
+                            _mstatus = 0
+                            _mfirst = _mresp.split(b"\r\n", 1)[0].decode('utf-8', errors='replace')
+                            if ' ' in _mfirst:
+                                try:
+                                    _mstatus = int(_mfirst.split(' ')[1])
+                                except (ValueError, IndexError):
+                                    pass
+                            _probe_statuses.append(_mstatus)
+                            _mresp_str = _mresp.decode('utf-8', errors='replace')
+                            _probe_reflected.append(_mp in _mresp_str or urllib.parse.unquote(_enc) in _mresp_str)
+                        except Exception:
+                            _probe_statuses.append(0)
+                            _probe_reflected.append(False)
+
+                    # Classify WAF mode
+                    _blocked = sum(1 for s in _probe_statuses if s in (403, 406, 429, 503))
+                    _passed = sum(1 for s in _probe_statuses if 200 <= s < 400)
+                    _total = len(_MONITOR_PROBES)
+
+                    if _blocked >= _total * 0.6:
+                        results['waf_mode'] = 'blocking'
+                        results['waf_mode_detail'] = f'{_blocked}/{_total} probes blocked (active enforcement)'
+                    elif _passed >= _total * 0.6 and _baseline_status and 200 <= _baseline_status < 400:
+                        # Malicious requests passed just like clean — monitor mode
+                        results['waf_mode'] = 'monitor'
+                        results['waf_mode_detail'] = f'{_passed}/{_total} attack probes passed through (logging only)'
+                        # Flag as critical finding
+                        if any(_probe_reflected):
+                            results['waf_mode_detail'] += ' — payloads REFLECTED in response'
+                    else:
+                        results['waf_mode'] = 'unknown'
+                        results['waf_mode_detail'] = f'Inconclusive: {_blocked} blocked, {_passed} passed, baseline={_baseline_status}'
+
+                    results['monitor_probes'] = {
+                        'baseline_status': _baseline_status,
+                        'probe_statuses': _probe_statuses,
+                        'probes_blocked': _blocked,
+                        'probes_passed': _passed,
+                        'payload_reflected': any(_probe_reflected),
+                    }
+                except Exception:
+                    pass
+
         except Exception as e:
             results['error'] = str(e)
         
