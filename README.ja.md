@@ -17,6 +17,15 @@ Frayは[wafw00f](https://github.com/EnableSecurity/wafw00f)（検出）と[sqlma
 
 ## 最新アップデート
 
+**v3.5 — 2026年3月**
+- **ダッシュボードライブリロード** — SSEファイルウォッチ、タイムラインビュー、差分比較ビュー
+- **`fray init`** — `.fray.toml`、認証プロファイル、スコープファイルを一括生成
+- **`--dry-run`** — 破壊的コマンドのプレビュー（`fray cache clear --dry-run`）
+- **`--quiet` / `--summary`** — 教育的出力の抑制または概要表示
+- **`fray help <cmd> --man`** — ヘルプテキストからmanページ生成
+- **設定バリデーション** — `.fray.toml`の不明なキーを起動時に警告
+- **`fray doctor`** — コアモジュールのインポートと環境をチェック
+
 **v3.4 — 2026年3月**
 - **GitHub Action** — PR毎にWAFをテスト（`uses: dalisecurity/fray@v1`）
 - **MCPサーバー** — Claude Code & ChatGPT連携（`pip install fray[mcp]`）
@@ -24,7 +33,7 @@ Frayは[wafw00f](https://github.com/EnableSecurity/wafw00f)（検出）と[sqlma
 - **6つのディープスキャンモジュール** — XSS、SQLi、CMDi、キャッシュポイズニング、マスアサイン、デシリアライゼーション
 - **インタラクティブメニュー** — 検出結果から次のステップを自動提案
 
-**開発中：** レースコンディションテスト · WAFルールリバースエンジニアリング · バッチリコン · 自然言語クエリ
+**開発中：** TLSフィンガープリントスプーフィング · YAMLテンプレートDSL · レースコンディションテスト · 自然言語クエリ
 → [全変更履歴](CHANGELOG.md)
 
 ---
@@ -86,16 +95,17 @@ fray export <sub>          # nuclei, ci
 ### 管理 — 設定 & データ
 
 ```bash
+fray init                  # .fray.toml + 認証プロファイル + スコープファイルを生成
 fray config                # .fray.toml設定
 fray plugin                # プラグインシステム
-fray cache                 # ペイロードキャッシュ & 統計
+fray cache                 # ペイロードキャッシュ & 統計（--dry-run対応）
 fray update                # ペイロードデータベース更新
 ```
 
 ### インテグレーション
 
 ```bash
-fray dashboard             # Web UI
+fray dashboard             # Web UI（ライブリロード、タイムライン、差分比較）
 fray mcp                   # AIアシスタントMCPサーバー
 fray completions           # シェル補完（bash/zsh/fish）
 ```
@@ -105,8 +115,8 @@ fray completions           # シェル補完（bash/zsh/fish）
 ```bash
 fray ask <query>           # 自然言語クエリ
 fray learn [topic]         # インタラクティブセキュリティチュートリアル
-fray doctor [--fix]        # 環境チェック
-fray help                  # 全コマンドガイド
+fray doctor [--fix]        # 環境 & コアモジュールチェック
+fray help [cmd] [--man]    # 全コマンドガイド（manページ生成対応）
 ```
 
 [クイックスタート →](docs/quickstart.md) · [スキャンガイド →](docs/scanning-guide.md)

@@ -96,6 +96,15 @@ fray monitor https://target.com        # Continuous monitoring with alerts
 
 ## What's New
 
+**v3.5 — March 2026**
+- **Dashboard live reload** — SSE file watcher, timeline view, side-by-side diff of any two runs
+- **`fray init`** — scaffold `.fray.toml`, auth profile, and scope file in one command
+- **`--dry-run`** — preview destructive commands before executing (`fray cache clear --dry-run`)
+- **`--quiet` / `--summary`** — suppress educational output or get a quick overview
+- **`fray help <cmd> --man`** — generate man pages from help text
+- **Config validation** — warns about unknown keys in `.fray.toml` on startup
+- **`fray doctor`** — checks core module imports and environment health
+
 **v3.4 — March 2026**
 - **GitHub Action** — test your WAF on every PR (`uses: dalisecurity/fray@v1`)
 - **MCP Server** — Claude Code & ChatGPT integration (`pip install fray[mcp]`)
@@ -103,7 +112,7 @@ fray monitor https://target.com        # Continuous monitoring with alerts
 - **6 deep scan modules** — XSS, SQLi, CMDi, cache poisoning, mass assignment, deserialization
 - **Interactive post-recon menu** — findings-driven next steps, not random payloads
 
-**Coming up:** Race condition testing · WAF rule reverse engineering · batch recon · NL queries
+**Coming up:** TLS fingerprint spoofing · YAML template DSL · race condition testing · NL queries
 → [Full changelog](CHANGELOG.md)
 
 ---
@@ -136,16 +145,17 @@ fray export <sub>          # nuclei, ci
 ### Manage — Configuration & data
 
 ```bash
+fray init                  # Scaffold .fray.toml + auth profile + scope file
 fray config                # .fray.toml configuration
 fray plugin                # Plugin system
-fray cache                 # Payload cache & stats
+fray cache                 # Payload cache & stats (--dry-run for clear)
 fray update                # Update payload database
 ```
 
 ### Integrations
 
 ```bash
-fray dashboard             # Web UI
+fray dashboard             # Web UI (live reload, timeline, diff)
 fray mcp                   # AI assistant MCP server
 fray completions           # Shell completions (bash/zsh/fish)
 ```
@@ -155,8 +165,8 @@ fray completions           # Shell completions (bash/zsh/fish)
 ```bash
 fray ask <query>           # Natural language query
 fray learn [topic]         # Interactive security tutorial
-fray doctor [--fix]        # Check environment
-fray help                  # Full command guide
+fray doctor [--fix]        # Check environment & core imports
+fray help [cmd] [--man]    # Full command guide (or man page)
 ```
 
 [Quick start →](docs/quickstart.md) · [Scan guide →](docs/scanning-guide.md)
