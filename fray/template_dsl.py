@@ -108,46 +108,118 @@ except ImportError:
 
 
 def _basic_yaml_load(text: str) -> dict:
-    """Minimal YAML-like parser for simple templates when PyYAML is absent.
+    """Minimal YAML parser for templates when PyYAML is absent.
 
-    Handles flat key-value, lists, and one level of nesting. NOT a full parser.
+    Handles nested mappings, lists of scalars, lists of mappings,
+    and quoted/unquoted values.  Sufficient for Fray template YAML.
     """
-    result: dict = {}
-    current_key = None
-    current_list: Optional[list] = None
-    indent_stack: list = []
 
-    for line in text.split("\n"):
-        stripped = line.strip()
+    def _unquote(s: str) -> Any:
+        s = s.strip()
+        if not s:
+            return ""
+        if (s.startswith('"') and s.endswith('"')) or \
+           (s.startswith("'") and s.endswith("'")):
+            return s[1:-1]
+        if s.lower() == "true":
+            return True
+        if s.lower() == "false":
+            return False
+        if s.lower() in ("null", "~"):
+            return None
+        try:
+            return int(s)
+        except ValueError:
+            pass
+        try:
+            return float(s)
+        except ValueError:
+            pass
+        return s
+
+    lines = text.split("\n")
+    # Build (indent, raw_stripped) pairs, skip blanks/comments
+    entries = []
+    for raw in lines:
+        stripped = raw.strip()
         if not stripped or stripped.startswith("#"):
             continue
+        indent = len(raw) - len(raw.lstrip())
+        entries.append((indent, stripped))
 
-        indent = len(line) - len(line.lstrip())
+    def _parse(idx: int, min_indent: int):
+        """Recursive descent parser. Returns (result, next_idx)."""
+        # Peek to decide: mapping or list?
+        if idx >= len(entries):
+            return {}, idx
+        _, first = entries[idx]
+        if first.startswith("- "):
+            return _parse_list(idx, min_indent)
+        return _parse_mapping(idx, min_indent)
 
-        # List item
-        if stripped.startswith("- "):
-            val = stripped[2:].strip().strip('"').strip("'")
-            if current_list is not None:
-                current_list.append(val)
-            continue
-
-        # Key-value
-        if ":" in stripped:
-            key, _, val = stripped.partition(":")
+    def _parse_mapping(idx: int, min_indent: int):
+        result = {}
+        while idx < len(entries):
+            ind, line = entries[idx]
+            if ind < min_indent:
+                break
+            if line.startswith("- "):
+                break  # This is a list, not a mapping
+            if ":" not in line:
+                idx += 1
+                continue
+            key, _, val = line.partition(":")
             key = key.strip()
-            val = val.strip().strip('"').strip("'")
-
+            val = val.strip()
             if val:
-                result[key] = val
-                current_key = None
-                current_list = None
+                result[key] = _unquote(val)
+                idx += 1
             else:
-                # Start of a nested section or list
-                result[key] = []
-                current_key = key
-                current_list = result[key]
+                # Nested block — look at next line's indent
+                if idx + 1 < len(entries) and entries[idx + 1][0] > ind:
+                    child, idx = _parse(idx + 1, entries[idx + 1][0])
+                    result[key] = child
+                else:
+                    result[key] = None
+                    idx += 1
+        return result, idx
 
-    return result
+    def _parse_list(idx: int, min_indent: int):
+        result = []
+        while idx < len(entries):
+            ind, line = entries[idx]
+            if ind < min_indent:
+                break
+            if not line.startswith("- "):
+                break
+            item_val = line[2:].strip()
+            # Check if this list item starts a mapping (e.g. "- type: word")
+            if ":" in item_val:
+                # Inline mapping on same line as dash
+                k, _, v = item_val.partition(":")
+                k = k.strip()
+                v = v.strip()
+                item_map = {k: _unquote(v) if v else None}
+                # Check for continuation keys at deeper indent
+                next_idx = idx + 1
+                if next_idx < len(entries) and entries[next_idx][0] > ind:
+                    child_indent = entries[next_idx][0]
+                    more, next_idx = _parse_mapping(next_idx, child_indent)
+                    item_map.update(more)
+                # If the inline value was empty, try to parse nested block
+                if v == "" and k in item_map and item_map[k] is None:
+                    if next_idx < len(entries) and entries[next_idx][0] > ind:
+                        child, next_idx = _parse(next_idx, entries[next_idx][0])
+                        item_map[k] = child
+                result.append(item_map)
+                idx = next_idx
+            else:
+                result.append(_unquote(item_val))
+                idx += 1
+        return result, idx
+
+    parsed, _ = _parse(0, 0)
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _load_yaml(text: str) -> Any:

@@ -146,6 +146,10 @@ _CSRF_NAMES = frozenset({
     "xsrf_token", "_xsrf", "csrfmiddlewaretoken",
 })
 
+# GraphQL
+_GRAPHQL_PATHS = ["/graphql", "/graphiql", "/v1/graphql", "/api/graphql",
+                  "/gql", "/query", "/graphql/v1"]
+
 
 class Crawler:
     """Injection point crawler — discovers forms, params, API routes, GraphQL."""

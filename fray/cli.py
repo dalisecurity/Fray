@@ -4721,9 +4721,12 @@ def cmd_template(args):
         tpl_path = getattr(args, 'path', None) or str(Path.home() / ".fray" / "templates")
         templates = load_templates(tpl_path)
 
-        # Also load builtins if scanning a custom path
+        # Only add builtins if scanning a custom path (avoid duplicates)
         if tpl_path != str(Path.home() / ".fray" / "templates"):
-            templates.extend(load_builtin_templates())
+            seen_ids = {t.info.id for t in templates}
+            for bt in load_builtin_templates():
+                if bt.info.id not in seen_ids:
+                    templates.append(bt)
 
         if not templates:
             sys.stderr.write("  No templates found. Create one with: fray template new\n")
@@ -4785,7 +4788,12 @@ def cmd_template(args):
     elif sub == 'list':
         tpl_path = getattr(args, 'path', None) or str(Path.home() / ".fray" / "templates")
         templates = load_templates(tpl_path)
-        templates.extend(load_builtin_templates())
+        # Only add builtins if scanning a custom path (avoid duplicates)
+        if tpl_path != str(Path.home() / ".fray" / "templates"):
+            seen_ids = {t.info.id for t in templates}
+            for bt in load_builtin_templates():
+                if bt.info.id not in seen_ids:
+                    templates.append(bt)
 
         if not templates:
             sys.stderr.write("  No templates found.\n")
@@ -5846,7 +5854,7 @@ def cmd_share(args):
         print(f"\n  \033[1m🔗 Active Shares\033[0m ({len(shares)})\n")
         for sid, info in sorted(shares.items(), key=lambda x: x[1].get("shared_at", ""), reverse=True):
             print(f"  \033[96m{info['domain']}\033[0m")
-            print(f"    URL:     https://share.dalisec.io/{sid}")
+            print(f"    URL:     https://dalisec.io/share/{sid}")
             print(f"    Shared:  {info.get('shared_at', '?')[:19]}")
             print(f"    Expires: {info.get('expires_at', '?')[:19]}")
             print()
