@@ -85,6 +85,18 @@ _RE_JSON_KEY = re.compile(r'"(\w{2,30})"\s*:', re.I)
 _RE_API_PATH = re.compile(
     r'''['"`](/(?:api|v\d|graphql|rest|rpc|endpoint|service|data|auth|admin|internal)[/\w.-]{2,120})['"`]''', re.I
 )
+# WebSocket URLs
+_RE_WEBSOCKET = re.compile(
+    r'''['"`](wss?://[^'"`\s]{5,200})['"`]''', re.I
+)
+# window.postMessage target origins
+_RE_POSTMESSAGE = re.compile(
+    r'''\.postMessage\s*\([^,]+,\s*['"`]([^'"`\s]{5,200})['"`]''', re.I
+)
+# Additional API patterns: /users/123, /items?page=1
+_RE_REST_CRUD = re.compile(
+    r'''['"`](/(?:users?|items?|products?|orders?|accounts?|posts?|comments?|files?|uploads?|images?|settings?|profiles?|notifications?|messages?|search|login|logout|register|signup|signin|reset|verify|confirm|callback|webhook)[/\w.-]{0,80})['"`]''', re.I
+)
 # Form action
 _RE_FORM_ACTION = re.compile(
     r'<form[^>]*action\s*=\s*["\']([^"\']{1,500})["\']', re.I
@@ -103,9 +115,36 @@ _RE_TEXTAREA = re.compile(
 _RE_HREF = re.compile(r'href\s*=\s*["\']([^"\']{1,500})["\']', re.I)
 _RE_SRC = re.compile(r'src\s*=\s*["\']([^"\']{1,500})["\']', re.I)
 
-# GraphQL
-_GRAPHQL_PATHS = ["/graphql", "/graphiql", "/v1/graphql", "/api/graphql",
-                  "/gql", "/query", "/graphql/v1"]
+# Form enctype
+_RE_FORM_ENCTYPE = re.compile(
+    r'<form[^>]*enctype\s*=\s*["\']([^"\']{1,60})["\']', re.I
+)
+# Hidden inputs (CSRF tokens, etc.)
+_RE_HIDDEN_INPUT = re.compile(
+    r'<input[^>]*type\s*=\s*["\']hidden["\'][^>]*name\s*=\s*["\']([^"\']{1,100})["\']', re.I
+)
+_RE_HIDDEN_INPUT_ALT = re.compile(
+    r'<input[^>]*name\s*=\s*["\']([^"\']{1,100})["\'][^>]*type\s*=\s*["\']hidden["\']', re.I
+)
+# File upload inputs
+_RE_FILE_INPUT = re.compile(
+    r'<input[^>]*type\s*=\s*["\']file["\']', re.I
+)
+
+# OpenAPI / Swagger paths
+_OPENAPI_PATHS = [
+    "/swagger.json", "/openapi.json", "/api-docs", "/swagger-ui.html",
+    "/api/swagger.json", "/v1/swagger.json", "/v2/swagger.json",
+    "/api/openapi.json", "/docs", "/redoc", "/api/docs",
+    "/.well-known/openapi.json", "/swagger/v1/swagger.json",
+]
+
+# CSRF token field name patterns
+_CSRF_NAMES = frozenset({
+    "csrf", "csrf_token", "csrftoken", "_csrf", "_token", "token",
+    "authenticity_token", "__requestverificationtoken", "anticsrf",
+    "xsrf_token", "_xsrf", "csrfmiddlewaretoken",
+})
 
 
 class Crawler:
@@ -366,7 +405,10 @@ class Crawler:
         # Phase 3: Analyze JS files
         self._analyze_js_files()
 
-        # Phase 4: GraphQL introspection
+        # Phase 4: OpenAPI / Swagger discovery
+        self._check_openapi()
+
+        # Phase 5: GraphQL introspection
         self._check_graphql()
 
         elapsed = time.monotonic() - t0
@@ -383,6 +425,24 @@ class Crawler:
         # Count by source
         for ep in self._endpoints:
             result["sources"][ep.source] = result["sources"].get(ep.source, 0) + 1
+
+        # Form metadata (CSRF, file uploads, hidden fields)
+        if hasattr(self, '_form_meta') and self._form_meta:
+            result["forms"] = self._form_meta
+            result["forms_with_upload"] = sum(1 for f in self._form_meta if f.get("file_upload"))
+            result["forms_with_csrf"] = sum(1 for f in self._form_meta if f.get("csrf_fields"))
+
+        # OpenAPI specs found
+        if hasattr(self, '_openapi_specs') and self._openapi_specs:
+            result["openapi_specs"] = self._openapi_specs
+
+        # WebSocket URLs
+        if hasattr(self, '_websockets') and self._websockets:
+            result["websockets"] = list(set(self._websockets))
+
+        # postMessage targets
+        if hasattr(self, '_postmessage_targets') and self._postmessage_targets:
+            result["postmessage_targets"] = self._postmessage_targets
 
         return result
 
@@ -416,7 +476,7 @@ class Crawler:
                         url=norm, source="sitemap", depth=0))
 
     def _extract_forms(self, page_url: str, body: str, depth: int):
-        """Extract form actions and input names."""
+        """Extract form actions, input names, enctype, hidden fields, file uploads, CSRF tokens."""
         form_blocks = re.split(r"<form", body, flags=re.I)[1:]
         for block in form_blocks:
             # Find closing </form> or next <form
@@ -424,17 +484,23 @@ class Crawler:
             if end == -1:
                 end = len(block)
             block = block[:end]
+            full_tag = "<form" + block
 
             # Action
-            action_m = _RE_FORM_ACTION.search("<form" + block)
+            action_m = _RE_FORM_ACTION.search(full_tag)
             action = action_m.group(1) if action_m else page_url
             full_url = self._normalize_url(action, page_url)
             if not full_url:
                 full_url = page_url
 
             # Method
-            method_m = _RE_FORM_METHOD.search("<form" + block)
+            method_m = _RE_FORM_METHOD.search(full_tag)
             method = method_m.group(1).upper() if method_m else "GET"
+
+            # Enctype
+            enctype_m = _RE_FORM_ENCTYPE.search(full_tag)
+            enctype = enctype_m.group(1).lower() if enctype_m else ""
+            content_type = enctype if enctype else ""
 
             # Params
             params = []
@@ -443,10 +509,35 @@ class Crawler:
             # Dedupe
             params = list(dict.fromkeys(params))
 
-            if params:
-                self._add_endpoint(CrawlEndpoint(
+            # Hidden fields (CSRF tokens, etc.)
+            hidden_names = set(_RE_HIDDEN_INPUT.findall(block))
+            hidden_names.update(_RE_HIDDEN_INPUT_ALT.findall(block))
+            csrf_fields = [n for n in hidden_names if n.lower() in _CSRF_NAMES]
+
+            # File upload detection
+            has_file_upload = bool(_RE_FILE_INPUT.search(block))
+
+            if params or has_file_upload:
+                ep = CrawlEndpoint(
                     url=full_url, method=method, params=params,
-                    source="form", depth=depth))
+                    source="form", content_type=content_type, depth=depth)
+                self._add_endpoint(ep)
+
+                # Track form metadata for richer crawl output
+                if not hasattr(self, '_form_meta'):
+                    self._form_meta = []
+                meta = {"url": full_url, "method": method, "params": params}
+                if csrf_fields:
+                    meta["csrf_fields"] = csrf_fields
+                if has_file_upload:
+                    meta["file_upload"] = True
+                    if enctype != "multipart/form-data":
+                        meta["missing_multipart"] = True
+                if hidden_names:
+                    meta["hidden_fields"] = list(hidden_names)
+                if enctype:
+                    meta["enctype"] = enctype
+                self._form_meta.append(meta)
 
     def _extract_links(self, page_url: str, body: str, depth: int,
                        queue: List[Tuple[str, int]]):
@@ -529,6 +620,28 @@ class Crawler:
                 self._add_endpoint(CrawlEndpoint(
                     url=full, source="js_fetch", depth=1))
 
+            # REST CRUD paths (/users, /items, /search, etc.)
+            for m in _RE_REST_CRUD.finditer(body):
+                path = m.group(1)
+                full = f"{self.base_url}{path}"
+                self._add_endpoint(CrawlEndpoint(
+                    url=full, source="js_fetch", depth=1))
+
+            # WebSocket URLs
+            for m in _RE_WEBSOCKET.finditer(body):
+                ws_url = m.group(1)
+                if not hasattr(self, '_websockets'):
+                    self._websockets = []
+                self._websockets.append(ws_url)
+
+            # postMessage targets
+            for m in _RE_POSTMESSAGE.finditer(body):
+                origin = m.group(1)
+                if not hasattr(self, '_postmessage_targets'):
+                    self._postmessage_targets = []
+                if origin not in self._postmessage_targets:
+                    self._postmessage_targets.append(origin)
+
             # JSON keys near API calls (potential body params)
             # Only extract if there's a nearby fetch/axios/xhr
             if _RE_FETCH.search(body) or _RE_XHR.search(body) or _RE_AXIOS.search(body):
@@ -541,6 +654,63 @@ class Crawler:
                              and not k.startswith("_") and len(k) > 2][:20]
                 # These are potential POST body params — associate with discovered API endpoints
                 # (stored as context, not standalone endpoints)
+
+    def _check_openapi(self):
+        """Probe for OpenAPI/Swagger spec endpoints and extract API routes."""
+        for path in _OPENAPI_PATHS:
+            url = f"{self.base_url}{path}"
+            status, body, headers = self._fetch(url)
+            if status != 200 or not body:
+                continue
+            ct = headers.get("content-type", "")
+
+            # JSON spec (swagger.json / openapi.json)
+            if "json" in ct or body.strip().startswith("{"):
+                try:
+                    spec = json.loads(body)
+                    paths = spec.get("paths", {})
+                    if not paths:
+                        continue
+                    if not hasattr(self, '_openapi_specs'):
+                        self._openapi_specs = []
+                    self._openapi_specs.append(url)
+
+                    for api_path, methods in paths.items():
+                        if not isinstance(methods, dict):
+                            continue
+                        for method_name, detail in methods.items():
+                            if method_name.upper() not in ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"):
+                                continue
+                            full = f"{self.base_url}{api_path}"
+                            params = []
+                            # Extract parameter names
+                            for p in (detail.get("parameters", []) or []):
+                                if isinstance(p, dict) and p.get("name"):
+                                    params.append(p["name"])
+                            # Extract request body keys (OpenAPI 3.x)
+                            rb = detail.get("requestBody", {})
+                            if isinstance(rb, dict):
+                                content = rb.get("content", {})
+                                for ct_key, ct_val in content.items():
+                                    schema = ct_val.get("schema", {}) if isinstance(ct_val, dict) else {}
+                                    props = schema.get("properties", {}) if isinstance(schema, dict) else {}
+                                    if isinstance(props, dict):
+                                        params.extend(list(props.keys())[:20])
+
+                            self._add_endpoint(CrawlEndpoint(
+                                url=full, method=method_name.upper(),
+                                params=list(dict.fromkeys(params)),
+                                source="openapi", content_type="application/json",
+                                depth=0))
+                    return  # Found a spec, stop probing
+                except (json.JSONDecodeError, ValueError):
+                    pass
+
+            # HTML page (swagger-ui, redoc) — just note it exists
+            if "html" in ct and any(kw in body.lower() for kw in ("swagger", "openapi", "redoc")):
+                if not hasattr(self, '_openapi_specs'):
+                    self._openapi_specs = []
+                self._openapi_specs.append(url)
 
     def _check_graphql(self):
         """Probe for GraphQL introspection."""
