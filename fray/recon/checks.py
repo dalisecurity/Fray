@@ -316,6 +316,8 @@ def check_cors(host: str, port: int, use_ssl: bool,
         (f"https://{host}.evil.com", "suffix bypass (attacker domain appending target)", "high"),
         (f"https://evil.{host}", "subdomain injection", "medium"),
         (f"https://not-{host}", "prefix variation", "medium"),
+        (f"http://{host}", "scheme downgrade (HTTP instead of HTTPS)", "high"),
+        (f"https://sub.{host}", "arbitrary subdomain accepted", "medium"),
     ]
     try:
         for _test_origin, _desc, _sev in _cors_extra_origins:
